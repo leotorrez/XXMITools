@@ -4,7 +4,7 @@ Then head to Blender and go to `Edit > Preferences > Add-ons` and click on `Inst
 Make sure it is enabled after installing it.
 Done! You can now use XXMI Tools in Blender.
 
-##DEVELOPMENT VERSION
+## DEVELOPMENT VERSION
 
 To test the development version of this blender plugin you must clone this repository
 
