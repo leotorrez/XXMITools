@@ -6,7 +6,7 @@ from glob import glob
 from bpy_extras.io_utils import  ImportHelper, ExportHelper
 from bpy.props import BoolProperty, StringProperty, CollectionProperty
 from bpy_extras.io_utils import orientation_helper
-from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem
+from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, export_3dmigoto_xxmi, GameEnum
 IOOBJOrientationHelper = type('DummyIOOBJOrientationHelper', (object,), {})
 
 class ClearSemanticRemapList(bpy.types.Operator):
