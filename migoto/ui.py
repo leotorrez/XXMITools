@@ -27,10 +27,11 @@ class MIGOTO_MT_semantic_remap_menu(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
+
         layout.operator(ClearSemanticRemapList.bl_idname)
         layout.operator(PrefillSemanticRemapList.bl_idname)
 
-class MigotoImportOptionsPanelBase(object):
+class MigotoImportOptionsPanelBase:
     bl_space_type = 'FILE_BROWSER'
     bl_region_type = 'TOOL_PROPS'
     bl_parent_id = "FILE_PT_operator"
@@ -97,17 +98,14 @@ class MIGOTO_PT_ImportFrameAnalysisBonePanel(MigotoImportOptionsPanelBase, bpy.t
 
 class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Semantic Remap"
-    #bl_options = {'DEFAULT_CLOSED'}
+
+     #bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
 
-        # TODO: Add layout.operator() to read selected file and fill in semantics
-
         if context.path_resolve is None:
-            # Avoid exceptions in console - seems like draw() is called several
-            # times (not sure why) and sometimes path_resolve isn't available.
             return
         draw_ui_list(self.layout, context,
                 class_name='MIGOTO_UL_semantic_remap_list',
@@ -145,9 +143,9 @@ def menu_func_export_xxmi(self, context):
 def menu_func_apply_vgmap(self, context):
     self.layout.operator(ApplyVGMap.bl_idname, text="Apply 3DMigoto vertex group map to current object (.vgmap)")
 
-
 import_menu = bpy.types.TOPBAR_MT_file_import
 export_menu = bpy.types.TOPBAR_MT_file_export
+
 def register():
     import_menu.append(menu_func_import_fa)
     import_menu.append(menu_func_import_raw)
