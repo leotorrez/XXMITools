@@ -2267,8 +2267,8 @@ def optimized_outline_generation(obj, mesh, outline_properties):
                     v0 = Numpy_Position.get(vert0)
                     vn = [Numpy_Position.get(x) for x in vlist if x != vert0]
                     VectorMatrix0[i] = vn[0]-v0
-                    VectorMatrix1[i] = vn[1]-v0   
-            ConnectedWeightedNormal[i] = Face_Normals.get(facei) 
+                    VectorMatrix1[i] = vn[1]-v0
+            ConnectedWeightedNormal[i] = Face_Normals.get(facei)
 
             influence_restriction = len(vert0p)
             if  influence_restriction > 1:
@@ -2621,7 +2621,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                 position_stride = stride
 
             print("Collecting IB")
-            print(current_name, current_object, offset)
+            print(f"{current_name}{current_object} offset: {offset}")
             ib = collect_ib(path, current_name, current_object, offset)
 
             with open(os.path.join(parent_folder, f"{character_name}Mod", f"{current_name}{current_object}.ib"), "wb") as f:
