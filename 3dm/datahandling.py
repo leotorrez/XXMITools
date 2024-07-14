@@ -2627,7 +2627,10 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
             with open(os.path.join(parent_folder, f"{character_name}Mod", f"{current_name}{current_object}.ib"), "wb") as f:
                 f.write(ib)
             if ib:
-                ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = Resource{current_name}{current_object}IB\n"
+                if game == GameEnum.ZenlessZoneZero:
+                    ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nrun = CommandListSkinTexture\nib = Resource{current_name}{current_object}IB\n"
+                else:
+                    ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = Resource{current_name}{current_object}IB\n"
             else:
                 ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = null\n"
             ib_res_ini += f"[Resource{current_name}{current_object}IB]\ntype = Buffer\nformat = DXGI_FORMAT_R32_UINT\nfilename = {current_name}{current_object}.ib\n\n"
