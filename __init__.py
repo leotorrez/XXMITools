@@ -22,7 +22,7 @@ from . import auto_load
 # - Test in a wider variety of games
 # - Handle TANGENT better on both import & export?
 bl_info = {
-    "name": "XXMI-Tools",
+    "name": "XXMI_Tools",
     "blender": (2, 93, 0),
     "author": "Ian Munsie (darkstarsword@gmail.com), SilentNightSound#7430, LeoTorreZ",
     "location": "File > Import-Export",
