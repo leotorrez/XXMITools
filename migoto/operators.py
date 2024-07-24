@@ -141,6 +141,23 @@ class Import3DMigotoFrameAnalysis(bpy.types.Operator, ImportHelper, IOOBJOrienta
             name='Semantic Remap',
             description='Enter the SemanticName and SemanticIndex the game is using on the left (e.g. TEXCOORD3), and what type of semantic the script should treat it as on the right') # Needed for template_list
 
+    merge_verts: BoolProperty(
+            name="Merge Vertices",
+            description="Merge by distance to remove duplicate vertices",
+            default=False,
+            )
+    tris_to_quads: BoolProperty(
+            name="Tris to Quads",
+            description="Convert all tris to quads",
+            default=False,
+            )
+    clean_loose: BoolProperty(
+            name="Clean Loose",
+            description="Remove loose geometry",
+            default=False,
+            )
+    
+
     def get_vb_ib_paths(self, load_related=None):
         buffer_pattern = re.compile(r'''-(?:ib|vb[0-9]+)(?P<hash>=[0-9a-f]+)?(?=[^0-9a-f=])''')
         vb_regex = re.compile(r'''^(?P<draw_call>[0-9]+)-vb(?P<slot>[0-9]+)=''') # TODO: Combine with above? (careful not to break hold type frame analysis)

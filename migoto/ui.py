@@ -66,6 +66,15 @@ class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBas
         self.layout.prop(operator, "load_related")
         #self.layout.prop(operator, "load_related_so_vb")
         self.layout.prop(operator, "merge_meshes")
+class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, bpy.types.Panel):
+    bl_label = "Clean Up mesh after import"
+
+    def draw(self, context):
+        MigotoImportOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "merge_verts")
+        self.layout.prop(operator, "tris_to_quads")
+        self.layout.prop(operator, "clean_loose")
 
 class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Load .buf files instead"
@@ -94,7 +103,6 @@ class MIGOTO_PT_ImportFrameAnalysisBonePanel(MigotoImportOptionsPanelBase, bpy.t
         operator = context.space_data.active_operator
         self.layout.prop(operator, "pose_cb_off")
         self.layout.prop(operator, "pose_cb_step")
-
 class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Semantic Remap"
     #bl_options = {'DEFAULT_CLOSED'}

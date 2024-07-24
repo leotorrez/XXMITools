@@ -1320,7 +1320,7 @@ def assert_pointlist_ib_is_pointless(ib, vb):
     assert(len(vb) == len(ib)) # FIXME: Properly implement point list index buffers
     assert(all([(i,) == j for i,j in enumerate(ib.faces)])) # FIXME: Properly implement point list index buffers
 
-def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_winding=False, flip_normal=False, axis_forward='-Z', axis_up='Y', pose_cb_off=[0,0], pose_cb_step=1):
+def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_winding=False, flip_normal=False, axis_forward='-Z', axis_up='Y', pose_cb_off=[0,0], pose_cb_step=1, merge_verts=False, tris_to_quads=False, clean_loose=False):
     vb, ib, name, pose_path = load_3dmigoto_mesh(operator, paths)
 
     mesh = bpy.data.meshes.new(name)
@@ -1393,7 +1393,16 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
     link_object_to_scene(context, obj)
     select_set(obj, True)
     set_active_object(context, obj)
-
+    
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    if merge_verts:
+        bpy.ops.mesh.remove_doubles(use_sharp_edge_from_normals=True)
+    if tris_to_quads:
+        bpy.ops.mesh.tris_convert_to_quads(uvs=True, vcols=True, seam=True, sharp=True, materials=True)
+    if clean_loose:
+        bpy.ops.mesh.delete_loose()
+    bpy.ops.object.mode_set(mode='OBJECT')
     if pose_path is not None:
         import_pose(operator, context, pose_path, limit_bones_to_vertex_groups=True,
                 axis_forward=axis_forward, axis_up=axis_up,
@@ -2572,6 +2581,8 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                     # FIXME: hardcoded vb0. This should be flexible for multiple buffer export
                     if line.startswith('vb0 stride:'):
                         fmt_layout.stride = int(line[11:])
+                    # else:
+                    #     raise Fatal(f"ERROR: Old custom properties detected. Fix: ")
                     if line.startswith('element['):
                         fmt_layout.parse_element(f)
 
@@ -2802,7 +2813,8 @@ def collect_ib(folder, name, classification, offset):
 
 def collect_vb_single(folder, name, classification, stride): 
     result = bytearray()
-    with open(os.path.join(folder, f"{name}{classification}.vb"), "rb") as f:
+    # FIXME: harcoded vb0. This should be flexible for multiple buffer export
+    with open(os.path.join(folder, f"{name}{classification}.vb0"), "rb") as f:
         data = f.read()
         data = bytearray(data)
         i = 0
