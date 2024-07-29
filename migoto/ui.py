@@ -66,15 +66,6 @@ class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBas
         self.layout.prop(operator, "load_related")
         #self.layout.prop(operator, "load_related_so_vb")
         self.layout.prop(operator, "merge_meshes")
-class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, bpy.types.Panel):
-    bl_label = "Clean Up mesh after import"
-
-    def draw(self, context):
-        MigotoImportOptionsPanelBase.draw(self, context)
-        operator = context.space_data.active_operator
-        self.layout.prop(operator, "merge_verts")
-        self.layout.prop(operator, "tris_to_quads")
-        self.layout.prop(operator, "clean_loose")
 
 class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Load .buf files instead"
@@ -134,6 +125,15 @@ class MIGOTO_PT_ImportFrameAnalysisManualOrientation(MigotoImportOptionsPanelBas
         operator = context.space_data.active_operator
         self.layout.prop(operator, "axis_forward")
         self.layout.prop(operator, "axis_up")
+class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, bpy.types.Panel):
+    bl_label = "Clean Up mesh after import"
+
+    def draw(self, context):
+        MigotoImportOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "merge_verts")
+        self.layout.prop(operator, "tris_to_quads")
+        self.layout.prop(operator, "clean_loose")
 
 def menu_func_import_fa(self, context):
     self.layout.operator(Import3DMigotoFrameAnalysis.bl_idname, text="3DMigoto frame analysis dump (vb.txt + ib.txt)")
@@ -156,7 +156,32 @@ def menu_func_apply_vgmap(self, context):
 
 import_menu = bpy.types.TOPBAR_MT_file_import
 export_menu = bpy.types.TOPBAR_MT_file_export
+ordered_classes = [
+    MIGOTO_UL_semantic_remap_list,
+    MIGOTO_MT_semantic_remap_menu,
+    MIGOTO_PT_ImportFrameAnalysisMainPanel,
+    MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel,
+    MIGOTO_PT_ImportFrameAnalysisBufFilesPanel,
+    MIGOTO_PT_ImportFrameAnalysisBonePanel,
+    MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel,
+    MIGOTO_PT_ImportFrameAnalysisManualOrientation,
+    MIGOTO_PT_ImportFrameAnalysisCleanUp,
+    Import3DMigotoFrameAnalysis,
+    Import3DMigotoRaw,
+    Import3DMigotoPose,
+    Export3DMigoto,
+    ApplyVGMap,
+    UpdateVGMap,
+    Import3DMigotoReferenceInputFormat,
+    Export3DMigotoXXMI,
+    Merge3DMigotoPose,
+    DeleteNonNumericVertexGroups,
+    ClearSemanticRemapList,
+    PrefillSemanticRemapList,
+]
 def register():
+    for cls in ordered_classes:
+        bpy.utils.register_class(cls)
     import_menu.append(menu_func_import_fa)
     import_menu.append(menu_func_import_raw)
     export_menu.append(menu_func_export)
@@ -165,6 +190,8 @@ def register():
     import_menu.append(menu_func_import_pose)
 
 def unregister():
+    for cls in reversed(ordered_classes):
+        bpy.utils.unregister_class(cls)
     import_menu.remove(menu_func_import_fa)
     import_menu.remove(menu_func_import_raw)
     export_menu.remove(menu_func_export)

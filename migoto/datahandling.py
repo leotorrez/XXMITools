@@ -2556,7 +2556,8 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                             os.path.join(parent_folder, f"{character_name}Mod",f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                     ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
                     tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
-                    texture_hashes_written.append(texture[2])
+                    if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+                        texture_hashes_written.append(texture[2])
                 else:
                     for j, texture in enumerate(texture_hashes):
                         if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
@@ -2567,7 +2568,8 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                                 os.path.join(parent_folder, f"{character_name}Mod",f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                         ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
                         tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
-                        texture_hashes_written.append(texture[2])
+                        if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+                            texture_hashes_written.append(texture[2])
                 ib_override_ini += "\n"
             continue
 
@@ -2672,7 +2674,8 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                         os.path.join(parent_folder, f"{character_name}Mod",f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                 ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
                 tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
-                texture_hashes_written.append(texture[2])
+                if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+                    texture_hashes_written.append(texture[2])
             else:
                 for j, texture in enumerate(texture_hashes):
                     if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
@@ -2685,7 +2688,8 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                     elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
                         ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
                     tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
-                    texture_hashes_written.append(texture[2])
+                    if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+                        texture_hashes_written.append(texture[2])
             ib_override_ini += "\n"
 
         if component["blend_vb"]:
