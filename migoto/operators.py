@@ -805,7 +805,7 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
             elif self.game == game_enums[1][0]:
                 game = GameEnum.GenshinImpact
             elif self.game == game_enums[2][0]:
-                game = GameEnum.HonkaiImpact3rd
+                game = GameEnum.HonkaiStarRail
             elif self.game == game_enums[3][0]:
                 game = GameEnum.ZenlessZoneZero
             export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, self.use_foldername, self.ignore_hidden, self.only_selected, self.no_ramps, self.delete_intermediate, self.credit, self.copy_textures, outline_properties, game)

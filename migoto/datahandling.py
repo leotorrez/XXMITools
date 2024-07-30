@@ -2802,7 +2802,6 @@ def collect_vb(folder, name, classification, strides):
 
     return position, blend, texcoord
 
-
 def collect_ib(folder, name, classification, offset):
     ib = bytearray()
     with open(os.path.join(folder, f"{name}{classification}.ib"), "rb") as f:

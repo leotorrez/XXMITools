@@ -153,35 +153,10 @@ def menu_func_export_xxmi(self, context):
 def menu_func_apply_vgmap(self, context):
     self.layout.operator(ApplyVGMap.bl_idname, text="Apply 3DMigoto vertex group map to current object (.vgmap)")
 
-
 import_menu = bpy.types.TOPBAR_MT_file_import
 export_menu = bpy.types.TOPBAR_MT_file_export
-ordered_classes = [
-    MIGOTO_UL_semantic_remap_list,
-    MIGOTO_MT_semantic_remap_menu,
-    MIGOTO_PT_ImportFrameAnalysisMainPanel,
-    MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel,
-    MIGOTO_PT_ImportFrameAnalysisBufFilesPanel,
-    MIGOTO_PT_ImportFrameAnalysisBonePanel,
-    MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel,
-    MIGOTO_PT_ImportFrameAnalysisManualOrientation,
-    MIGOTO_PT_ImportFrameAnalysisCleanUp,
-    Import3DMigotoFrameAnalysis,
-    Import3DMigotoRaw,
-    Import3DMigotoPose,
-    Export3DMigoto,
-    ApplyVGMap,
-    UpdateVGMap,
-    Import3DMigotoReferenceInputFormat,
-    Export3DMigotoXXMI,
-    Merge3DMigotoPose,
-    DeleteNonNumericVertexGroups,
-    ClearSemanticRemapList,
-    PrefillSemanticRemapList,
-]
+
 def register():
-    for cls in ordered_classes:
-        bpy.utils.register_class(cls)
     import_menu.append(menu_func_import_fa)
     import_menu.append(menu_func_import_raw)
     export_menu.append(menu_func_export)
@@ -190,8 +165,6 @@ def register():
     import_menu.append(menu_func_import_pose)
 
 def unregister():
-    for cls in reversed(ordered_classes):
-        bpy.utils.unregister_class(cls)
     import_menu.remove(menu_func_import_fa)
     import_menu.remove(menu_func_import_raw)
     export_menu.remove(menu_func_export)
