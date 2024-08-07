@@ -64,7 +64,7 @@ class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBas
         operator = context.space_data.active_operator
         self.layout.enabled = not operator.load_buf
         self.layout.prop(operator, "load_related")
-        #self.layout.prop(operator, "load_related_so_vb")
+        self.layout.prop(operator, "load_related_so_vb")
         self.layout.prop(operator, "merge_meshes")
 
 class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
