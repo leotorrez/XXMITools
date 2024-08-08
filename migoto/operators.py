@@ -6,7 +6,7 @@ from glob import glob
 from bpy_extras.io_utils import  ImportHelper, ExportHelper
 from bpy.props import BoolProperty, StringProperty, CollectionProperty
 from bpy_extras.io_utils import orientation_helper
-from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, export_3dmigoto_xxmi, GameEnum
+from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, export_3dmigoto_xxmi, silly_lookup
 IOOBJOrientationHelper = type('DummyIOOBJOrientationHelper', (object,), {})
 
 class ClearSemanticRemapList(bpy.types.Operator):
@@ -292,6 +292,10 @@ class Import3DMigotoFrameAnalysis(bpy.types.Operator, ImportHelper, IOOBJOrienta
             paths = self.get_vb_ib_paths()
 
             import_3dmigoto(self, context, paths, **keywords)
+            xxmi = context.scene.xxmi
+            if not xxmi.dump_path:
+                if os.path.exists(os.path.join(os.path.dirname(self.filepath), 'hash.json')):
+                    xxmi.dump_path = os.path.dirname(self.filepath)
         except Fatal as e:
             self.report({'ERROR'}, str(e))
         return {'FINISHED'}
@@ -749,7 +753,7 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
     description="Select the game you are modding to optimize the mod for that game",
     items=game_enums,
     )
-
+    
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True)
@@ -799,16 +803,211 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
 
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             outline_properties = (self.outline_optimization, self.toggle_rounding_outline, self.decimal_rounding_outline, self.angle_weighted, self.overlapping_faces, self.detect_edges, self.calculate_all_faces, self.nearest_edge_distance)
-            # FIXME: Silly hardcoded lookup
-            if self.game == game_enums[0][0]:
-                game = GameEnum.HonkaiImpact3rd
-            elif self.game == game_enums[1][0]:
-                game = GameEnum.GenshinImpact
-            elif self.game == game_enums[2][0]:
-                game = GameEnum.HonkaiStarRail
-            elif self.game == game_enums[3][0]:
-                game = GameEnum.ZenlessZoneZero
+            game = silly_lookup(self.game)
             export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, self.use_foldername, self.ignore_hidden, self.only_selected, self.no_ramps, self.delete_intermediate, self.credit, self.copy_textures, outline_properties, game)
         except Fatal as e:
             self.report({'ERROR'}, str(e))
         return {'FINISHED'}
+
+class XXMIProperties(bpy.types.PropertyGroup):
+    '''Properties for XXMITools'''
+    destination_path: bpy.props.StringProperty(name="Output Folder", description="Output Folder:", default="", maxlen=1024,)
+    dump_path: bpy.props.StringProperty(name="Dump Folder", description="Dump Folder:", default="", maxlen=1024,)
+    filter_glob: StringProperty(
+            default='*.vb*',
+            options={'HIDDEN'},
+            )
+
+    flip_winding: BoolProperty(
+            name="Flip Winding Order",
+            description="Flip winding order during export (automatically set to match the import option)",
+            default=False,
+            )
+
+    flip_normal: BoolProperty(
+            name="Flip Normal",
+            description="Flip Normals during export (automatically set to match the import option)",
+            default=False,
+            )
+
+    flip_tangent: BoolProperty(
+            name="Flip Tangent",
+            description="Flip Tangents during export (automatically set to match the flip normals option)",
+            default=False,
+            )
+
+    use_foldername : BoolProperty(
+        name="Use foldername when exporting",
+        description="Sets the export name equal to the foldername you are exporting to. Keep true unless you have changed the names",
+        default=True,
+    )
+
+    ignore_hidden : BoolProperty(
+        name="Ignore hidden objects",
+        description="Does not use objects in the Blender window that are hidden while exporting mods",
+        default=True,
+    )
+
+    only_selected : BoolProperty(
+        name="Only export selected",
+        description="Uses only the selected objects when deciding which meshes to export",
+        default=False,
+    )
+
+    no_ramps : BoolProperty(
+        name="Ignore shadow ramps/metal maps/diffuse guide",
+        description="Skips exporting shadow ramps, metal maps and diffuse guides",
+        default=True,
+    )
+
+    delete_intermediate : BoolProperty(
+        name="Delete intermediate files",
+        description="Deletes the intermediate vb/ib files after a successful export to reduce clutter",
+        default=True,
+    )
+
+    copy_textures : BoolProperty(
+        name="Copy textures",
+        description="Copies the texture files to the mod folder, useful for the initial export but might be redundant afterwards.",
+        default=True,
+    )
+
+    credit : StringProperty(
+        name="Credit",
+        description="Name that pops up on screen when mod is loaded. If left blank, will result in no pop up",
+        default='',
+    )
+    
+    outline_optimization : BoolProperty(
+        name="Outline Optimization",
+        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
+        default=False,
+    )
+    
+    toggle_rounding_outline : BoolProperty(
+        name="Round vertex positions",
+        description="Rounding of vertex positions to specify which are the overlapping vertices",
+        default=True,
+    ) 
+    
+    decimal_rounding_outline : bpy.props.IntProperty(
+        name="Decimals:",
+        description="Rounding of vertex positions to specify which are the overlapping vertices",
+        default=3,
+    )
+
+    angle_weighted : BoolProperty(
+        name="Weight by angle",
+        description="Optional: calculate angles to improve accuracy of outlines. Slow",
+        default=False,
+    )
+
+    overlapping_faces : BoolProperty(
+        name="Ignore overlapping faces",
+        description="Detect and ignore overlapping/antiparallel faces to avoid buggy outlines",
+        default=False,
+    )
+
+    detect_edges : BoolProperty(
+        name="Calculate edges",
+        description="Calculate for disconnected edges when rounding, closing holes in the edge outline",
+        default=False,
+    )
+
+    calculate_all_faces : BoolProperty(
+        name="Calculate outline for all faces",
+        description="Calculate outline for all faces, which is especially useful if you have any flat shaded non-edge faces. Slow",
+        default=False,
+    )
+
+    nearest_edge_distance : bpy.props.FloatProperty(
+        name="Distance:",
+        description="Expand grouping for edge vertices within this radial distance to close holes in the edge outline. Requires rounding",
+        default=0.001,
+        soft_min=0,
+    )
+    game: bpy.props.EnumProperty(
+    name="Game to mod",
+    description="Select the game you are modding to optimize the mod for that game",
+    items=game_enums,
+    )
+    
+class DestinationSelector(bpy.types.Operator, ExportHelper):
+    """Export single mod based on current frame"""
+    bl_idname = "destination.selector"
+    bl_label = "Destination"
+    filename_ext = "."
+    use_filter_folder = True
+    filter_glob : bpy.props.StringProperty(default='.', options={'HIDDEN'},)
+
+    def execute(self, context):
+        userpath = self.properties.filepath
+        if not os.path.isdir(userpath):
+            userpath = os.path.dirname(userpath)
+            self.properties.filepath = userpath
+            if not os.path.isdir(userpath):
+                msg = "Please select a directory not a file\n" + userpath
+                self.report({'ERROR'}, msg)
+                return {'CANCELLED'}
+        context.scene.xxmi.destination_path = self.properties.filepath
+        bpy.ops.ed.undo_push(message="XXMI Tools: destination selected")
+        return{'FINISHED'}
+class DumpSelector(bpy.types.Operator, ExportHelper):
+    """Export single mod based on current frame"""
+    bl_idname = "dump.selector"
+    bl_label = "Dump folder selector"
+    filename_ext = "."
+    use_filter_folder = True
+    filter_glob : bpy.props.StringProperty(default='.', options={'HIDDEN'},)
+
+    def execute(self, context):
+        userpath = self.properties.filepath
+        if not os.path.isdir(userpath):
+            userpath = os.path.dirname(userpath)
+            self.properties.filepath = userpath
+            if not os.path.isdir(userpath):
+                msg = "Please select a directory not a file\n" + userpath
+                self.report({'ERROR'}, msg)
+                return {'CANCELLED'}
+        context.scene.xxmi.dump_path = userpath
+        bpy.ops.ed.undo_push(message="XXMI Tools: dump path selected")
+        return{'FINISHED'}
+class ExportAdvancedOperator(bpy.types.Operator):
+    """Export operation base class"""
+    bl_idname = "xxmi.exportadvanced"
+    bl_label = "Export Mod"
+    bl_description = "Export mod"
+    bl_options = {'REGISTER'}
+    operations = []
+    def execute(self, context):
+        scene = bpy.context.scene
+        xxmi = scene.xxmi
+        if not xxmi.dump_path:
+            self.report({'ERROR'}, "Dump path not set")
+            return {'CANCELLED'}
+        if not xxmi.destination_path:
+            self.report({'ERROR'}, "Destination path not set")
+            return {'CANCELLED'}
+        try:
+            vb_path = os.path.join(xxmi.dump_path, ".vb0")
+            ib_path = os.path.splitext(vb_path)[0] + '.ib'
+            fmt_path = os.path.splitext(vb_path)[0] + '.fmt'
+            object_name = os.path.splitext(xxmi.dump_path)[0]
+            self.flip_winding = xxmi.flip_winding
+            self.flip_normal = xxmi.flip_normal
+            self.flip_tangent = xxmi.flip_tangent
+            # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
+            outline_properties = (xxmi.outline_optimization, xxmi.toggle_rounding_outline, xxmi.decimal_rounding_outline, xxmi.angle_weighted, xxmi.overlapping_faces, xxmi.detect_edges, xxmi.calculate_all_faces, xxmi.nearest_edge_distance)
+            game = silly_lookup(xxmi.game)
+            export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, xxmi.use_foldername, xxmi.ignore_hidden, xxmi.only_selected, xxmi.no_ramps, xxmi.delete_intermediate, xxmi.credit, xxmi.copy_textures, outline_properties, game, xxmi.destination_path)
+        except Fatal as e:
+            self.report({'ERROR'}, str(e))
+        return {'FINISHED'}
+
+def register():
+    '''Register all classes'''
+    bpy.types.Scene.xxmi = bpy.props.PointerProperty(type=XXMIProperties)
+
+def unregister():
+    '''Unregister all classes'''
+    del bpy.types.Scene.xxmi

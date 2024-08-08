@@ -65,11 +65,22 @@ class GameEnum(Enum):
     GenshinImpact = 1
     HonkaiStarRail = 2
     ZenlessZoneZero = 3
+
 game_enums = [(GameEnum.HonkaiImpact3rd.name, 'Honkai Impact 3rd' , 'Honkai Impact 3rd', '', GameEnum.HonkaiImpact3rd.value),
               (GameEnum.GenshinImpact.name, 'Genshin Impact' , 'Genshin Impact', '', GameEnum.GenshinImpact.value),
               (GameEnum.HonkaiStarRail.name, 'Honkai Star Rail' , 'Honkai Star Rail', '', GameEnum.HonkaiStarRail.value),
               (GameEnum.ZenlessZoneZero.name, 'Zenless Zone Zero' , 'Zenless Zone Zero', '', GameEnum.ZenlessZoneZero.value)]
 
+def silly_lookup(game:bpy.props.EnumProperty):
+    '''Converts a EnumProperty to a GameEnum'''
+    if game == game_enums[0][0]:
+        return GameEnum.HonkaiImpact3rd
+    elif game == game_enums[1][0]:
+        return GameEnum.GenshinImpact
+    elif game == game_enums[2][0]:
+        return GameEnum.HonkaiStarRail
+    elif game == game_enums[3][0]:
+        return GameEnum.ZenlessZoneZero
 class SemanticRemapItem(bpy.types.PropertyGroup):
     semantic_from: bpy.props.StringProperty(name="From", default="ATTRIBUTE")
     semantic_to:   bpy.props.EnumProperty(items=semantic_remap_enum, name="Change semantic interpretation")
@@ -2298,7 +2309,7 @@ def optimized_outline_generation(obj, mesh, outline_properties):
     print("Optimize Outline: " + obj.name.lower() + "; Completed            ")
     return export_outline
 
-def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_path, use_foldername, ignore_hidden, only_selected, no_ramps, delete_intermediate, credit, copy_textures, outline_properties, game:GameEnum):
+def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_path, use_foldername, ignore_hidden, only_selected, no_ramps, delete_intermediate, credit, copy_textures, outline_properties, game:GameEnum, destination=None):
     scene = bpy.context.scene
 
     # Quick sanity check
@@ -2506,12 +2517,14 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # Write format reference file
             write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
 
-    generate_mod_folder(os.path.dirname(vb_path), object_name, no_ramps, delete_intermediate, credit, copy_textures, game)
+    generate_mod_folder(os.path.dirname(vb_path), object_name, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
 
-def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum):
+def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
     parent_folder = os.path.join(path, "../")
     char_hash = load_hashes(path, character_name, "hash.json")
-    create_mod_folder(parent_folder, character_name)
+    if not destination:
+        destination = os.path.join(parent_folder, f"{character_name}Mod")
+    create_mod_folder(destination)
 
     vb_override_ini = ""
     ib_override_ini = ""
@@ -2550,7 +2563,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                     ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
                     if copy_textures:
                         shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
-                            os.path.join(parent_folder, f"{character_name}Mod",f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+                            os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                     ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
                     tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                     if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
@@ -2562,7 +2575,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                         ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
                         if copy_textures:
                             shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
-                                os.path.join(parent_folder, f"{character_name}Mod",f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+                                os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                         ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
                         tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                         if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
@@ -2634,7 +2647,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
             print(f"{current_name}{current_object} offset: {offset}")
             ib = collect_ib(path, current_name, current_object, offset)
 
-            with open(os.path.join(parent_folder, f"{character_name}Mod", f"{current_name}{current_object}.ib"), "wb") as f:
+            with open(os.path.join(destination, f"{current_name}{current_object}.ib"), "wb") as f:
                 f.write(ib)
             if ib:
                 if game == GameEnum.ZenlessZoneZero:
@@ -2668,7 +2681,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                 ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
                 if copy_textures:
                     shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
-                        os.path.join(parent_folder, f"{character_name}Mod",f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+                        os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                 ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
                 tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
@@ -2679,7 +2692,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                         continue
                     if copy_textures:
                         shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
-                            os.path.join(parent_folder, f"{character_name}Mod",f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+                            os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                     if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
                         ib_override_ini += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
                     elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
@@ -2691,9 +2704,9 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
 
         if component["blend_vb"]:
             print("Writing merged buffer files")
-            with open(os.path.join(parent_folder, f"{character_name}Mod", f"{current_name}Position.buf"), "wb") as f, \
-                    open(os.path.join(parent_folder, f"{character_name}Mod", f"{current_name}Blend.buf"), "wb") as g, \
-                    open(os.path.join(parent_folder, f"{character_name}Mod", f"{current_name}Texcoord.buf"), "wb") as h:
+            with open(os.path.join(destination, f"{current_name}Position.buf"), "wb") as f, \
+                    open(os.path.join(destination, f"{current_name}Blend.buf"), "wb") as g, \
+                    open(os.path.join(destination, f"{current_name}Texcoord.buf"), "wb") as h:
                 f.write(position)
                 g.write(blend)
                 h.write(texcoord)
@@ -2715,7 +2728,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
             vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
             vb_res_ini += f"[Resource{current_name}Texcoord]\ntype = Buffer\nstride = {texcoord_stride}\nfilename = {current_name}Texcoord.buf\n\n"
         else:
-            with open(os.path.join(parent_folder, f"{character_name}Mod", f"{current_name}.buf"), "wb") as f:
+            with open(os.path.join(destination, f"{current_name}.buf"), "wb") as f:
                 f.write(position)
             vb_override_ini += f"[TextureOverride{current_name}]\nhash = {component['draw_vb']}\nvb0 = Resource{current_name}\n"
             if credit:
@@ -2752,10 +2765,9 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
 ; .ini generated by XXMI (XX-Model-Importer)
 ; If you have any issues or find any bugs, please open a ticket at https://github.com/leotorrez/XXMI-Tools/issues'''
 
-    with open(os.path.join(parent_folder, f"{character_name}Mod", f"{character_name}.ini"), "w") as f:
+    with open(os.path.join(destination, f"{character_name}.ini"), "w") as f:
         print("Writing ini file")
         f.write(ini_data)
-
     print("All operations completed, exiting")
 
 def load_hashes(path, name, hashfile):
@@ -2774,12 +2786,12 @@ def load_hashes(path, name, hashfile):
 
     return char_hashes
 
-def create_mod_folder(parent_folder, name):
-    if not os.path.isdir(os.path.join(parent_folder, f"{name}Mod")):
-        print(f"Creating {name}Mod")
-        os.mkdir(os.path.join(parent_folder, f"{name}Mod"))
+def create_mod_folder(destination):
+    if not os.path.isdir(destination):
+        print(f"Creating {os.path.basename(destination)}")
+        os.mkdir(destination)
     else:
-        print(f"WARNING: Everything currently in the {name}Mod folder will be overwritten")
+        print(f"WARNING: Everything currently in the {os.path.basename(destination)} folder will be overwritten")
 
 def collect_vb(folder, name, classification, strides):
     position_stride, blend_stride, texcoord_stride = strides
