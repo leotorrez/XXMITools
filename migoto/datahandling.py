@@ -440,6 +440,11 @@ class HashableVertex(dict):
         # Convert keys and values into immutable types that can be hashed
         immutable = tuple((k, tuple(v)) for k,v in sorted(self.items()))
         return hash(immutable)
+class HashableVertex(bytes):
+    def __hash__(self):
+        # Convert keys and values into immutable types that can be hashed
+        immutable = tuple(self)
+        return hash(immutable)
 
 class IndividualVertexBuffer(object):
     '''
@@ -2385,7 +2390,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             else:
                 classification = extended_classifications[i-len(base_classifications)]
 
-            vb_path  = os.path.join(os.path.dirname(vb_path), current_name + classification + ".vb")
+            vb_path  = os.path.join(os.path.dirname(vb_path), current_name + classification + ".vb0")
             ib_path  = os.path.join(os.path.dirname(ib_path), current_name + classification + ".ib")
             fmt_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".fmt")
             layout = InputLayout(obj['3DMigoto:VBLayout'])
@@ -2418,36 +2423,36 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 continue
 
             # Calculates tangents and makes loop normals valid (still with our
-            # custom normal data from import time):
+            # # custom normal data from import time):
             try:
                 mesh.calc_tangents()
             except RuntimeError:
                 raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
 
-            texcoord_layers = {}
-            count = 0
-            for uv_layer in mesh.uv_layers:
-                texcoords = {}
-                uvname = uv_layer.name
-                if "TEXCOORD" not in uv_layer.name:
-                    if count == 0:
-                        uvname = "TEXCOORD.xy"
-                    else:
-                        uvname = f"TEXCOORD{count}.xy"
-                try:
-                    flip_texcoord_v = obj['3DMigoto:' + uvname]['flip_v']
-                    if flip_texcoord_v:
-                        flip_uv = lambda uv: (uv[0], 1.0 - uv[1])
-                    else:
-                        flip_uv = lambda uv: uv
-                except KeyError:
-                    flip_uv = lambda uv: uv
+            # texcoord_layers = {}
+            # count = 0
+            # for uv_layer in mesh.uv_layers:
+            #     texcoords = {}
+            #     uvname = uv_layer.name
+            #     if "TEXCOORD" not in uv_layer.name:
+            #         if count == 0:
+            #             uvname = "TEXCOORD.xy"
+            #         else:
+            #             uvname = f"TEXCOORD{count}.xy"
+            #     try:
+            #         flip_texcoord_v = obj['3DMigoto:' + uvname]['flip_v']
+            #         if flip_texcoord_v:
+            #             flip_uv = lambda uv: (uv[0], 1.0 - uv[1])
+            #         else:
+            #             flip_uv = lambda uv: uv
+            #     except KeyError:
+            #         flip_uv = lambda uv: uv
 
-                for l in mesh.loops:
-                    uv = flip_uv(uv_layer.data[l.index].uv)
-                    texcoords[l.index] = uv
-                texcoord_layers[uvname] = texcoords
-                count += 1
+            #     for l in mesh.loops:
+            #         uv = flip_uv(uv_layer.data[l.index].uv)
+            #         texcoords[l.index] = uv
+            #     texcoord_layers[uvname] = texcoords
+            #     count += 1
             translate_normal = normal_export_translation(layout, 'NORMAL', operator.flip_normal)
             translate_tangent = normal_export_translation(layout, 'TANGENT', operator.flip_tangent)
 
@@ -2458,61 +2463,59 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # completely blow this out - we still want to reuse identical vertices
             # via the index buffer. There might be a convenience function in
             # Blender to do this, but it's easy enough to do this ourselves
+            
+            ib, vbarr, _, _, _ = mesh_to_bin(mesh, obj, game, translate_normal, translate_tangent, outline_properties)
+            
+            # if vb.topology == 'trianglelist':
+            #     for poly in mesh.polygons:
+            #         face = []
+            #         for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
+            #             vertex = blender_vertex_to_3dmigoto_vertex(mesh, obj, blender_lvertex, layout, texcoord_layers, None, translate_normal, translate_tangent, export_outline)
+            #             if ib is not None:
+            #                 face.append(indexed_vertices.setdefault(HashableVertex(vertex), len(indexed_vertices)))
+            #             else:
+            #                 if operator.flip_winding:
+            #                     raise Fatal('Flipping winding order without index buffer not implemented')
+            #                 vb.append(vertex)
+            #         if ib is not None:
+            #             if operator.flip_winding:
+            #                 face.reverse()
+            #             ib.append(face)
 
-            indexed_vertices = collections.OrderedDict()
-            vb = VertexBufferGroup(layout=layout, topology=topology)
-            vb.flag_invalid_semantics()
-            export_outline = None
-            if outline_properties[0]:
-                export_outline = optimized_outline_generation(obj, mesh, outline_properties)
+            #     if ib is not None:
+            #         for vertex in indexed_vertices:
+            #             vb.append(vertex)
+            # elif vb.topology == 'pointlist':
+            #     for index, blender_vertex in enumerate(mesh.vertices):
+            #         vb.append(blender_vertex_to_3dmigoto_vertex(mesh, obj, None, layout, texcoord_layers, blender_vertex, translate_normal, translate_tangent, export_outline))
+            #         if ib is not None:
+            #             ib.append((index,))
+            # else:
+            #     raise Fatal('topology "%s" is not supported for export' % vb.topology)
 
-            if vb.topology == 'trianglelist':
-                for poly in mesh.polygons:
-                    face = []
-                    for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
-                        vertex = blender_vertex_to_3dmigoto_vertex(mesh, obj, blender_lvertex, layout, texcoord_layers, None, translate_normal, translate_tangent, export_outline)
-                        if ib is not None:
-                            face.append(indexed_vertices.setdefault(HashableVertex(vertex), len(indexed_vertices)))
-                        else:
-                            if operator.flip_winding:
-                                raise Fatal('Flipping winding order without index buffer not implemented')
-                            vb.append(vertex)
-                    if ib is not None:
-                        if operator.flip_winding:
-                            face.reverse()
-                        ib.append(face)
+            # vgmaps = {k[15:]:keys_to_ints(v) for k,v in obj.items() if k.startswith('3DMigoto:VGMap:')}
 
-                if ib is not None:
-                    for vertex in indexed_vertices:
-                        vb.append(vertex)
-            elif vb.topology == 'pointlist':
-                for index, blender_vertex in enumerate(mesh.vertices):
-                    vb.append(blender_vertex_to_3dmigoto_vertex(mesh, obj, None, layout, texcoord_layers, blender_vertex, translate_normal, translate_tangent, export_outline))
-                    if ib is not None:
-                        ib.append((index,))
-            else:
-                raise Fatal('topology "%s" is not supported for export' % vb.topology)
+            # if '' not in vgmaps:
+            #     vb.write(vb_path, strides, operator=operator)
 
-            vgmaps = {k[15:]:keys_to_ints(v) for k,v in obj.items() if k.startswith('3DMigoto:VGMap:')}
-
-            if '' not in vgmaps:
-                vb.write(vb_path, strides, operator=operator)
-
-            base, ext = os.path.splitext(vb_path)
-            for (suffix, vgmap) in vgmaps.items():
-                ib_path = vb_path
-                if suffix:
-                    ib_path = '%s-%s%s' % (base, suffix, ext)
-                vgmap_path = os.path.splitext(ib_path)[0] + '.vgmap'
-                print('Exporting %s...' % ib_path)
-                vb.remap_blendindices(obj, vgmap)
-                vb.write(ib_path, strides, operator=operator)
-                vb.revert_blendindices_remap()
-                sorted_vgmap = collections.OrderedDict(sorted(vgmap.items(), key=lambda x:x[1]))
-                json.dump(sorted_vgmap, open(vgmap_path, 'w'), indent=2)
-
+            # base, ext = os.path.splitext(vb_path)
+            # for (suffix, vgmap) in vgmaps.items():
+            #     ib_path = vb_path
+            #     if suffix:
+            #         ib_path = '%s-%s%s' % (base, suffix, ext)
+            #     vgmap_path = os.path.splitext(ib_path)[0] + '.vgmap'
+            #     print('Exporting %s...' % ib_path)
+            #     vb.remap_blendindices(obj, vgmap)
+            #     vb.write(ib_path, strides, operator=operator)
+            #     vb.revert_blendindices_remap()
+            #     sorted_vgmap = collections.OrderedDict(sorted(vgmap.items(), key=lambda x:x[1]))
+            #     json.dump(sorted_vgmap, open(vgmap_path, 'w'), indent=2)
+            vbarr.tofile(vb_path, format='bytes')
             if ib is not None:
-                ib.write(open(ib_path, 'wb'), operator=operator)
+                # ib.write(open(ib_path, 'wb'), operator=operator)
+                ib.tofile(ib_path, format='bytes')
+            ib = IndexBuffer(ib_format)
+            vb = VertexBufferGroup(layout=layout, topology=topology)
 
             # Write format reference file
             write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
@@ -3077,3 +3080,534 @@ def merge_armatures(operator, context):
                 modifier.object = target_arm
         src_obj.parent = target_arm
         unlink_object(context, src_arm)
+
+
+def split_vb(vb, fmt_layout ,dtype):
+    range_pos, range_blend, range_tex = 0, 0, 0
+    for elem in fmt_layout:
+        if elem.SemanticName in ["POSITION", "NORMAL", "TANGENT"]:
+            range_pos += 1
+        elif elem.SemanticName in ["BLENDWEIGHT", "BLENDWEIGHTS", "BLENDINDICES"]:
+            range_blend += 1
+        elif elem.SemanticName in ["COLOR", "TEXCOORD"]:
+            range_tex += 1
+
+    # split vertex buffer into separate arrays
+    pos = numpy.zeros(len(vb), dtype=numpy.dtype(dtype.descr[0:range_pos]))
+    blend = numpy.zeros(len(vb), dtype=numpy.dtype(dtype.descr[range_pos:range_pos + range_blend]))
+    tex = numpy.zeros(len(vb), dtype=numpy.dtype(dtype.descr[range_pos + range_blend:]))
+    for field in dtype.names[0: range_pos]:
+        pos[field] = vb[field]
+    for field in dtype.names[range_pos:range_pos + range_blend]:
+        blend[field] = vb[field]
+    for field in dtype.names[range_pos + range_blend:]:
+        tex[field] = vb[field]
+    return pos, blend, tex
+
+def blender_to_migoto_vertices(mesh, fmt_layout, game, translate_normal, translate_tangent, export_outline):
+    texcoord_layers = {}
+    color_layers = {}
+    dtype = numpy.dtype([])
+    for elem in fmt_layout:
+        if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
+            continue
+
+        semantic_translations = fmt_layout.get_semantic_remap()
+        translated_elem_name, translated_elem_index = \
+                semantic_translations.get(elem.name, (elem.name, elem.SemanticIndex))
+        if translated_elem_name == "POSITION":
+            dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.float32, 3))])
+            position = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
+            mesh.vertices.foreach_get("undeformed_co", position.ravel())
+        elif translated_elem_name == "NORMAL":
+            dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.float32, 3))])
+            normal = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
+            mesh.loops.foreach_get("normal", normal.ravel())
+        elif translated_elem_name == "TANGENT":
+            dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.float32, 4))])
+            tangent = numpy.zeros((len(mesh.loops), 4), dtype=numpy.float16)
+            mesh.loops.foreach_get("tangent", tangent[:,:-1].ravel())
+            mesh.loops.foreach_get("bitangent_sign", tangent[:,-1].ravel())
+            if game == "ZZZ":
+                tangent[:, 3] = tangent[:, 3] * -1
+        elif translated_elem_name.startswith("BLENDWEIGHT"):
+            if elem.Format.endswith("32_FLOAT"):
+                dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.float32, elem.format_len))])
+            elif elem.Format.endswith("32_UINT"):
+                dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.uint32, elem.format_len))])
+            else:
+                raise Fatal(f"ERROR: Unsupported format for BLENDWEIGHT. {elem.Format}.")
+            blendweights = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
+            for vert in mesh.vertices:
+                weights = numpy.zeros(elem.format_len, dtype=numpy.float32)
+                for i, group in enumerate(vert.groups):
+                    if i >= elem.format_len:
+                        break
+                    weights[i] = group.weight
+                blendweights[vert.index] = weights
+        elif translated_elem_name.startswith("BLENDINDICES"):
+            if elem.Format == "R32G32B32A32_UINT":
+                dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.uint, 4))])
+            elif elem.Format == "R32_UINT":
+                dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.uint32, 1))])
+            else:
+                raise Fatal(f"ERROR: Unsupported format for BLENDINDICES. {elem.Format}.")
+            blendindices = numpy.zeros(len(mesh.loops), dtype=(int, elem.format_len))
+            for vert in mesh.vertices:
+                groups = numpy.zeros(elem.format_len, dtype=numpy.uint32)
+                for i, group in enumerate(vert.groups):
+                    if i >= elem.format_len:
+                        break
+                    groups[i] = group.group
+                blendindices[vert.index] = groups
+        elif translated_elem_name.startswith("COLOR"):
+            dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.uint8, 4))])
+            color_layers[elem.name] = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 4))
+            mesh.vertex_colors[elem.name].data.foreach_get("color", color_layers[elem.name].ravel())
+            color_layers[elem.name] = (color_layers[elem.name] * 255).astype(numpy.uint8)
+        elif translated_elem_name.startswith("TEXCOORD") and elem.is_float():
+            uv_name = f"{elem.name}.xy"
+            if elem.Format == "R32G32_FLOAT":
+                dtype = numpy.dtype(dtype.descr + [(uv_name, (numpy.float32, 2))])
+            elif elem.Format == "R16G16_FLOAT":
+                dtype = numpy.dtype(dtype.descr + [(uv_name, (numpy.float16, 2))])
+            else:
+                print(f"ERROR: Unsupported format for TEXCOORD. {elem.Format}.")
+            texcoord_layers[uv_name] = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 2))
+            mesh.uv_layers[uv_name].data.foreach_get("uv", texcoord_layers[uv_name].ravel())
+            texcoord_layers[uv_name][:, 1:] = 1.0 - texcoord_layers[uv_name][:, 1:]
+            # Handle 1D + 3D TEXCOORDs. Order is important - 1D TEXCOORDs won't
+            # match anything in above loop so only .x below, 3D TEXCOORDS will
+            # have processed .xy part above, and .z part below
+            # for uv_name in ('%s.x' % elem.remapped_name, '%s.z' % elem.remapped_name):
+            #     if uv_name in uv_layers:
+            #         dtype = numpy.dtype(dtype.descr + [(uv_name, (numpy.float32, 1))])
+            #         texcoord_layers[elem.name] = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 1))
+            #         mesh.uv_layers[elem.name].data.foreach_get("uv", texcoord_layers[elem.name].ravel())
+            #lacks support for 1D and 3D texcoords                 
+        elif translated_elem_name.startswith("BINORMAL"):
+            pass
+        else:
+            print(f"ERROR: Unsupported semantic name. {translated_elem_name}")
+
+    migoto_verts = numpy.zeros(len(mesh.loops), dtype=dtype)
+    vertex_idx = numpy.zeros(len(mesh.loops), dtype=int)
+    mesh.loops.foreach_get("vertex_index", vertex_idx)
+    for elem in fmt_layout:
+        if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
+            continue
+        translated_elem_name = elem.SemanticName.upper()
+        if translated_elem_name == "POSITION":
+            for loop_idx, vert_idx in enumerate(vertex_idx):
+                migoto_verts[loop_idx][elem.name] = position[vert_idx]
+        elif translated_elem_name == "NORMAL":
+            migoto_verts[elem.name] = normal
+        elif translated_elem_name.startswith("TANGENT"):
+            migoto_verts[elem.name] = tangent
+        elif translated_elem_name.startswith("BLENDWEIGHT"):
+            for loop_idx, vert_idx in enumerate(vertex_idx):
+                migoto_verts[loop_idx][elem.name] = blendweights[vert_idx]
+            migoto_verts[elem.name] = blendweights[vertex_idx]
+        elif translated_elem_name.startswith("BLENDINDICES"):
+            for loop_idx, vert_idx in enumerate(vertex_idx):
+                migoto_verts[loop_idx][elem.name] = blendindices[vert_idx]
+            migoto_verts[elem.name] = blendindices[vertex_idx]
+        elif translated_elem_name.startswith("COLOR"):
+            migoto_verts[elem.name] = color_layers[elem.name][vertex_idx]
+        elif translated_elem_name.startswith("TEXCOORD"):
+            uv_name = f"{elem.name}.xy"
+            migoto_verts[uv_name] = texcoord_layers[uv_name]
+    return migoto_verts, dtype
+
+def mesh_to_bin(mesh, obj, game:GameEnum, translate_normal, translate_tangent, export_outline):
+    fmt_layout = InputLayout(obj['3DMigoto:VBLayout'])
+    vb = VertexBufferGroup(layout=fmt_layout, topology="trianglelist")
+    vb.flag_invalid_semantics()
+    migoto_verts, dtype = blender_to_migoto_vertices(mesh, fmt_layout, game, translate_normal, translate_tangent, export_outline)
+    export_Outline = optimized_outline_generation(obj, mesh, )
+    ib = []
+    indexed_vertices = collections.OrderedDict()
+
+    for poly in mesh.polygons:
+        face = []
+        for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
+            vertex = migoto_verts[blender_lvertex.index]
+            face.append(indexed_vertices.setdefault(HashableVertex(vertex.tobytes()), len(indexed_vertices)))
+        ib.append(face)
+    vb = bytearray()
+    for vertex in indexed_vertices:
+        vb += vertex
+
+    ib = numpy.array(ib, dtype=numpy.uint32)
+    vb = numpy.frombuffer(vb, dtype=dtype)
+    pos, blend, tex = split_vb(vb, fmt_layout, dtype)
+    return ib, vb, pos, blend, tex
+
+# def export_3dmigoto_xxxmi(operator, context, object_name, vb_path, ib_path, fmt_path, use_foldername, ignore_hidden, only_selected, no_ramps, delete_intermediate, credit, copy_textures, outline_properties, game:GameEnum, destination=None):
+#     # EXPERIMENTAL!!!
+#     scene = bpy.context.scene
+
+#     # Quick sanity check
+#     # If we cannot find any objects in the scene with or any files in the folder with the given name, default to using
+#     #   the folder name
+#     if use_foldername or (not [obj for obj in scene.objects if object_name.lower() in obj.name.lower()] \
+#             or not [file for file in os.listdir(os.path.dirname(vb_path)) if object_name.lower() in file.lower()]):
+#         object_name = os.path.basename(os.path.dirname(vb_path))
+#         if not [obj for obj in scene.objects if object_name.lower() in obj.name.lower()] \
+#             or not [file for file in os.listdir(os.path.dirname(vb_path)) if object_name.lower() in file.lower()]:
+#                 raise Fatal("ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists")
+
+#     if "hash.json" in os.listdir(os.path.dirname(vb_path)):
+#         print("Hash data found in character folder")
+#         with open(os.path.join(os.path.dirname(vb_path), "hash.json"), "r") as f:
+#             hash_data = json.load(f)
+#             all_base_classifications = [x["object_classifications"] for x in hash_data]
+#             component_names = [x["component_name"] for x in hash_data]
+#             extended_classifications = [[f"{base_classifications[-1]}{i}" for i in range(2, 10)] for base_classifications in all_base_classifications]
+#     else:
+#         print("Hash data not found in character folder, falling back to old behaviour")
+#         all_base_classifications = [["Head", "Body", "Extra"]]
+#         component_names = [""]
+#         extended_classifications = [[f"{base_classifications[-1]}{i}" for i in range(2, 10)] for base_classifications in all_base_classifications]
+
+#     for k in range(len(all_base_classifications)):
+#         base_classifications = all_base_classifications[k]
+#         current_name = f"{object_name}{component_names[k]}"
+
+#         # Doing it this way has the benefit of sorting the objects into the correct ordering by default
+#         relevant_objects = ["" for i in range(len(base_classifications) + 8)]
+#         # Surprisingly annoying to extend this to n objects thanks to the choice of using Extra2, Extra3, etc.
+#         # Iterate through scene objects, looking for ones that match the specified character name and object type
+
+#         if only_selected:
+#             selected_objects = [obj for obj in bpy.context.selected_objects]
+#         else:
+#             selected_objects = scene.objects
+
+#         for obj in selected_objects:
+#             #Ignore all hidden meshes while searching if ignore_hidden flag is set
+#             if ignore_hidden and not obj.visible_get():
+#                 continue
+#             for i, c in enumerate(base_classifications):
+#                 if f"{current_name}{c}".lower() in obj.name.lower():
+#                     # Even though we have found an object, since the final classification can be extended need to check
+#                     found_extended = False
+#                     for j,d in enumerate(extended_classifications):
+#                         if f"{current_name}{d}".lower() in obj.name.lower():
+#                             location = j + len(base_classifications)
+#                             if relevant_objects[location] != "":
+#                                 raise Fatal(f"Too many matches for {current_name}{d}".lower())
+#                             else:
+#                                 relevant_objects[location] = obj
+#                                 found_extended = True
+#                                 break
+#                     if not found_extended:
+#                         if relevant_objects[i] != "":
+#                             raise Fatal(f"Too many matches for {current_name}{c}".lower())
+#                         else:
+#                             relevant_objects[i] = obj
+#                             break
+
+#         # Delete empty spots
+#         relevant_objects = [x for x in relevant_objects if x]
+#         print(f'Objects to export: {relevant_objects}')
+#         pos, blend, tex = bytearray(), bytearray(), bytearray(), bytearray()
+#         for i, obj in enumerate(relevant_objects):
+#             # if i < len(base_classifications):
+#             #     classification = base_classifications[i]
+#             # else:
+#             #     classification = extended_classifications[i-len(base_classifications)]
+
+#             # vb_path  = os.path.join(os.path.dirname(vb_path), current_name + classification + ".vb")
+#             # ib_path  = os.path.join(os.path.dirname(ib_path), current_name + classification + ".ib")
+#             # fmt_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".fmt")
+#             layout = InputLayout(obj['3DMigoto:VBLayout'])
+#             strides = {x[11:-6]: obj[x] for x in obj.keys() if x.startswith('3DMigoto:VB') and x.endswith('Stride')}
+#             topology = 'trianglelist'
+#             if '3DMigoto:Topology' in obj:
+#                 topology = obj['3DMigoto:Topology']
+#                 if topology == 'trianglestrip':
+#                     operator.report({'WARNING'}, 'trianglestrip topology not supported for export, and has been converted to trianglelist. Override draw call topology using a [CustomShader] section with topology=triangle_list')
+#                     topology = 'trianglelist'
+#                 else:
+#                     operator.report({'WARNING'}, f'Unhandled topology {topology} found. Defaulting to trianglelist')
+#                     topology = 'trianglelist'
+#             mesh = obj.evaluated_get(context.evaluated_depsgraph_get()).to_mesh()
+#             mesh_triangulate(mesh)
+
+#             if len(mesh.polygons) == 0:
+#                 # open(vb_path, 'w').close()
+#                 # open(ib_path, 'w').close()
+#                 # vb = VertexBufferGroup(layout=layout, topology=topology)
+#                 # write_fmt_file(open(fmt_path, 'w'), vb, ib, strides=strides)
+
+#                 # TODO: just write fmt if needed
+#                 continue
+
+#             translate_normal = normal_export_translation(layout, 'NORMAL', operator.flip_normal)
+#             translate_tangent = normal_export_translation(layout, 'TANGENT', operator.flip_tangent)
+
+#             # export_outline = None
+#             # if outline_properties[0]:
+#             #     export_outline = optimized_outline_generation(obj, mesh, outline_properties)
+
+#             mat_ib, mat_vb, mat_pos, mat_blend, mat_tex = mesh_to_bin(mesh, obj, game, translate_normal, translate_tangent)
+#             pos += mat_pos
+#             blend += mat_blend
+#             tex += mat_tex
+#             offset = len(mat_pos//strides[0])
+#             assert (mat_pos%strides[0] == 0)
+#             # Write format reference file
+#             # write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
+
+
+#     character_name=object_name
+#     path = os.path.dirname(vb_path)
+
+
+#     parent_folder = os.path.join(path, "../")
+#     char_hash = load_hashes(path, character_name, "hash.json")
+#     if not destination:
+#         destination = os.path.join(parent_folder, f"{character_name}Mod")
+#     create_mod_folder(destination)
+
+#     vb_override_ini = ""
+#     ib_override_ini = ""
+#     vb_res_ini = ""
+#     ib_res_ini = ""
+#     tex_res_ini = ""
+#     constant_ini = ""
+#     command_ini = ""
+#     other_res = ""
+#     texture_hashes_written = []
+
+#     for component in char_hash:
+#         # Support for custom names was added so we need this to retain backwards compatibility
+#         component_name = component["component_name"] if "component_name" in component else ""
+#         # Old version used "Extra" as the third object, but I've replaced it with dress - need this for backwards compatibility
+#         object_classifications = component["object_classifications"] if "object_classifications" in component else ["Head", "Body", "Extra"]
+#         current_name = f"{character_name}{component_name}"
+
+#         print(f"\nWorking on {current_name}")
+
+#         # Components without draw vbs are texture overrides only
+#         if not component["draw_vb"]:
+#             # This is the path for components with only texture overrides (faces, wings, etc.)
+#             for i in range(len(component["object_indexes"])):
+#                 current_object = f"{object_classifications[2]}{i - 1}" if i > 2 else object_classifications[i]
+#                 print(f"\nTexture override only on {current_object}")
+
+#                 texture_hashes = component["texture_hashes"][i] if component["texture_hashes"] else [{"Diffuse": "_"}, {"LightMap": "_"}]
+#                 print("Copying texture files")
+
+#                 if component["component_name"] == "Face":
+#                     j = 0
+#                     texture = texture_hashes[j]
+#                     if texture[2] in texture_hashes_written:
+#                         continue
+#                     ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
+#                     if copy_textures:
+#                         shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
+#                             os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+#                     ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
+#                     tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
+#                     if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+#                         texture_hashes_written.append(texture[2])
+#                 else:
+#                     for j, texture in enumerate(texture_hashes):
+#                         if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
+#                             continue
+#                         ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
+#                         if copy_textures:
+#                             shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
+#                                 os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+#                         ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
+#                         tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
+#                         if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+#                             texture_hashes_written.append(texture[2])
+#                 ib_override_ini += "\n"
+#             continue
+
+#         # .FMT could be removed
+#         with open(os.path.join(path, f"{current_name}{object_classifications[0]}.fmt"), "r") as f:
+#             if not component["blend_vb"]:
+#                 stride = int([x.split(": ")[1] for x in f.readlines() if "stride:" in x][0])
+#             else:
+#                 # Parse the fmt using existing classes instead of hard coding element stride values
+#                 fmt_layout = InputLayout()
+#                 for line in map(str.strip, f):
+#                     # FIXME: hardcoded vb0. This should be flexible for multiple buffer export
+#                     if line.startswith('vb0 stride:'):
+#                         fmt_layout.stride = int(line[11:])
+#                     # else:
+#                     #     raise Fatal(f"ERROR: Old custom properties detected. Fix: ")
+#                     if line.startswith('element['):
+#                         fmt_layout.parse_element(f)
+
+#                 position_stride = 0
+#                 blend_stride = 0
+#                 texcoord_stride = 0
+
+#                 for element in fmt_layout:
+#                     if element.SemanticName in ["POSITION", "NORMAL", "TANGENT"]:
+#                         position_stride += element.size()
+#                     elif element.SemanticName in ["BLENDWEIGHT", "BLENDWEIGHTS", "BLENDINDICES"]:
+#                         blend_stride += element.size()
+#                     elif element.SemanticName in ["COLOR", "TEXCOORD"]:
+#                         texcoord_stride += element.size()
+
+#                 stride = position_stride + blend_stride + texcoord_stride
+#                 print("\tPosition Stride:", position_stride)
+#                 print("\tBlend Stride:", blend_stride)
+#                 print("\tTexcoord Stride:", texcoord_stride)
+#                 print("\tStride:", stride)
+#                 assert(fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt")
+#         offset = 0
+#         position, blend, texcoord = bytearray(), bytearray(), bytearray()
+#         ib_override_ini += f"[TextureOverride{current_name}IB]\nhash = {component['ib']}\nhandling = skip\ndrawindexed = auto\n\n"
+#         for i in range(len(component["object_indexes"])):
+#             if i + 1 > len(object_classifications):
+#                 current_object = f"{object_classifications[-1]}{i + 2 - len(object_classifications)}"
+#             else:
+#                 current_object = object_classifications[i]
+
+#             print(f"\nCollecting {current_object}")
+
+#             # This is the path for components which have blend data (characters, complex weapons, etc.)
+#             if component["blend_vb"]:
+#                 print("Splitting VB by buffer type, merging body parts")
+#                 try:
+#                     x, y, z = collect_vb(path, current_name, current_object, (position_stride, blend_stride, texcoord_stride))
+#                 except:
+#                     raise Fatal(f"ERROR: Unable to find {current_name}{current_object} when exporting. Double check the object exists and is named correctly")
+#                 position += x
+#                 blend += y
+#                 texcoord += z
+#             # This is the path for components without blend data (simple weapons, objects, etc.)
+#             # Simplest route since we do not need to split up the buffer into multiple components
+#             else:
+#                 position += collect_vb_single(path, current_name, current_object, stride)
+#                 position_stride = stride
+
+#             # can be removed. IB is now a bytearray
+#             # print("Collecting IB")
+#             # print(f"{current_name}{current_object} offset: {offset}")
+#             # ib = collect_ib(path, current_name, current_object, offset)
+
+#             # with open(os.path.join(destination, f"{current_name}{current_object}.ib"), "wb") as f:
+#             #     f.write(ib)
+
+#             if ib:
+#                 if game == GameEnum.ZenlessZoneZero:
+#                     ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nrun = CommandListSkinTexture\nib = Resource{current_name}{current_object}IB\n"
+#                 else:
+#                     ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = Resource{current_name}{current_object}IB\n"
+#             else:
+#                 ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = null\n"
+#             ib_res_ini += f"[Resource{current_name}{current_object}IB]\ntype = Buffer\nformat = DXGI_FORMAT_R32_UINT\nfilename = {current_name}{current_object}.ib\n\n"
+
+#             if len(position) % position_stride != 0:
+#                 print("ERROR: VB buffer length does not match stride")
+
+#             offset = len(position) // position_stride
+
+#             # Older versions can only manage diffuse and lightmaps
+#             texture_hashes = component["texture_hashes"][i] if "texture_hashes" in component else [["Diffuse", ".dds", "_"], ["LightMap", ".dds", "_"]]
+
+#             print("Copying texture files")
+#             if component["component_name"] == "Face":
+#                 j = 0
+#                 texture = texture_hashes[j]
+#                 if texture[2] in texture_hashes_written:
+#                     continue
+#                 ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
+#                 if copy_textures:
+#                     shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
+#                         os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+#                 ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
+#                 tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
+#                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+#                     texture_hashes_written.append(texture[2])
+#             else:
+#                 for j, texture in enumerate(texture_hashes):
+#                     if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
+#                         continue
+#                     if copy_textures:
+#                         shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
+#                             os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
+#                     if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
+#                         ib_override_ini += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
+#                     elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+#                         ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
+#                     tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
+#                     if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
+#                         texture_hashes_written.append(texture[2])
+#             ib_override_ini += "\n"
+
+#         if component["blend_vb"]:
+#             print("Writing merged buffer files")
+#             with open(os.path.join(destination, f"{current_name}Position.buf"), "wb") as f, \
+#                     open(os.path.join(destination, f"{current_name}Blend.buf"), "wb") as g, \
+#                     open(os.path.join(destination, f"{current_name}Texcoord.buf"), "wb") as h:
+#                 f.write(position)
+#                 g.write(blend)
+#                 h.write(texcoord)
+
+#             vb_override_ini += f"[TextureOverride{current_name}Position]\nhash = {component['position_vb']}\n"
+#             if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
+#                 vb_override_ini += f"handling = skip\nvb0 = Resource{current_name}Position\nvb2 = Resource{current_name}Blend\ndraw = {len(position) // position_stride},0\n"
+#             elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+#                 vb_override_ini += f"vb0 = Resource{current_name}Position\n"
+#             if credit:
+#                 vb_override_ini += "$active = 1\n"
+#             vb_override_ini += "\n"
+#             if game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+#                 vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\nvb1 = Resource{current_name}Blend\nhandling = skip\ndraw = {len(position) // position_stride},0 \n\n"
+#             vb_override_ini += f"[TextureOverride{current_name}Texcoord]\nhash = {component['texcoord_vb']}\nvb1 = Resource{current_name}Texcoord\n\n"
+#             vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n\n"
+
+#             vb_res_ini += f"[Resource{current_name}Position]\ntype = Buffer\nstride = {position_stride}\nfilename = {current_name}Position.buf\n\n"
+#             vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
+#             vb_res_ini += f"[Resource{current_name}Texcoord]\ntype = Buffer\nstride = {texcoord_stride}\nfilename = {current_name}Texcoord.buf\n\n"
+#         else:
+#             with open(os.path.join(destination, f"{current_name}.buf"), "wb") as f:
+#                 f.write(position)
+#             vb_override_ini += f"[TextureOverride{current_name}]\nhash = {component['draw_vb']}\nvb0 = Resource{current_name}\n"
+#             if credit:
+#                 vb_override_ini += "$active = 1\n"
+#             vb_override_ini += "\n"
+#             vb_res_ini += f"[Resource{current_name}]\ntype = Buffer\nstride = {stride}\nfilename = {current_name}.buf\n\n"
+
+#     if credit:
+#         constant_ini += textwrap.dedent(f'''
+#                         [Constants]
+#                         global $active = 0
+#                         global $creditinfo = 0
+                        
+#                         [Present]
+#                         post $active = 0
+#                         run = CommandListCreditInfo\n''')
+#         command_ini += textwrap.dedent(f'''
+#                         [CommandListCreditInfo]
+#                         if $creditinfo == 0 && $active == 1
+#                             pre Resource\\ShaderFixes\\help.ini\\Notification = ResourceCreditInfo
+#                             pre run = CustomShader\\ShaderFixes\\help.ini\\FormatText
+#                             pre $\\ShaderFixes\\help.ini\\notification_timeout = time + 5.0
+#                             $creditinfo = 1
+#                         endif\n''')
+#         other_res += f'[ResourceCreditInfo]\ntype = Buffer\ndata = "Created by {credit}"'
+
+#     print("Generating .ini file")
+#     # texwarp doesnt like ; at the start of the lines so it fails to dedent here.
+#     ini_data = f'''; {character_name}\n
+# ; Constants -------------------------\n{constant_ini}
+# ; Overrides -------------------------\n\n{vb_override_ini}{ib_override_ini[:-1]}
+# ; CommandList -----------------------\n{command_ini}
+# ; Resources -------------------------\n\n{vb_res_ini}{ib_res_ini}{tex_res_ini}{other_res}\n
+# ; .ini generated by XXMI (XX-Model-Importer)
+# ; If you have any issues or find any bugs, please open a ticket at https://github.com/leotorrez/XXMI-Tools/issues'''
+
+#     with open(os.path.join(destination, f"{character_name}.ini"), "w") as f:
+#         print("Writing ini file")
+#         f.write(ini_data)
+#     print("All operations completed, exiting")

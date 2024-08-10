@@ -808,7 +808,6 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         except Fatal as e:
             self.report({'ERROR'}, str(e))
         return {'FINISHED'}
-
 class XXMIProperties(bpy.types.PropertyGroup):
     '''Properties for XXMITools'''
     destination_path: bpy.props.StringProperty(name="Output Folder", description="Output Folder:", default="", maxlen=1024,)
@@ -931,7 +930,6 @@ class XXMIProperties(bpy.types.PropertyGroup):
     description="Select the game you are modding to optimize the mod for that game",
     items=game_enums,
     )
-    
 class DestinationSelector(bpy.types.Operator, ExportHelper):
     """Export single mod based on current frame"""
     bl_idname = "destination.selector"
@@ -999,7 +997,10 @@ class ExportAdvancedOperator(bpy.types.Operator):
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             outline_properties = (xxmi.outline_optimization, xxmi.toggle_rounding_outline, xxmi.decimal_rounding_outline, xxmi.angle_weighted, xxmi.overlapping_faces, xxmi.detect_edges, xxmi.calculate_all_faces, xxmi.nearest_edge_distance)
             game = silly_lookup(xxmi.game)
+            import time
+            start = time.time()
             export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, xxmi.use_foldername, xxmi.ignore_hidden, xxmi.only_selected, xxmi.no_ramps, xxmi.delete_intermediate, xxmi.credit, xxmi.copy_textures, outline_properties, game, xxmi.destination_path)
+            print("Export took", time.time() - start, "seconds")
         except Fatal as e:
             self.report({'ERROR'}, str(e))
         return {'FINISHED'}
