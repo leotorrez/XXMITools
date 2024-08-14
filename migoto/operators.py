@@ -990,7 +990,7 @@ class ExportAdvancedOperator(bpy.types.Operator):
             vb_path = os.path.join(xxmi.dump_path, ".vb0")
             ib_path = os.path.splitext(vb_path)[0] + '.ib'
             fmt_path = os.path.splitext(vb_path)[0] + '.fmt'
-            object_name = os.path.splitext(xxmi.dump_path)[0]
+            object_name = os.path.splitext(os.path.basename(xxmi.dump_path))[0]
             self.flip_winding = xxmi.flip_winding
             self.flip_normal = xxmi.flip_normal
             self.flip_tangent = xxmi.flip_tangent

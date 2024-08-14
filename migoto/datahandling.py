@@ -2315,8 +2315,132 @@ def optimized_outline_generation(obj, mesh, outline_properties):
     print(f"Optimize Outline: {obj.name.lower()}; Completed in {time.time() - start_timer} seconds       ")    
     return export_outline
 
+def appendto(collection, destination):
+    '''Append all meshes in a collection to a list'''
+    for a_collection in collection.children:
+        appendto(a_collection, destination)
+    for obj in collection.objects:
+        if obj.type == "MESH":
+            destination.append(obj)
+
+def join_into(context, collection_name, obj):
+    '''Join all meshes in a collection into a single mesh'''
+    target_obj = bpy.data.objects[obj]
+    objects_to_join = []
+    if collection_name is not None:
+        appendto(bpy.data.collections[collection_name.name], objects_to_join)
+    objects_to_join = [obj for obj in objects_to_join 
+                        if obj.type == "MESH" and obj.visible_get()]
+    objs = objects_to_join
+    objs.append(target_obj)
+
+    # apply shapekeys
+    for ob in objs:
+        ob.hide_viewport = False  # should be visible
+        if ob.data.shape_keys:
+            ob.shape_key_add(name='CombinedKeys', from_mix=True)
+            for shape_key in ob.data.shape_keys.key_blocks:
+                ob.shape_key_remove(shape_key)
+
+    # apply modifiers
+    count_mod_applied = 0
+    count_mod_removed = 0
+    for obj in objs:
+        for modifier in obj.modifiers:
+            if not modifier.show_viewport:
+                obj.modifiers.remove(modifier)
+                count_mod_removed += 1
+            else:
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+                bpy.ops.object.modifier_apply(modifier=modifier.name)
+                count_mod_applied += 1
+    print(f"Applied {count_mod_applied} modifiers and removed {count_mod_removed} modifiers")
+
+    # join stuff
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in objs:
+        obj.select_set(True)
+    context.view_layer.objects.active = target_obj
+    bpy.ops.object.join()
+    target_obj.data = bpy.context.object.data
+
+    # Remove all vertex groups with the word MASK on them
+    vgs = [vg for vg in target_obj.vertex_groups if "MASK" in vg.name]
+    if len(vgs) > 0:
+        for vg in vgs:
+            target_obj.vertex_groups.remove(vg)
+        print(f"Removed {len(vgs)} vertex groups with the word 'MASK' in them")
+
+def is_collection_empty(collection):
+    '''Check if a collection is empty'''
+    # TODO: Might want to check if len is 0? or recursive collections within this one as well.....
+    for obj in collection.objects:
+        if obj.type == "MESH" and obj.visible_get():
+            return False
+    return True
+
 def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_path, use_foldername, ignore_hidden, only_selected, no_ramps, delete_intermediate, credit, copy_textures, outline_properties, game:GameEnum, destination=None):
     scene = bpy.context.scene
+
+
+    ################JOIN MESHES EXPERIMENTAL################
+    # List collections to join and containers
+    mainobjects = [obj.name for obj in scene.objects
+                if obj.name.lower().startswith(object_name.lower())
+                and obj.visible_get() and obj.type == "MESH"]
+    collectionstojoin = {}
+    for col in bpy.data.collections:
+        for obj in mainobjects:
+            if obj.lower().startswith(col.name.lower()):
+                collectionstojoin[obj] = col.name
+    # Sanity checks
+    for obj in mainobjects:
+        for key, col in collectionstojoin.items():
+            if obj in bpy.data.collections[col].objects:
+                raise Exception(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
+
+    #TODO: add check to make sure the person has the right amount of objects to export. 
+    #errors caused by this mean that things starting with object can break the export without throwing error.
+    obj_in_col = []
+    for key,col in collectionstojoin.items():
+        obj_in_col += [obj for obj in bpy.data.collections[col].objects]
+    obj_in_fault = [obj for obj in obj_in_col
+    if obj.type == "MESH" and obj.visible_get() and obj.name.lower().startswith(object_name.lower())]
+    if len(obj_in_fault) > 0:
+        raise Exception(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
+
+    # Deselect. Make Single use everything to avoid linked data issues
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.make_single_user(type='ALL', object=True, obdata=True,
+                                    animation=True, obdata_animation=True)
+    # Join meshes
+    topop = []
+    for obj, col in collectionstojoin.items():
+        if is_collection_empty(bpy.data.collections[col]):
+            print(f"Collection {col} is empty, skipping")
+        else:
+            join_into(context, bpy.data.collections[col], obj)
+        topop.append(obj)
+
+    # Debugging
+    for obj in topop:
+        collectionstojoin.pop(obj)
+        mainobjects.remove(obj)
+    if len(mainobjects) > 0:
+        print("Warning: some objects were ignored or had no match.")
+        print("Objects ignored: ")
+        for obj in mainobjects:
+            print(obj)
+    if len(collectionstojoin) > 0:
+        print("Warning: some collections were ignored or had no match.")
+        print("Collections ignored: ")
+        for col, obj in collectionstojoin.items():
+            print(f"{col} ->{obj}")
+    ################JOIN MESHES EXPERIMENTAL################
+
+
 
     # Quick sanity check
     # If we cannot find any objects in the scene with or any files in the folder with the given name, default to using
@@ -2497,6 +2621,9 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
 
     generate_mod_folder(os.path.dirname(vb_path), object_name, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
+    
+    bpy.ops.ed.undo_push(message="Join Meshes: frame export")
+    bpy.ops.ed.undo()
 
 def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
     parent_folder = os.path.join(path, "../")
@@ -3173,7 +3300,15 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
             # Does this need special controls for 1D, 3D and 4D colors?
             color_layer = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 4))
             mesh.vertex_colors[elem.name].data.foreach_get("color", color_layer.ravel())
-            migoto_verts[elem.name] = (color_layer * 255).astype(numpy.uint8)
+            if unorm16_pattern.match(elem.Format):
+                color_layer = (color_layer * 65535).astype(numpy.uint16)
+            elif unorm8_pattern.match(elem.Format):
+                color_layer = (color_layer * 255).astype(numpy.uint8)
+            elif snorm16_pattern.match(elem.Format):
+                color_layer = (color_layer * 32767).astype(numpy.int16)
+            elif snorm8_pattern.match(elem.Format):
+                color_layer = (color_layer * 127).astype(numpy.int8)
+            migoto_verts[elem.name] = color_layer
         elif translated_elem_name.startswith("TEXCOORD") and elem.is_float():
             texcoord_layer = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             count = 0

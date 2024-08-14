@@ -16,17 +16,16 @@ gh repo clone leotorrez/XXMI-Tools
 Then you can enable the plugin in Blender by going to `Edit > Preferences > Add-ons` and searching for `XXMI Tools`
 
 # Planned & necessary changes:
-- Generate stuff on proper destination
 - Faster export Numpy
     - Outfit compiler Features
         - Apply join meshes per outfit
         - $variable in name(its the least of pains)
     - JoinMeshes features
-        - Make all objects single use to temporarily remove linked data
+        - ~~Make all objects single use to temporarily remove linked data~~
         - Apply all visible shapekeys (ignoring Marked $variable)
         - Export marked $variable as data shapekeys
-        - Apply all visible modifiers
-        - Remove the vertex groups that contain the word MASK in their name. To avoid DX11 hard limit
+        - ~~Apply all visible modifiers~~
+        - ~~Remove the vertex groups that contain the word MASK in their name. To avoid DX11 hard limit~~
         - Join all objects in the collection+$variable into a single "container" mesh
         - conver to numpy arrays
         - free bmesh/undo bs
@@ -71,3 +70,4 @@ Then you can enable the plugin in Blender by going to `Edit > Preferences > Add-
 - ~~merging GIMI, SRMI, HIMI, ZZMI into a single plugin~~
 - ~~turn script into a zip file for easier project management~~
 - ~~organize said zip xD~~
+- ~~Generate stuff on proper destination~~
