@@ -46,6 +46,7 @@ class MigotoImportOptionsPanelBase(object):
 class MIGOTO_PT_ImportFrameAnalysisMainPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
+    bl_order = 0
 
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
@@ -57,6 +58,7 @@ class MIGOTO_PT_ImportFrameAnalysisMainPanel(MigotoImportOptionsPanelBase, bpy.t
 class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
+    bl_order = 1
 
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
@@ -69,6 +71,7 @@ class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBas
 class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Load .buf files instead"
     bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 2
 
     def draw_header(self, context):
         operator = context.space_data.active_operator
@@ -83,6 +86,7 @@ class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, b
 class MIGOTO_PT_ImportFrameAnalysisBonePanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 3
 
     def draw_header(self, context):
         operator = context.space_data.active_operator
@@ -96,6 +100,7 @@ class MIGOTO_PT_ImportFrameAnalysisBonePanel(MigotoImportOptionsPanelBase, bpy.t
 class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Semantic Remap"
     #bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 4
 
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
@@ -118,6 +123,7 @@ class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelB
 
 class MIGOTO_PT_ImportFrameAnalysisManualOrientation(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Orientation"
+    bl_order = 5
 
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
@@ -126,6 +132,7 @@ class MIGOTO_PT_ImportFrameAnalysisManualOrientation(MigotoImportOptionsPanelBas
         self.layout.prop(operator, "axis_up")
 class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = "Clean Up mesh after import"
+    bl_order = 6
 
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
@@ -251,24 +258,11 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_options = {'HIDE_HEADER'}
     bl_order = 99
 
-    # def draw_header(self, context):
-    #     xxmi = context.scene.xxmi
-    #     self.layout.prop(xxmi, "outline_optimization")
-
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)
-        scene = context.scene
         layout = self.layout
         row = layout.row()
-        if scene.progress:
-            progress_bar = layout.row()
-            progress_bar.prop(bpy.context.scene,"progress")
-            progress_lbl = layout.row()
-            progress_lbl.active = False
-            progress_lbl.label(text=scene.progress_label)
-        else:
-            row.operator_context = "INVOKE_DEFAULT"
-            row.operator("xxmi.exportadvanced", text="Export Mod")
+        row.operator("xxmi.exportadvanced", text="Export Mod")
 
 def menu_func_import_fa(self, context):
     self.layout.operator(Import3DMigotoFrameAnalysis.bl_idname, text="3DMigoto frame analysis dump (vb.txt + ib.txt)")
