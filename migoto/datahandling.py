@@ -2399,7 +2399,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
     for obj in mainobjects:
         for key, col in collectionstojoin.items():
             if obj in bpy.data.collections[col].objects:
-                raise Exception(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
+                raise Fatal(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
 
     #TODO: add check to make sure the person has the right amount of objects to export. 
     #errors caused by this mean that things starting with object can break the export without throwing error.
@@ -2409,7 +2409,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
     obj_in_fault = [obj for obj in obj_in_col
     if obj.type == "MESH" and obj.visible_get() and obj.name.lower().startswith(object_name.lower())]
     if len(obj_in_fault) > 0:
-        raise Exception(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
+        raise Fatal(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
 
     # Deselect. Make Single use everything to avoid linked data issues
     bpy.ops.object.select_all(action='DESELECT')
@@ -3241,6 +3241,14 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
     migoto_verts = numpy.zeros(len(mesh.loops), dtype=dtype)
     vertex_idx = numpy.zeros(len(mesh.loops), dtype=int)
     mesh.loops.foreach_get("vertex_index", vertex_idx)
+    weights_warning = False
+    weights = [{g.group:g.weight for g in v.groups} for v in mesh.vertices]
+    for i, w in enumerate(weights):
+        if i >= 4:
+            weights_warning = True
+        weights[i] = dict(sorted(w.items(), key=lambda item: item[1], reverse=True))
+    if weights_warning:
+        print('Warning: More than 4 vertex groups per vertex are not recommended. DirectX 11 only supports 4 vertex groups per vertex.')
     for elem in fmt_layout:
         if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
             continue
@@ -3262,7 +3270,7 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
         elif translated_elem_name.startswith("TANGENT"):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
             bitangent_sign = numpy.zeros(len(mesh.loops), dtype=numpy.float16)
-            tangent = numpy.zeros((len(mesh.loops), 4), dtype=numpy.float16)
+            tangent = numpy.zeros((len(mesh.loops), 4), dtype=numpy.float16)    
             mesh.loops.foreach_get("tangent", temp_tangent.ravel())
             mesh.loops.foreach_get("bitangent_sign", bitangent_sign)
             if outline_properties[0]:
@@ -3279,22 +3287,18 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
         elif translated_elem_name.startswith("BLENDWEIGHT"):
             blendweights = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             for loop in mesh.loops:
-                weights = numpy.zeros(elem.format_len, dtype=numpy.float32)
-                for i, group in enumerate(mesh.vertices[loop.vertex_index].groups):
+                for i, g in enumerate(weights[loop.vertex_index].values()):
                     if i >= elem.format_len:
                         break
-                    weights[i] = group.weight
-                blendweights[loop.index] = weights
+                    blendweights[loop.index][i] = g
             migoto_verts[elem.name] = blendweights
         elif translated_elem_name.startswith("BLENDINDICES"):
             blendindices = numpy.zeros(len(mesh.loops), dtype=(int, elem.format_len))
             for loop in mesh.loops:
-                indices = numpy.zeros(elem.format_len, dtype=int)
-                for i, group in enumerate(mesh.vertices[loop.vertex_index].groups):
+                for i, g in enumerate(weights[loop.vertex_index].keys()):
                     if i >= elem.format_len:
                         break
-                    indices[i] = group.group
-                blendindices[loop.index] = indices
+                    blendindices[loop.index][i] = g
             migoto_verts[elem.name] = blendindices
         elif translated_elem_name.startswith("COLOR"):
             # Does this need special controls for 1D, 3D and 4D colors?
