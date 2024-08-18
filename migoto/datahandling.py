@@ -3206,7 +3206,8 @@ def split_vb(vb, fmt_layout ,dtype):
 
 def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_normal, translate_tangent, outline_properties=None):
     texcoord_layers = {}
-    color_layers = {}
+    translate_normal = numpy.vectorize(translate_normal)
+    translate_tangent = numpy.vectorize(translate_tangent)
     dtype = numpy.dtype([])
     for elem in fmt_layout:
         if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
@@ -3241,14 +3242,12 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
     migoto_verts = numpy.zeros(len(mesh.loops), dtype=dtype)
     vertex_idx = numpy.zeros(len(mesh.loops), dtype=int)
     mesh.loops.foreach_get("vertex_index", vertex_idx)
-    weights_warning = False
-    weights = [{g.group:g.weight for g in v.groups} for v in mesh.vertices]
+    weights_error_flag = -1
+    start = time.time()
+    weights = [{g.group:g.weight for g in v.groups if g.weight > 0} for v in mesh.vertices]
     for i, w in enumerate(weights):
-        if i >= 4:
-            weights_warning = True
         weights[i] = dict(sorted(w.items(), key=lambda item: item[1], reverse=True))
-    if weights_warning:
-        print('Warning: More than 4 vertex groups per vertex are not recommended. DirectX 11 only supports 4 vertex groups per vertex.')
+    print("Weights:", time.time() - start)
     for elem in fmt_layout:
         if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
             continue
@@ -3264,8 +3263,7 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
             # TODO: Figure out 4D normals, they should be saved in custom layers
             normal = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
             mesh.loops.foreach_get("normal", normal.ravel())
-            nt = numpy.vectorize(translate_normal)
-            nt(normal)
+            translate_normal(normal)
             migoto_verts[elem.name] = normal
         elif translated_elem_name.startswith("TANGENT"):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
@@ -3277,8 +3275,7 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
                 export_outline = optimized_outline_generation(obj, mesh, outline_properties)
                 for loop, vert in enumerate(vertex_idx):
                     temp_tangent[loop] = export_outline.get(vert, temp_tangent[loop])
-            tt = numpy.vectorize(translate_tangent)
-            tt(temp_tangent)
+            translate_tangent(temp_tangent)
             tangent[:, 0:3] = temp_tangent
             tangent[:, 3] = bitangent_sign
             if game == GameEnum.ZenlessZoneZero:
@@ -3289,16 +3286,24 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
             for loop in mesh.loops:
                 for i, g in enumerate(weights[loop.vertex_index].values()):
                     if i >= elem.format_len:
+                        weights_error_flag = elem.format_len
                         break
-                    blendweights[loop.index][i] = g
+                    if elem.format_len == 1:
+                        blendweights[loop.index] = g
+                    else:
+                        blendweights[loop.index][i] = g
             migoto_verts[elem.name] = blendweights
         elif translated_elem_name.startswith("BLENDINDICES"):
-            blendindices = numpy.zeros(len(mesh.loops), dtype=(int, elem.format_len))
+            blendindices = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, elem.format_len))
             for loop in mesh.loops:
                 for i, g in enumerate(weights[loop.vertex_index].keys()):
                     if i >= elem.format_len:
+                        weights_error_flag = elem.format_len
                         break
-                    blendindices[loop.index][i] = g
+                    if elem.format_len == 1:
+                        blendindices[loop.index] = g
+                    else:
+                        blendindices[loop.index][i] = g
             migoto_verts[elem.name] = blendindices
         elif translated_elem_name.startswith("COLOR"):
             # Does this need special controls for 1D, 3D and 4D colors?
@@ -3333,11 +3338,11 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
                     mesh.uv_layers[uv].data.foreach_get("uv", texcoord_layers[uv].ravel())
                     temp_uv = temp_uv[:, 0]
                     texcoord_layer[:, count] = temp_uv
-
             migoto_verts[elem.name] = texcoord_layer
         else:
             print(f"ERROR: Unsupported semantic name. {translated_elem_name}")
-
+    if weights_error_flag != -1:
+        print(f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.")
     return migoto_verts, dtype
 
 def mesh_to_bin(mesh, obj, game:GameEnum, translate_normal, translate_tangent, outline_properties):
