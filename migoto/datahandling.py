@@ -441,7 +441,7 @@ class HashableVertex(dict):
         # Convert keys and values into immutable types that can be hashed
         immutable = tuple((k, tuple(v)) for k,v in sorted(self.items()))
         return hash(immutable)
-class HashableVertex(bytes):
+class HashableVertexBytes(bytes):
     def __hash__(self):
         # Convert keys and values into immutable types that can be hashed
         immutable = tuple(self)
@@ -3353,7 +3353,7 @@ def mesh_to_bin(mesh, obj, game:GameEnum, translate_normal, translate_tangent, o
         face = []
         for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
             vertex = migoto_verts[blender_lvertex.index]
-            face.append(indexed_vertices.setdefault(HashableVertex(vertex.tobytes()), len(indexed_vertices)))
+            face.append(indexed_vertices.setdefault(HashableVertexBytes(vertex.tobytes()), len(indexed_vertices)))
         ib.append(face)
     vb = bytearray()
     for vertex in indexed_vertices:
