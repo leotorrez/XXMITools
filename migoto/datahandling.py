@@ -2386,62 +2386,67 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
 
 
     ################JOIN MESHES EXPERIMENTAL################
-    # List collections to join and containers
-    mainobjects = [obj.name for obj in scene.objects
-                if obj.name.lower().startswith(object_name.lower())
-                and obj.visible_get() and obj.type == "MESH"]
-    collectionstojoin = {}
-    for col in bpy.data.collections:
+    # Input: list of objs, list of collections
+    try:
+        # List collections to join and containers
+        mainobjects = [obj.name for obj in scene.objects
+                    if obj.name.lower().startswith(object_name.lower())
+                    and obj.visible_get() and obj.type == "MESH"]
+        collectionstojoin = {}
+        for col in bpy.data.collections:
+            for obj in mainobjects:
+                if obj.lower().startswith(col.name.lower()):
+                    collectionstojoin[obj] = col.name
+        # Sanity checks
         for obj in mainobjects:
-            if obj.lower().startswith(col.name.lower()):
-                collectionstojoin[obj] = col.name
-    # Sanity checks
-    for obj in mainobjects:
-        for key, col in collectionstojoin.items():
-            if obj in bpy.data.collections[col].objects:
-                raise Fatal(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
+            for key, col in collectionstojoin.items():
+                if obj in bpy.data.collections[col].objects:
+                    raise Fatal(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
 
-    #TODO: add check to make sure the person has the right amount of objects to export. 
-    #errors caused by this mean that things starting with object can break the export without throwing error.
-    obj_in_col = []
-    for key,col in collectionstojoin.items():
-        obj_in_col += [obj for obj in bpy.data.collections[col].objects]
-    obj_in_fault = [obj for obj in obj_in_col
-    if obj.type == "MESH" and obj.visible_get() and obj.name.lower().startswith(object_name.lower())]
-    if len(obj_in_fault) > 0:
-        raise Fatal(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
+        #TODO: add check to make sure the person has the right amount of objects to export. 
+        #errors caused by this mean that things starting with object can break the export without throwing error.
+        obj_in_col = []
+        for key,col in collectionstojoin.items():
+            obj_in_col += [obj for obj in bpy.data.collections[col].objects]
+        obj_in_fault = [obj for obj in obj_in_col
+        if obj.type == "MESH" and obj.visible_get() and obj.name.lower().startswith(object_name.lower())]
+        if len(obj_in_fault) > 0:
+            raise Fatal(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
 
-    # Deselect. Make Single use everything to avoid linked data issues
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.object.make_single_user(type='ALL', object=True, obdata=True,
-                                    animation=True, obdata_animation=True)
-    # Join meshes
-    topop = []
-    for obj, col in collectionstojoin.items():
-        if is_collection_empty(bpy.data.collections[col]):
-            print(f"Collection {col} is empty, skipping")
-        else:
-            join_into(context, bpy.data.collections[col], obj)
-        topop.append(obj)
+        # Deselect. Make Single use everything to avoid linked data issues
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.make_single_user(type='ALL', object=True, obdata=True,
+                                        animation=True, obdata_animation=True)
+        # Join meshes
+        topop = []
+        for obj, col in collectionstojoin.items():
+            if is_collection_empty(bpy.data.collections[col]):
+                print(f"Collection {col} is empty, skipping")
+            else:
+                join_into(context, bpy.data.collections[col], obj)
+            topop.append(obj)
 
-    # Debugging
-    for obj in topop:
-        collectionstojoin.pop(obj)
-        mainobjects.remove(obj)
-    if len(mainobjects) > 0:
-        print("Warning: some objects were ignored or had no match.")
-        print("Objects ignored: ")
-        for obj in mainobjects:
-            print(obj)
-    if len(collectionstojoin) > 0:
-        print("Warning: some collections were ignored or had no match.")
-        print("Collections ignored: ")
-        for col, obj in collectionstojoin.items():
-            print(f"{col} ->{obj}")
+        # Debugging
+        for obj in topop:
+            collectionstojoin.pop(obj)
+            mainobjects.remove(obj)
+        if len(mainobjects) > 0:
+            print("Warning: some objects were ignored or had no match.")
+            print("Objects ignored: ")
+            for obj in mainobjects:
+                print(obj)
+        if len(collectionstojoin) > 0:
+            print("Warning: some collections were ignored or had no match.")
+            print("Collections ignored: ")
+            for col, obj in collectionstojoin.items():
+                print(f"{col} ->{obj}")
+    except Exception as e:
+        bpy.ops.ed.undo_push(message="XXMITools: failed export")
+        bpy.ops.ed.undo()
+        print("Error joining meshes: ", e)
+        raise Fatal("Error joining meshes. Check console for more information.")
+    # Output: list of meshes
     ################JOIN MESHES EXPERIMENTAL################
-
-
-
     # Quick sanity check
     # If we cannot find any objects in the scene with or any files in the folder with the given name, default to using
     #   the folder name
@@ -2565,7 +2570,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # Blender to do this, but it's easy enough to do this ourselves
             
             ib, vbarr, _, _, _ = mesh_to_bin(mesh, obj, game, translate_normal, translate_tangent, outline_properties)
-            
+
             # if vb.topology == 'trianglelist':
             #     for poly in mesh.polygons:
             #         face = []
@@ -2621,8 +2626,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
 
     generate_mod_folder(os.path.dirname(vb_path), object_name, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
-    
-    bpy.ops.ed.undo_push(message="Join Meshes: frame export")
+    bpy.ops.ed.undo_push(message="XXMITools: undo")
     bpy.ops.ed.undo()
 
 def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
@@ -2757,6 +2761,9 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                     ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nrun = CommandListSkinTexture\nib = Resource{current_name}{current_object}IB\n"
                 else:
                     ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = Resource{current_name}{current_object}IB\n"
+                # for item in offsets:
+                #     ib_override_ini += f";{item['name']}"
+                #     ib_override_ini += f"drawindexed = {item['count']}, {item['offset']}, 0\n"
             else:
                 ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = null\n"
             ib_res_ini += f"[Resource{current_name}{current_object}IB]\ntype = Buffer\nformat = DXGI_FORMAT_R32_UINT\nfilename = {current_name}{current_object}.ib\n\n"
@@ -3210,6 +3217,8 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
     translate_tangent = numpy.vectorize(translate_tangent)
     dtype = numpy.dtype([])
     for elem in fmt_layout:
+        # Numpy Future warning: 1 vs (1,) shape. 
+        # Doesn't cause issues right now but might in a future blender update.
         if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
             continue
         if f32_pattern.match(elem.Format):
@@ -3225,7 +3234,7 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
         elif s32_pattern.match(elem.Format):
             dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.int32, elem.format_len))])
         elif s16_pattern.match(elem.Format):
-            dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.int16, elem.format_len))])            
+            dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.int16, elem.format_len))])
         elif s8_pattern.match(elem.Format):
             dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.int8, elem.format_len))])
         elif unorm16_pattern.match(elem.Format):
@@ -3240,14 +3249,10 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
             raise Fatal('File uses an unsupported DXGI Format: %s' % elem.Format)
 
     migoto_verts = numpy.zeros(len(mesh.loops), dtype=dtype)
-    vertex_idx = numpy.zeros(len(mesh.loops), dtype=int)
-    mesh.loops.foreach_get("vertex_index", vertex_idx)
     weights_error_flag = -1
-    start = time.time()
     weights = [{g.group:g.weight for g in v.groups if g.weight > 0} for v in mesh.vertices]
     for i, w in enumerate(weights):
         weights[i] = dict(sorted(w.items(), key=lambda item: item[1], reverse=True))
-    print("Weights:", time.time() - start)
     for elem in fmt_layout:
         if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
             continue
@@ -3255,71 +3260,69 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
         translated_elem_name, translated_elem_index = \
                 semantic_translations.get(elem.name, (elem.name, elem.SemanticIndex))
         if translated_elem_name == "POSITION":
-            position = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
+            position = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, elem.format_len))
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
-            for loop_idx, vert_idx in enumerate(vertex_idx):
-                migoto_verts[loop_idx][elem.name] = position[vert_idx]
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
+            for loop in mesh.loops:
+                result[loop.index] = position[loop.vertex_index]
+            if 'POSITION.w' in custom_attributes_float(mesh):
+                loop_position_w = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, (1,)))
+                for loop in mesh.loops:
+                    loop_position_w[loop.index] = custom_attributes_float(mesh)['POSITION.w'].data[loop.vertex_index].value
+                result = numpy.concatenate((result, loop_position_w), axis=1)
         elif translated_elem_name == "NORMAL":
-            # TODO: Figure out 4D normals, they should be saved in custom layers
-            normal = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
-            mesh.loops.foreach_get("normal", normal.ravel())
-            translate_normal(normal)
-            migoto_verts[elem.name] = normal
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
+            mesh.loops.foreach_get("normal", result.ravel())
+            translate_normal(result)
+            if 'NORMAL.w' in custom_attributes_float(mesh):
+                loop_normal_w = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, (1,)))
+                for loop in mesh.loops:
+                    loop_normal_w[loop.index] = custom_attributes_float(mesh)['NORMAL.w'].data[loop.vertex_index].value
+                result = numpy.concatenate((result, loop_normal_w), axis=1)
         elif translated_elem_name.startswith("TANGENT"):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
             bitangent_sign = numpy.zeros(len(mesh.loops), dtype=numpy.float16)
-            tangent = numpy.zeros((len(mesh.loops), 4), dtype=numpy.float16)    
+            result = numpy.zeros((len(mesh.loops), 4), dtype=numpy.float16)
             mesh.loops.foreach_get("tangent", temp_tangent.ravel())
             mesh.loops.foreach_get("bitangent_sign", bitangent_sign)
             if outline_properties[0]:
                 export_outline = optimized_outline_generation(obj, mesh, outline_properties)
-                for loop, vert in enumerate(vertex_idx):
-                    temp_tangent[loop] = export_outline.get(vert, temp_tangent[loop])
+                for loop in mesh.loops:
+                    temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
             translate_tangent(temp_tangent)
-            tangent[:, 0:3] = temp_tangent
-            tangent[:, 3] = bitangent_sign
+            result[:, 0:3] = temp_tangent
+            result[:, 3] = bitangent_sign
             if game == GameEnum.ZenlessZoneZero:
-                tangent[:, 3] = tangent[:, 3] * -1
-            migoto_verts[elem.name] = tangent
+                result[:, 3] = result[:, 3] * -1
+            result = result[:, 0:elem.format_len]
         elif translated_elem_name.startswith("BLENDWEIGHT"):
-            blendweights = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             for loop in mesh.loops:
                 for i, g in enumerate(weights[loop.vertex_index].values()):
                     if i >= elem.format_len:
                         weights_error_flag = elem.format_len
                         break
                     if elem.format_len == 1:
-                        blendweights[loop.index] = g
+                        result[loop.index] = g
                     else:
-                        blendweights[loop.index][i] = g
-            migoto_verts[elem.name] = blendweights
+                        result[loop.index][i] = g
         elif translated_elem_name.startswith("BLENDINDICES"):
-            blendindices = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, elem.format_len))
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, elem.format_len))
             for loop in mesh.loops:
                 for i, g in enumerate(weights[loop.vertex_index].keys()):
                     if i >= elem.format_len:
                         weights_error_flag = elem.format_len
                         break
                     if elem.format_len == 1:
-                        blendindices[loop.index] = g
+                        result[loop.index] = g
                     else:
-                        blendindices[loop.index][i] = g
-            migoto_verts[elem.name] = blendindices
+                        result[loop.index][i] = g
         elif translated_elem_name.startswith("COLOR"):
-            # Does this need special controls for 1D, 3D and 4D colors?
-            color_layer = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 4))
-            mesh.vertex_colors[elem.name].data.foreach_get("color", color_layer.ravel())
-            if unorm16_pattern.match(elem.Format):
-                color_layer = (color_layer * 65535).astype(numpy.uint16)
-            elif unorm8_pattern.match(elem.Format):
-                color_layer = (color_layer * 255).astype(numpy.uint8)
-            elif snorm16_pattern.match(elem.Format):
-                color_layer = (color_layer * 32767).astype(numpy.int16)
-            elif snorm8_pattern.match(elem.Format):
-                color_layer = (color_layer * 127).astype(numpy.int8)
-            migoto_verts[elem.name] = color_layer
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 4))
+            mesh.vertex_colors[elem.name].data.foreach_get("color", result.ravel())
+            result = result[:, 0:elem.format_len]
         elif translated_elem_name.startswith("TEXCOORD") and elem.is_float():
-            texcoord_layer = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             count = 0
             for uv in (f"{elem.name}.xy", f"{elem.name}.zw"):
                 if uv in mesh.uv_layers:
@@ -3330,17 +3333,42 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
                             temp_uv[:, 1] = 1.0 - temp_uv[:, 1]
                     except KeyError:
                         pass
-                    texcoord_layer[:, count:count+2] = temp_uv
+                    result[:, count:count+2] = temp_uv
                     count += 2
             for uv in (f"{elem.name}.x", f"{elem.name}.z"):
                 if uv in mesh.uv_layers:
                     temp_uv = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 2))
-                    mesh.uv_layers[uv].data.foreach_get("uv", texcoord_layers[uv].ravel())
+                    mesh.uv_layers[uv].data.foreach_get("uv", result[uv].ravel())
                     temp_uv = temp_uv[:, 0]
-                    texcoord_layer[:, count] = temp_uv
-            migoto_verts[elem.name] = texcoord_layer
+                    result[:, count] = temp_uv
         else:
-            print(f"ERROR: Unsupported semantic name. {translated_elem_name}")
+            # Unhandled semantics are saved in vertex layers
+            if elem.is_float():
+                result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, (elem.format_len,)))
+            elif elem.is_int():
+                result = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, (elem.format_len,)))
+            else:
+                print('Warning: Unhandled semantic %s %s' % (elem.name, elem.Format))
+            for i, component in enumerate('xyzw'):
+                if i >= elem.format_len:
+                    break
+                layer_name = '%s.%s' % (elem.name, component)
+                if layer_name in custom_attributes_int(mesh):
+                    for loop in mesh.loops:
+                        result[:, i][loop.index] = custom_attributes_int(mesh)[layer_name].data[loop.vertex_index].value
+                elif layer_name in custom_attributes_float(mesh):
+                    for loop in mesh.loops:
+                        result[:, i][loop.index] = custom_attributes_float(mesh)[layer_name].data[loop.vertex_index].value
+        if not translated_elem_name.startswith("BLENDINDICES"):
+            if unorm16_pattern.match(elem.Format):
+                result = (result * 65535).astype(numpy.uint16)
+            elif unorm8_pattern.match(elem.Format):
+                result = (result * 255).astype(numpy.uint8)
+            elif snorm16_pattern.match(elem.Format):
+                result = (result * 32767).astype(numpy.int16)
+            elif snorm8_pattern.match(elem.Format):
+                result = (result * 127).astype(numpy.int8)
+        migoto_verts[elem.name] = result
     if weights_error_flag != -1:
         print(f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.")
     return migoto_verts, dtype
