@@ -37,6 +37,8 @@ Then you can enable the plugin in Blender by going to `Edit > Preferences > Add-
     - 2.8 to 3.5 support
     - update asset repo to new DUMP format
     - Shapekey support for ZZZ and HSR maybe HI3
+    - Support pipiline for implicit weights (aka fix scyll collect too)
+        - Fix import weights
 - partial exports(blend, pos, tex, ib)
 - partial export per component(meaning all materials of a single component are needed but not all components to export)
 - abstracting INI generation for easier adaptation to new games
