@@ -867,7 +867,7 @@ class XXMIProperties(bpy.types.PropertyGroup):
 
     copy_textures : BoolProperty(
         name="Copy textures",
-        description="Copies the texture files to the mod folder, useful for the initial export but might be redundant afterwards.",
+        description="Copies the texture files to the mod folder, useful for the initial export but might be redundant afterwards",
         default=True,
     )
 
@@ -929,6 +929,16 @@ class XXMIProperties(bpy.types.PropertyGroup):
     name="Game to mod",
     description="Select the game you are modding to optimize the mod for that game",
     items=game_enums,
+    )
+    join_meshes: bpy.props.BoolProperty(
+        name="Join meshes",
+        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object",
+        default=True,
+    )
+    normalize_weights: bpy.props.BoolProperty(
+        name="Normalize weights to format",
+        description="Limits weights to match export format. Also normalizes the remaining weights",
+        default=False,
     )
 class DestinationSelector(bpy.types.Operator, ExportHelper):
     """Export single mod based on current frame"""
@@ -994,6 +1004,8 @@ class ExportAdvancedOperator(bpy.types.Operator):
             self.flip_winding = xxmi.flip_winding
             self.flip_normal = xxmi.flip_normal
             self.flip_tangent = xxmi.flip_tangent
+            self.join_meshes = xxmi.join_meshes
+            self.normalize_weights = xxmi.normalize_weights
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             outline_properties = (xxmi.outline_optimization, xxmi.toggle_rounding_outline, xxmi.decimal_rounding_outline, xxmi.angle_weighted, xxmi.overlapping_faces, xxmi.detect_edges, xxmi.calculate_all_faces, xxmi.nearest_edge_distance)
             game = silly_lookup(xxmi.game)

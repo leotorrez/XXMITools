@@ -217,6 +217,8 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Pan
         col.prop(xxmi, 'no_ramps')
         col.prop(xxmi, 'delete_intermediate')
         col.prop(xxmi, 'copy_textures')
+        col.prop(xxmi, 'join_meshes')
+        col.prop(xxmi, 'normalize_weights')
 class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}

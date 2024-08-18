@@ -2387,64 +2387,65 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
 
     ################JOIN MESHES EXPERIMENTAL################
     # Input: list of objs, list of collections
-    try:
-        # List collections to join and containers
-        mainobjects = [obj.name for obj in scene.objects
-                    if obj.name.lower().startswith(object_name.lower())
-                    and obj.visible_get() and obj.type == "MESH"]
-        collectionstojoin = {}
-        for col in bpy.data.collections:
+    if operator.join_meshes:
+        try:
+            # List collections to join and containers
+            mainobjects = [obj.name for obj in scene.objects
+                        if obj.name.lower().startswith(object_name.lower())
+                        and obj.visible_get() and obj.type == "MESH"]
+            collectionstojoin = {}
+            for col in bpy.data.collections:
+                for obj in mainobjects:
+                    if obj.lower().startswith(col.name.lower()):
+                        collectionstojoin[obj] = col.name
+            # Sanity checks
             for obj in mainobjects:
-                if obj.lower().startswith(col.name.lower()):
-                    collectionstojoin[obj] = col.name
-        # Sanity checks
-        for obj in mainobjects:
-            for key, col in collectionstojoin.items():
-                if obj in bpy.data.collections[col].objects:
-                    raise Fatal(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
+                for key, col in collectionstojoin.items():
+                    if obj in bpy.data.collections[col].objects:
+                        raise Fatal(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
 
-        #TODO: add check to make sure the person has the right amount of objects to export. 
-        #errors caused by this mean that things starting with object can break the export without throwing error.
-        obj_in_col = []
-        for key,col in collectionstojoin.items():
-            obj_in_col += [obj for obj in bpy.data.collections[col].objects]
-        obj_in_fault = [obj for obj in obj_in_col
-        if obj.type == "MESH" and obj.visible_get() and obj.name.lower().startswith(object_name.lower())]
-        if len(obj_in_fault) > 0:
-            raise Fatal(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
+            #TODO: add check to make sure the person has the right amount of objects to export. 
+            #errors caused by this mean that things starting with object can break the export without throwing error.
+            obj_in_col = []
+            for key,col in collectionstojoin.items():
+                obj_in_col += [obj for obj in bpy.data.collections[col].objects]
+            obj_in_fault = [obj for obj in obj_in_col
+            if obj.type == "MESH" and obj.visible_get() and obj.name.lower().startswith(object_name.lower())]
+            if len(obj_in_fault) > 0:
+                raise Fatal(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
 
-        # Deselect. Make Single use everything to avoid linked data issues
-        bpy.ops.object.select_all(action='DESELECT')
-        bpy.ops.object.make_single_user(type='ALL', object=True, obdata=True,
-                                        animation=True, obdata_animation=True)
-        # Join meshes
-        topop = []
-        for obj, col in collectionstojoin.items():
-            if is_collection_empty(bpy.data.collections[col]):
-                print(f"Collection {col} is empty, skipping")
-            else:
-                join_into(context, bpy.data.collections[col], obj)
-            topop.append(obj)
+            # Deselect. Make Single use everything to avoid linked data issues
+            bpy.ops.object.select_all(action='DESELECT')
+            bpy.ops.object.make_single_user(type='ALL', object=True, obdata=True,
+                                            animation=True, obdata_animation=True)
+            # Join meshes
+            topop = []
+            for obj, col in collectionstojoin.items():
+                if is_collection_empty(bpy.data.collections[col]):
+                    print(f"Collection {col} is empty, skipping")
+                else:
+                    join_into(context, bpy.data.collections[col], obj)
+                topop.append(obj)
 
-        # Debugging
-        for obj in topop:
-            collectionstojoin.pop(obj)
-            mainobjects.remove(obj)
-        if len(mainobjects) > 0:
-            print("Warning: some objects were ignored or had no match.")
-            print("Objects ignored: ")
-            for obj in mainobjects:
-                print(obj)
-        if len(collectionstojoin) > 0:
-            print("Warning: some collections were ignored or had no match.")
-            print("Collections ignored: ")
-            for col, obj in collectionstojoin.items():
-                print(f"{col} ->{obj}")
-    except Exception as e:
-        bpy.ops.ed.undo_push(message="XXMITools: failed export")
-        bpy.ops.ed.undo()
-        print("Error joining meshes: ", e)
-        raise Fatal("Error joining meshes. Check console for more information.")
+            # Debugging
+            for obj in topop:
+                collectionstojoin.pop(obj)
+                mainobjects.remove(obj)
+            if len(mainobjects) > 0:
+                print("Warning: some objects were ignored or had no match.")
+                print("Objects ignored: ")
+                for obj in mainobjects:
+                    print(obj)
+            if len(collectionstojoin) > 0:
+                print("Warning: some collections were ignored or had no match.")
+                print("Collections ignored: ")
+                for col, obj in collectionstojoin.items():
+                    print(f"{col} ->{obj}")
+        except Exception as e:
+            bpy.ops.ed.undo_push(message="XXMITools: failed export")
+            bpy.ops.ed.undo()
+            print("Error joining meshes: ", e)
+            raise Fatal("Error joining meshes. Check console for more information.")
     # Output: list of meshes
     ################JOIN MESHES EXPERIMENTAL################
     # Quick sanity check
@@ -2569,7 +2570,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # via the index buffer. There might be a convenience function in
             # Blender to do this, but it's easy enough to do this ourselves
             
-            ib, vbarr, _, _, _ = mesh_to_bin(mesh, obj, game, translate_normal, translate_tangent, outline_properties)
+            ib, vbarr, _, _, _ = mesh_to_bin(operator, mesh, obj, game, translate_normal, translate_tangent, outline_properties)
 
             # if vb.topology == 'trianglelist':
             #     for poly in mesh.polygons:
@@ -3211,7 +3212,7 @@ def split_vb(vb, fmt_layout ,dtype):
         tex[field] = vb[field]
     return pos, blend, tex
 
-def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_normal, translate_tangent, outline_properties=None):
+def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game:GameEnum, translate_normal, translate_tangent, outline_properties=None):
     texcoord_layers = {}
     translate_normal = numpy.vectorize(translate_normal)
     translate_tangent = numpy.vectorize(translate_tangent)
@@ -3247,7 +3248,6 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
             dtype = numpy.dtype(dtype.descr + [(elem.name, (numpy.int8, elem.format_len))])
         else:
             raise Fatal('File uses an unsupported DXGI Format: %s' % elem.Format)
-
     migoto_verts = numpy.zeros(len(mesh.loops), dtype=dtype)
     weights_error_flag = -1
     weights = [{g.group:g.weight for g in v.groups if g.weight > 0} for v in mesh.vertices]
@@ -3306,6 +3306,9 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
                         result[loop.index] = g
                     else:
                         result[loop.index][i] = g
+            if operator.normalize_weights:
+                for i, r in enumerate(result):
+                    result[i] = r / numpy.sum(r)
         elif translated_elem_name.startswith("BLENDINDICES"):
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, elem.format_len))
             for loop in mesh.loops:
@@ -3361,23 +3364,23 @@ def blender_to_migoto_vertices(mesh, obj, fmt_layout, game:GameEnum, translate_n
                         result[:, i][loop.index] = custom_attributes_float(mesh)[layer_name].data[loop.vertex_index].value
         if not translated_elem_name.startswith("BLENDINDICES"):
             if unorm16_pattern.match(elem.Format):
-                result = (result * 65535).astype(numpy.uint16)
+                result = numpy.round(result * 65535).astype(numpy.uint16)
             elif unorm8_pattern.match(elem.Format):
-                result = (result * 255).astype(numpy.uint8)
+                result = numpy.round(result * 255).astype(numpy.uint8)
             elif snorm16_pattern.match(elem.Format):
-                result = (result * 32767).astype(numpy.int16)
+                result = numpy.round(result * 32767).astype(numpy.int16)
             elif snorm8_pattern.match(elem.Format):
-                result = (result * 127).astype(numpy.int8)
+                result = numpy.round(result * 127).astype(numpy.int8)
         migoto_verts[elem.name] = result
     if weights_error_flag != -1:
         print(f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.")
     return migoto_verts, dtype
 
-def mesh_to_bin(mesh, obj, game:GameEnum, translate_normal, translate_tangent, outline_properties):
+def mesh_to_bin(operator, mesh, obj, game:GameEnum, translate_normal, translate_tangent, outline_properties):
     fmt_layout = InputLayout(obj['3DMigoto:VBLayout'])
     vb = VertexBufferGroup(layout=fmt_layout, topology="trianglelist")
     vb.flag_invalid_semantics()
-    migoto_verts, dtype = blender_to_migoto_vertices(mesh, obj, fmt_layout, game, translate_normal, translate_tangent, outline_properties)
+    migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, outline_properties)
 
     ib = []
     indexed_vertices = collections.OrderedDict()
