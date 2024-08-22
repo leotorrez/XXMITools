@@ -1,6 +1,7 @@
 import bpy
 from bl_ui.generic_ui_list import draw_ui_list
 from .operators import ClearSemanticRemapList,PrefillSemanticRemapList, Import3DMigotoFrameAnalysis, Import3DMigotoRaw, Import3DMigotoPose, Export3DMigoto, ApplyVGMap, Export3DMigotoXXMI
+from .datahandling import GameEnum,game_enums
 class MIGOTO_UL_semantic_remap_list(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
@@ -169,20 +170,6 @@ class XXMI_PT_Sidebar(bpy.types.Panel):
         layout.separator()
         col = layout.column(align=True)
         col.prop(xxmi, 'game')
-        # draw dropdown panel
-
-        # col.prop(xxmi, 'outline_optimization')
-        
-        # if xxmi.outline_optimization:
-        #     col.prop(xxmi, 'toggle_rounding_outline', text='Vertex Position Rounding', toggle=True, icon="SHADING_WIRE")
-        #     col.prop(xxmi, 'decimal_rounding_outline')
-        #     if xxmi.toggle_rounding_outline:
-        #         col.prop(xxmi, 'detect_edges')
-        #     if xxmi.detect_edges and xxmi.toggle_rounding_outline:
-        #         col.prop(xxmi, 'nearest_edge_distance')
-        #     col.prop(xxmi, 'overlapping_faces')
-        #     col.prop(xxmi, 'angle_weighted')
-        #     col.prop(xxmi, 'calculate_all_faces')
 class XXMISidebarOptionsPanelBase(object):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -200,10 +187,6 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Pan
     bl_label = "Export Settings"
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 0
-
-    # def draw_header(self, context):
-    #     xxmi = context.scene.xxmi
-    #     self.layout.prop(xxmi, "outline_optimization")
 
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)
@@ -224,10 +207,6 @@ class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel
     bl_options = {'HIDE_HEADER'}
     bl_order = 2
 
-    # def draw_header(self, context):
-    #     xxmi = context.scene.xxmi
-    #     self.layout.prop(xxmi, "outline_optimization")
-
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)
         xxmi = context.scene.xxmi
@@ -235,9 +214,8 @@ class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel
         col.prop(xxmi, 'credit')
 class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
-    bl_options = {'DEFAULT_CLOSED'}
     bl_order = 1
-
+    bl_options = {'DEFAULT_CLOSED'}
     def draw_header(self, context):
         xxmi = context.scene.xxmi
         self.layout.prop(xxmi, "outline_optimization")

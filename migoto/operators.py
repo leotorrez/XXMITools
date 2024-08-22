@@ -1,12 +1,12 @@
-import bpy
+from glob import glob
 import re
 import itertools
 import os
-from glob import glob
-from bpy_extras.io_utils import  ImportHelper, ExportHelper
+import time
+import bpy
+from bpy_extras.io_utils import  ImportHelper, ExportHelper, orientation_helper
 from bpy.props import BoolProperty, StringProperty, CollectionProperty
-from bpy_extras.io_utils import orientation_helper
-from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, export_3dmigoto_xxmi, silly_lookup
+from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, silly_lookup
 IOOBJOrientationHelper = type('DummyIOOBJOrientationHelper', (object,), {})
 
 class ClearSemanticRemapList(bpy.types.Operator):
@@ -702,7 +702,7 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
     
     outline_optimization : BoolProperty(
         name="Outline Optimization",
-        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
+        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality. This option is tailored for Genshin Impact and may not work as well for other games. Use with caution.",
         default=False,
     )
     
@@ -753,6 +753,16 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
     description="Select the game you are modding to optimize the mod for that game",
     items=game_enums,
     )
+    join_meshes : BoolProperty(
+        name="Join meshes",
+        description="Join meshes together to reduce draw calls. Recommended for games with many draw calls",
+        default=False,
+    )
+    normalize_weights: bpy.props.BoolProperty(
+        name="Normalize weights to format",
+        description="Limits weights to match export format. Also normalizes the remaining weights",
+        default=False,
+    )
     
     def draw(self, context):
         layout = self.layout
@@ -767,6 +777,8 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         col.prop(self, 'delete_intermediate')
         col.prop(self, 'copy_textures')
         col.prop(self, 'credit')
+        col.prop(self, 'join_meshes')
+        col.prop(self, 'normalize_weights')
         layout.separator()
         
         col = layout.column(align=True)
@@ -932,8 +944,8 @@ class XXMIProperties(bpy.types.PropertyGroup):
     )
     join_meshes: bpy.props.BoolProperty(
         name="Join meshes",
-        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object",
-        default=True,
+        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
+        default=False,
     )
     normalize_weights: bpy.props.BoolProperty(
         name="Normalize weights to format",
@@ -996,20 +1008,19 @@ class ExportAdvancedOperator(bpy.types.Operator):
         if not xxmi.destination_path:
             self.report({'ERROR'}, "Destination path not set")
             return {'CANCELLED'}
+        self.flip_winding = xxmi.flip_winding
+        self.flip_normal = xxmi.flip_normal
+        self.flip_tangent = xxmi.flip_tangent
+        self.join_meshes = xxmi.join_meshes
+        self.normalize_weights = xxmi.normalize_weights
         try:
             vb_path = os.path.join(xxmi.dump_path, ".vb0")
             ib_path = os.path.splitext(vb_path)[0] + '.ib'
             fmt_path = os.path.splitext(vb_path)[0] + '.fmt'
             object_name = os.path.splitext(os.path.basename(xxmi.dump_path))[0]
-            self.flip_winding = xxmi.flip_winding
-            self.flip_normal = xxmi.flip_normal
-            self.flip_tangent = xxmi.flip_tangent
-            self.join_meshes = xxmi.join_meshes
-            self.normalize_weights = xxmi.normalize_weights
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             outline_properties = (xxmi.outline_optimization, xxmi.toggle_rounding_outline, xxmi.decimal_rounding_outline, xxmi.angle_weighted, xxmi.overlapping_faces, xxmi.detect_edges, xxmi.calculate_all_faces, xxmi.nearest_edge_distance)
             game = silly_lookup(xxmi.game)
-            import time
             start = time.time()
             export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, xxmi.use_foldername, xxmi.ignore_hidden, xxmi.only_selected, xxmi.no_ramps, xxmi.delete_intermediate, xxmi.credit, xxmi.copy_textures, outline_properties, game, xxmi.destination_path)
             print("Export took", time.time() - start, "seconds")
