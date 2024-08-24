@@ -817,6 +817,7 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
             outline_properties = (self.outline_optimization, self.toggle_rounding_outline, self.decimal_rounding_outline, self.angle_weighted, self.overlapping_faces, self.detect_edges, self.calculate_all_faces, self.nearest_edge_distance)
             game = silly_lookup(self.game)
             export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, self.use_foldername, self.ignore_hidden, self.only_selected, self.no_ramps, self.delete_intermediate, self.credit, self.copy_textures, outline_properties, game)
+            self.report({'INFO'}, "Export completed")
         except Fatal as e:
             self.report({'ERROR'}, str(e))
         return {'FINISHED'}
@@ -1008,6 +1009,9 @@ class ExportAdvancedOperator(bpy.types.Operator):
         if not xxmi.destination_path:
             self.report({'ERROR'}, "Destination path not set")
             return {'CANCELLED'}
+        if xxmi.destination_path == xxmi.dump_path:
+            self.report({'ERROR'}, "Destination path can not be the same as Dump path")
+            return {'CANCELLED'}
         self.flip_winding = xxmi.flip_winding
         self.flip_normal = xxmi.flip_normal
         self.flip_tangent = xxmi.flip_tangent
@@ -1024,6 +1028,7 @@ class ExportAdvancedOperator(bpy.types.Operator):
             start = time.time()
             export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, xxmi.use_foldername, xxmi.ignore_hidden, xxmi.only_selected, xxmi.no_ramps, xxmi.delete_intermediate, xxmi.credit, xxmi.copy_textures, outline_properties, game, xxmi.destination_path)
             print("Export took", time.time() - start, "seconds")
+            self.report({'INFO'}, "Export completed")
         except Fatal as e:
             self.report({'ERROR'}, str(e))
         return {'FINISHED'}
