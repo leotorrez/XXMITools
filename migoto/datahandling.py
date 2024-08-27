@@ -2524,6 +2524,8 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             vb_path  = os.path.join(os.path.dirname(vb_path), current_name + classification + ".vb0")
             ib_path  = os.path.join(os.path.dirname(ib_path), current_name + classification + ".ib")
             fmt_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".fmt")
+            sko_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".sko")
+            skb_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".skb")
             layout = InputLayout(obj['3DMigoto:VBLayout'])
             strides = {x[11:-6]: obj[x] for x in obj.keys() if x.startswith('3DMigoto:VB') and x.endswith('Stride')}
             topology = 'trianglelist'
@@ -2570,8 +2572,6 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # via the index buffer. There might be a convenience function in
             # Blender to do this, but it's easy enough to do this ourselves
             
-            ib, vbarr, _, _, _ = mesh_to_bin(operator, mesh, obj, game, translate_normal, translate_tangent, outline_properties)
-
             # if vb.topology == 'trianglelist':
             #     for poly in mesh.polygons:
             #         face = []
@@ -2616,7 +2616,13 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             #     vb.revert_blendindices_remap()
             #     sorted_vgmap = collections.OrderedDict(sorted(vgmap.items(), key=lambda x:x[1]))
             #     json.dump(sorted_vgmap, open(vgmap_path, 'w'), indent=2)
+            ib, vbarr, _, _, _ = mesh_to_bin(operator, mesh, obj, game, translate_normal, translate_tangent, outline_properties)
+            if mesh.shape_keys and len(mesh.shape_keys.key_blocks) > 1 and operator.shapekeys:
+                sk_offsets, sk_buf = shapekey_generation(obj, mesh)
+                json.dump(sk_offsets, open(sko_path, 'w'), indent=2)
+                sk_buf.tofile(skb_path, format='bytes')
             vbarr.tofile(vb_path, format='bytes')
+
             if ib is not None:
                 # ib.write(open(ib_path, 'wb'), operator=operator)
                 ib.tofile(ib_path, format='bytes')
@@ -2656,41 +2662,31 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
 
         print(f"\nWorking on {current_name}")
 
-        # Components without draw vbs are texture overrides only
         if not component["draw_vb"]:
+            # Components without draw vbs are texture overrides only
             # This is the path for components with only texture overrides (faces, wings, etc.)
+            ib_written = False
             for i in range(len(component["object_indexes"])):
                 current_object = f"{object_classifications[2]}{i - 1}" if i > 2 else object_classifications[i]
                 print(f"\nTexture override only on {current_object}")
-
                 texture_hashes = component["texture_hashes"][i] if component["texture_hashes"] else [{"Diffuse": "_"}, {"LightMap": "_"}]
                 print("Copying texture files")
-
-                if component["component_name"] == "Face":
-                    j = 0
-                    texture = texture_hashes[j]
-                    if texture[2] in texture_hashes_written:
+                for j, texture in enumerate(texture_hashes):
+                    if component["component_name"] == "Face" and j > 0 and game == GameEnum.GenshinImpact:
+                        break
+                    if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
                         continue
+                    if game == GameEnum.ZenlessZoneZero and ib_written is False:
+                        ib_override_ini += f"[TextureOverride{current_name}{current_object}IB]\nhash = {component['ib']}\nrun = CommandListSkinTexture\n\n"
+                        ib_written = True
                     ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
                     if copy_textures:
                         shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
                             os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
-                    ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
+                    ib_override_ini += f"this = Resource{current_name}{current_object}{texture[0]}\n\n"
                     tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                     if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                         texture_hashes_written.append(texture[2])
-                else:
-                    for j, texture in enumerate(texture_hashes):
-                        if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
-                            continue
-                        ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
-                        if copy_textures:
-                            shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
-                                os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
-                        ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n\n"
-                        tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
-                        if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
-                            texture_hashes_written.append(texture[2])
                 ib_override_ini += "\n"
             continue
 
@@ -2706,10 +2702,7 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                     if line.startswith('element['):
                         fmt_layout.parse_element(f)
 
-                position_stride = 0
-                blend_stride = 0
-                texcoord_stride = 0
-
+                position_stride, blend_stride, texcoord_stride = 0, 0, 0
                 for element in fmt_layout:
                     if element.SemanticName in ["POSITION", "NORMAL", "TANGENT"]:
                         position_stride += element.size()
@@ -2784,33 +2777,19 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
             texture_hashes = component["texture_hashes"][i] if "texture_hashes" in component else [["Diffuse", ".dds", "_"], ["LightMap", ".dds", "_"]]
 
             print("Copying texture files")
-            if component["component_name"] == "Face":
-                j = 0
-                texture = texture_hashes[j]
-                if texture[2] in texture_hashes_written:
+            for j, texture in enumerate(texture_hashes):
+                if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
                     continue
-                ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
                 if copy_textures:
                     shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
                         os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
-                ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
+                if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
+                    ib_override_ini += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
+                elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+                    ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
                 tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                     texture_hashes_written.append(texture[2])
-            else:
-                for j, texture in enumerate(texture_hashes):
-                    if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
-                        continue
-                    if copy_textures:
-                        shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
-                            os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
-                    if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
-                        ib_override_ini += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
-                    elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
-                        ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
-                    tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
-                    if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
-                        texture_hashes_written.append(texture[2])
             ib_override_ini += "\n"
 
         if component["blend_vb"]:
@@ -2936,7 +2915,6 @@ def collect_ib(folder, name, classification, offset):
             ib += struct.pack('1I', struct.unpack('1I', data[i:i+4])[0]+offset)
             i += 4
     return ib
-
 
 def collect_vb_single(folder, name, classification, stride): 
     result = bytearray()
@@ -3401,3 +3379,31 @@ def mesh_to_bin(operator, mesh, obj, game:GameEnum, translate_normal, translate_
     vb = numpy.frombuffer(vb, dtype=dtype)
     pos, blend, tex = split_vb(vb, fmt_layout, dtype)
     return ib, vb, pos, blend, tex
+
+def shapekey_generation(obj, mesh):
+    sk_dtype = numpy.dtype([
+        ('VERTEX_INDEX', numpy.uint32),
+        ('POSITION', numpy.float32, 3),
+    ])
+    sk_datas = []
+    for i, sk in enumerate(mesh.shape_keys.key_blocks):
+        print(f"Processing shapekey {sk.name}")
+        sk_data = numpy.zeros(len(mesh.vertices), dtype=sk_dtype)
+        pos = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
+        sk_data['VERTEX_INDEX'] = numpy.array(range(len(mesh.vertices)), dtype=(numpy.uint32))
+        sk.data.foreach_get('co', pos.ravel())
+        sk_data['POSITION'] = pos
+        if i != 0: # skip Basis
+            sk_data = numpy.delete(sk_data, numpy.nonzero(numpy.all(sk_data['POSITION'] == sk_datas[0]['POSITION'], axis=1)), axis=0)
+        sk_datas.append(sk_data)
+    total = sum(len(sk_data) for sk_data in sk_datas)
+    shapekey_buff = numpy.zeros(total, dtype=sk_dtype)
+    offset_count = []
+    offset = 0
+    for i, sk_data in enumerate(sk_datas):
+        if i == 0: # skip Basis
+            continue
+        offset_count.append(offset)
+        shapekey_buff[offset:offset + len(sk_data)] = sk_data
+        offset += len(sk_data)
+    return offset_count, shapekey_buff

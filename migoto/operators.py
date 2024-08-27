@@ -763,7 +763,12 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
-    
+    shape_key: bpy.props.BoolProperty(
+        name="Export shape keys",
+        description="Exports shape keys for the selected object. Also generates the necessary sections in ini file",
+        default=False,
+    )
+
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True)
@@ -779,6 +784,7 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         col.prop(self, 'credit')
         col.prop(self, 'join_meshes')
         col.prop(self, 'normalize_weights')
+        col.prop(self, 'shape_key')
         layout.separator()
         
         col = layout.column(align=True)
@@ -953,6 +959,11 @@ class XXMIProperties(bpy.types.PropertyGroup):
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
+    shape_key: bpy.props.BoolProperty(
+        name="Export shape keys",
+        description="Exports shape keys for the selected object. Also generates the necessary sections in ini file",
+        default=False,
+    )
 class DestinationSelector(bpy.types.Operator, ExportHelper):
     """Export single mod based on current frame"""
     bl_idname = "destination.selector"
@@ -1017,6 +1028,7 @@ class ExportAdvancedOperator(bpy.types.Operator):
         self.flip_tangent = xxmi.flip_tangent
         self.join_meshes = xxmi.join_meshes
         self.normalize_weights = xxmi.normalize_weights
+        self.shape_key = xxmi.shape_key
         try:
             vb_path = os.path.join(xxmi.dump_path, ".vb0")
             ib_path = os.path.splitext(vb_path)[0] + '.ib'
