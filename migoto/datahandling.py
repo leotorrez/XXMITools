@@ -3260,25 +3260,27 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game:GameEnum, t
         translated_elem_name, translated_elem_index = \
                 semantic_translations.get(elem.name, (elem.name, elem.SemanticIndex))
         if translated_elem_name == "POSITION":
-            position = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, elem.format_len))
+            position = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
-            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
+            result = numpy.ones(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             for loop in mesh.loops:
-                result[loop.index] = position[loop.vertex_index]
+                result[loop.index][0:3] = position[loop.vertex_index]
             if 'POSITION.w' in custom_attributes_float(mesh):
-                loop_position_w = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, (1,)))
+                loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 for loop in mesh.loops:
                     loop_position_w[loop.index] = custom_attributes_float(mesh)['POSITION.w'].data[loop.vertex_index].value
                 result = numpy.concatenate((result, loop_position_w), axis=1)
         elif translated_elem_name == "NORMAL":
-            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
-            mesh.loops.foreach_get("normal", result.ravel())
-            translate_normal(result)
+            normal = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
+            mesh.loops.foreach_get("normal", normal.ravel())
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, elem.format_len))
+            result[:, 0:3] = normal
             if 'NORMAL.w' in custom_attributes_float(mesh):
                 loop_normal_w = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 for loop in mesh.loops:
                     loop_normal_w[loop.index] = custom_attributes_float(mesh)['NORMAL.w'].data[loop.vertex_index].value
                 result = numpy.concatenate((result, loop_normal_w), axis=1)
+            translate_normal(result)
         elif translated_elem_name.startswith("TANGENT"):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
             bitangent_sign = numpy.zeros(len(mesh.loops), dtype=numpy.float16)
