@@ -2154,7 +2154,7 @@ def optimized_outline_generation(obj, mesh, outline_properties):
     outline_optimization, toggle_rounding_outline, decimal_rounding_outline,angle_weighted, overlapping_faces, detect_edges, calculate_all_faces, nearest_edge_distance = outline_properties
     export_outline = {}
     Precalculated_Outline_data = {}
-    print("Optimize Outline: " + obj.name.lower() + "; Initialize data sets         ", end='\r')
+    print("\tOptimize Outline: " + obj.name.lower() + "; Initialize data sets         ", end='\r')
 
     ################# PRE-DICTIONARY #####################
 
@@ -2201,7 +2201,7 @@ def optimized_outline_generation(obj, mesh, outline_properties):
             Precalculated_Outline_data.setdefault('Same_Vertex', {}).setdefault(vertex, set(values))
 
     if detect_edges and toggle_rounding_outline:
-        print("Optimize Outline: " + obj.name.lower() + "; Edge detection       ", end='\r')
+        print("\tOptimize Outline: " + obj.name.lower() + "; Edge detection       ", end='\r')
         Precalculated_Outline_data.setdefault('RepositionLocal', set())
 
         for vertex_group in Pos_Same_Vertices.values():
@@ -2258,7 +2258,7 @@ def optimized_outline_generation(obj, mesh, outline_properties):
 
     RepositionLocal = Precalculated_Outline_data.get('RepositionLocal')
     IteratedValues = set()
-    print("Optimize Outline: " + obj.name.lower() + "; Calculation          ", end='\r')
+    print("\tOptimize Outline: " + obj.name.lower() + "; Calculation          ", end='\r')
 
     for key, vertex_group in Precalculated_Outline_data.get('Same_Vertex').items():
         if key in IteratedValues: continue
@@ -2312,7 +2312,7 @@ def optimized_outline_generation(obj, mesh, outline_properties):
             for vertexf in vertex_group:
                 export_outline.setdefault(vertexf, wSum)
                 IteratedValues.add(vertexf)
-    print(f"Optimize Outline: {obj.name.lower()}; Completed in {time.time() - start_timer} seconds       ")    
+    print(f"\tOptimize Outline: {obj.name.lower()}; Completed in {time.time() - start_timer} seconds       ")    
     return export_outline
 
 def appendto(collection, destination):
@@ -2373,81 +2373,130 @@ def join_into(context, collection_name, obj):
             target_obj.vertex_groups.remove(vg)
         print(f"Removed {len(vgs)} vertex groups with the word 'MASK' in them")
 
-def is_collection_empty(collection):
-    '''Check if a collection is empty'''
-    # TODO: Might want to check if len is 0? or recursive collections within this one as well.....
-    for obj in collection.objects:
-        if obj.type == "MESH" and obj.visible_get():
-            return False
-    return True
+def apply_modifiers_and_shapekeys(context, mesh, obj, main_obj):
+    '''Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform'''
+    start_timer = time.time()
+    deform_SKs = []
+    total_applied = 0
+    result_obj = obj.copy()
+    result_obj.data = mesh.copy()
+    context.collection.objects.link(result_obj)
+    context.view_layer.objects.active = result_obj
+    modifiers_to_apply = [mod for mod in result_obj.modifiers if mod.show_viewport]
+    if mesh.shape_keys is not None:
+        deform_SKs = [sk.name for sk in mesh.shape_keys.key_blocks if 'deform' in sk.name.lower()]
+        total_applied = len(mesh.shape_keys.key_blocks) - len(deform_SKs)
+
+    if len(deform_SKs) == 0:
+        if result_obj.data.shape_keys:
+            result_obj.shape_key_add(name='CombinedKeys', from_mix=True)
+            for shape_key in result_obj.data.shape_keys.key_blocks:
+                result_obj.shape_key_remove(shape_key)
+
+        for modifier in modifiers_to_apply:
+            result_obj.modifiers.append(modifier)
+            bpy.ops.object.modifier_apply(modifier=modifier.name)
+    else:
+        for sk in obj.data.shape_keys.key_blocks:
+            if sk.name not in deform_SKs:
+                result_obj.shape_key_remove(sk)
+        list_properties = []
+        vert_count = -1
+        bpy.ops.object.select_all(action='DESELECT')
+        result_obj.select_set(True)
+        bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":True, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_target":'CLOSEST', "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "release_confirm":False, "use_accurate":False})
+        copy_obj = context.view_layer.objects.active
+        copy_obj.select_set(False)
+        context.view_layer.objects.active = result_obj
+        result_obj.select_set(True)
+        # Store key shape properties
+        for key_b in obj.data.shape_keys.key_blocks:
+            properties_object = {}
+            properties_object["name"] = key_b.name
+            properties_object["mute"] = key_b.mute
+            properties_object["interpolation"] = key_b.interpolation
+            properties_object["relative_key"] = key_b.relative_key.name
+            properties_object["slider_max"] = key_b.slider_max
+            properties_object["slider_min"] = key_b.slider_min
+            properties_object["value"] = key_b.value
+            properties_object["vertex_group"] = key_b.vertex_group
+            list_properties.append(properties_object)
+            result_obj.shape_key_remove(key_b)
+        # Set up Basis
+        for mod in modifiers_to_apply:
+            bpy.ops.object.modifier_apply(modifier=mod.name)
+        vert_count = len(result_obj.data.vertices)
+        bpy.ops.object.shape_key_add(from_mix=False)
+        result_obj.select_set(False)
+        # Create a temp object to apply modifiers into once per SK
+        for i in range(1, obj.data.shape_keys.key_blocks):
+            context.view_layer.objects.active = copy_obj
+            copy_obj.select_set(True)
+            bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, 0, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL', "constraint_axis":(False, False, False), "mirror":True, "use_proportional_edit":False, "proportional_edit_falloff":'SMOOTH', "proportional_size":1, "use_proportional_connected":False, "use_proportional_projected":False, "snap":False, "snap_target":'CLOSEST', "snap_point":(0, 0, 0), "snap_align":False, "snap_normal":(0, 0, 0), "gpencil_strokes":False, "cursor_transform":False, "texture_space":False, "remove_on_cancel":False, "release_confirm":False, "use_accurate":False})
+            temp_obj = context.view_layer.objects.active
+            for k in temp_obj.data.shape_keys.key_blocks:
+                temp_obj.shape_key_remove(k)
+
+            copy_obj.select_set(True)
+            copy_obj.active_shape_key_index = i
+
+            bpy.ops.object.shape_key_transfer(use_clamp=True)
+            context.object.active_shape_key_index = 0
+            bpy.ops.object.shape_key_remove()
+            bpy.ops.object.shape_key_remove(all=True)
+            for mod in modifiers_to_apply:
+                bpy.ops.object.modifier_apply(modifier=mod.name)
+            if vert_count != len(temp_obj.data.vertices):
+                raise Fatal(f"After modifier application, object {obj.name} has a different vertex count in shape key {i} than in the basis shape key. Manual resolution required.")
+            copy_obj.select_set(False)
+            context.view_layer.objects.active = result_obj
+            result_obj.select_set(True)
+            bpy.ops.object.join_shapes()
+            result_obj.select_set(False)
+            context.view_layer.objects.active = temp_obj
+            bpy.ops.object.delete(use_global=False)
+        # Restore shape key properties like name, mute etc.
+        context.view_layer.objects.active = result_obj
+        for i in range(0, obj.data.shape_keys.key_blocks):
+            key_b = context.view_layer.objects.active.data.shape_keys.key_blocks[i]
+            key_b.name = list_properties[i]["name"]
+            key_b.interpolation = list_properties[i]["interpolation"]
+            key_b.mute = list_properties[i]["mute"]
+            key_b.slider_max = list_properties[i]["slider_max"]
+            key_b.slider_min = list_properties[i]["slider_min"]
+            key_b.value = list_properties[i]["value"]
+            key_b.vertex_group = list_properties[i]["vertex_group"]
+            rel_key = list_properties[i]["relative_key"]
+        
+            for j in range(0, obj.data.shape_keys.key_blocks):
+                key_brel = context.view_layer.objects.active.data.shape_keys.key_blocks[j]
+                if rel_key == key_brel.name:
+                    key_b.relative_key = key_brel
+                    break
+            context.view_layer.objects.active.data.update()
+        result_obj.select_set(False)
+        context.view_layer.objects.active = copy_obj
+        copy_obj.select_set(True)
+        bpy.ops.object.delete(use_global=False)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    context.view_layer.objects.active = result_obj
+    context.view_layer.objects.active.select_set(True)
+    if main_obj != obj:
+        # Matrix world seems to be the summatory of all transforms parents included
+        # Might need to test for more edge cases and to confirm these suspicious,
+        # other available options: matrix_local, matrix_basis, matrix_parent_inverse
+        mesh.transform(result_obj.matrix_world)
+        mesh.transform(main_obj.matrix_world.inverted())
+
+    mesh = result_obj.data
+    bpy.ops.object.delete(use_global=False)
+    mesh.update()
+    print(f"{obj.name}: Applied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(deform_SKs)} shapekeys in {time.time() - start_timer} seconds")
 
 def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_path, use_foldername, ignore_hidden, only_selected, no_ramps, delete_intermediate, credit, copy_textures, outline_properties, game:GameEnum, destination=None):
     scene = bpy.context.scene
 
-
-    ################JOIN MESHES EXPERIMENTAL################
-    # Input: list of objs, list of collections
-    if operator.join_meshes:
-        try:
-            # List collections to join and containers
-            mainobjects = [obj.name for obj in scene.objects
-                        if obj.name.lower().startswith(object_name.lower())
-                        and obj.visible_get() and obj.type == "MESH"]
-            collectionstojoin = {}
-            for col in bpy.data.collections:
-                for obj in mainobjects:
-                    if obj.lower().startswith(col.name.lower()):
-                        collectionstojoin[obj] = col.name
-            # Sanity checks
-            for obj in mainobjects:
-                for key, col in collectionstojoin.items():
-                    if obj in bpy.data.collections[col].objects:
-                        raise Fatal(f"Container {obj} is in collection {col}. This can cause unpredictable results. Please remove it from the collection before continuing.")
-
-            #TODO: add check to make sure the person has the right amount of objects to export. 
-            #errors caused by this mean that things starting with object can break the export without throwing error.
-            obj_in_col = []
-            for key,col in collectionstojoin.items():
-                obj_in_col += [obj for obj in bpy.data.collections[col].objects]
-            obj_in_fault = [obj for obj in obj_in_col
-            if obj.type == "MESH" and obj.visible_get() and obj.name.lower().startswith(object_name.lower())]
-            if len(obj_in_fault) > 0:
-                raise Fatal(f"There is objects starting with {object_name} inside the collections. This can cause unpredictable results. Please rename them to something else to avoid conflicts.")
-
-            # Deselect. Make Single use everything to avoid linked data issues
-            bpy.ops.object.select_all(action='DESELECT')
-            bpy.ops.object.make_single_user(type='ALL', object=True, obdata=True,
-                                            animation=True, obdata_animation=True)
-            # Join meshes
-            topop = []
-            for obj, col in collectionstojoin.items():
-                if is_collection_empty(bpy.data.collections[col]):
-                    print(f"Collection {col} is empty, skipping")
-                else:
-                    join_into(context, bpy.data.collections[col], obj)
-                topop.append(obj)
-
-            # Debugging
-            for obj in topop:
-                collectionstojoin.pop(obj)
-                mainobjects.remove(obj)
-            if len(mainobjects) > 0:
-                print("Warning: some objects were ignored or had no match.")
-                print("Objects ignored: ")
-                for obj in mainobjects:
-                    print(obj)
-            if len(collectionstojoin) > 0:
-                print("Warning: some collections were ignored or had no match.")
-                print("Collections ignored: ")
-                for col, obj in collectionstojoin.items():
-                    print(f"{col} ->{obj}")
-        except Exception as e:
-            bpy.ops.ed.undo_push(message="XXMITools: failed export")
-            bpy.ops.ed.undo()
-            print("Error joining meshes: ", e)
-            raise Fatal("Error joining meshes. Check console for more information.")
-    # Output: list of meshes
-    ################JOIN MESHES EXPERIMENTAL################
     # Quick sanity check
     # If we cannot find any objects in the scene with or any files in the folder with the given name, default to using
     #   the folder name
@@ -2472,7 +2521,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
         component_names = [""]
 
         extended_classifications = [[f"{base_classifications[-1]}{i}" for i in range(2, 10)] for base_classifications in all_base_classifications]
-
+    offsets = {}
     for k in range(len(all_base_classifications)):
         base_classifications = all_base_classifications[k]
         current_name = f"{object_name}{component_names[k]}"
@@ -2515,6 +2564,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
         relevant_objects = [x for x in relevant_objects if x]
         print(f'Objects to export: {relevant_objects}')
 
+        
         for i, obj in enumerate(relevant_objects):
             if i < len(base_classifications):
                 classification = base_classifications[i]
@@ -2527,6 +2577,8 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             sko_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".sko")
             skb_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".skb")
             layout = InputLayout(obj['3DMigoto:VBLayout'])
+            translate_normal = normal_export_translation(layout, 'NORMAL', operator.flip_normal)
+            translate_tangent = normal_export_translation(layout, 'TANGENT', operator.flip_tangent)
             strides = {x[11:-6]: obj[x] for x in obj.keys() if x.startswith('3DMigoto:VB') and x.endswith('Stride')}
             topology = 'trianglelist'
             if '3DMigoto:Topology' in obj:
@@ -2534,9 +2586,6 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 if topology == 'trianglestrip':
                     operator.report({'WARNING'}, 'trianglestrip topology not supported for export, and has been converted to trianglelist. Override draw call topology using a [CustomShader] section with topology=triangle_list')
                     topology = 'trianglelist'
-            mesh = obj.evaluated_get(context.evaluated_depsgraph_get()).to_mesh()
-            mesh_triangulate(mesh)
-
             try:
                 if obj['3DMigoto:IBFormat'] == "DXGI_FORMAT_R16_UINT":
                     ib_format = "DXGI_FORMAT_R32_UINT"
@@ -2547,22 +2596,6 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 raise Fatal('FIXME: Add capability to export without an index buffer')
             else:
                 ib = IndexBuffer(ib_format)
-
-            if len(mesh.polygons) == 0:
-                open(vb_path, 'w').close()
-                open(ib_path, 'w').close()
-                vb = VertexBufferGroup(layout=layout, topology=topology)
-                write_fmt_file(open(fmt_path, 'w'), vb, ib, strides=strides)
-                continue
-
-            # Calculates tangents and makes loop normals valid (still with our
-            # # custom normal data from import time):
-            try:
-                mesh.calc_tangents()
-            except RuntimeError:
-                raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
-            translate_normal = normal_export_translation(layout, 'NORMAL', operator.flip_normal)
-            translate_tangent = normal_export_translation(layout, 'TANGENT', operator.flip_tangent)
 
             # Blender's vertices have unique positions, but may have multiple
             # normals, tangents, UV coordinates, etc - these are stored in the
@@ -2616,27 +2649,47 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             #     vb.revert_blendindices_remap()
             #     sorted_vgmap = collections.OrderedDict(sorted(vgmap.items(), key=lambda x:x[1]))
             #     json.dump(sorted_vgmap, open(vgmap_path, 'w'), indent=2)
-            ib, vbarr, _, _, _ = mesh_to_bin(operator, mesh, obj, game, translate_normal, translate_tangent, outline_properties)
-            if mesh.shape_keys and len(mesh.shape_keys.key_blocks) > 1 and operator.shapekeys:
-                sk_offsets, sk_buf = shapekey_generation(obj, mesh)
-                json.dump(sk_offsets, open(sko_path, 'w'), indent=2)
-                sk_buf.tofile(skb_path, format='bytes')
-            vbarr.tofile(vb_path, format='bytes')
+            mesh = obj.evaluated_get(context.evaluated_depsgraph_get()).to_mesh()
+            if topology == 'trianglelist':
+                ib, vbarr = mesh_to_bin(context, operator, mesh, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
+                offsets[current_name + classification] = [(obj.name, len(ib)*3)]
+            else:
+                raise Fatal('topology "%s" is not supported for export' % vb.topology)
 
-            if ib is not None:
-                # ib.write(open(ib_path, 'wb'), operator=operator)
-                ib.tofile(ib_path, format='bytes')
+            # get all objects in collection of the same name as current mesh
+            # convert them all to binary
+            # write them all to the same buffers keeping count of offsets
+            collection_name = [c for c in bpy.data.collections if c.name.lower().startswith((current_name + classification).lower())]
+            if collection_name:
+                objs_to_compile = []
+                appendto(bpy.data.collections[collection_name[0].name], objs_to_compile)
+                objs_to_compile = [obj for obj in objs_to_compile if obj.type == "MESH" and obj.visible_get()]
+                print(f'Objects to export: {objs_to_compile}')
+                count = len(vbarr)
+                for obj_c in objs_to_compile:
+                    compile_mesh = obj_c.evaluated_get(context.evaluated_depsgraph_get()).to_mesh()
+                    obj_ib, obj_vbarr = mesh_to_bin(context, operator, compile_mesh, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
+                    obj_ib +=  count
+                    count += len(obj_vbarr)
+                    ib = numpy.append(ib, obj_ib)
+                    vbarr = numpy.append(vbarr, obj_vbarr)
+                    offsets[current_name + classification].append((obj_c.name, len(obj_ib)*3))
+
+            # Must be done to all meshes and then compiled
+            # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
+            #     sk_offsets, sk_buf = shapekey_generation(obj, mesh)
+            #     json.dump(sk_offsets, open(sko_path, 'w'), indent=2)
+            #     sk_buf.tofile(skb_path, format='bytes')
+
+            vbarr.tofile(vb_path, format='bytes')
+            ib.tofile(ib_path, format='bytes')
             ib = IndexBuffer(ib_format)
             vb = VertexBufferGroup(layout=layout, topology=topology)
-
-            # Write format reference file
             write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
 
-    generate_mod_folder(os.path.dirname(vb_path), object_name, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
-    bpy.ops.ed.undo_push(message="XXMITools: undo")
-    bpy.ops.ed.undo()
+    generate_mod_folder(os.path.dirname(vb_path), object_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
 
-def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
+def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
     parent_folder = os.path.join(path, "../")
     char_hash = load_hashes(path, character_name, "hash.json")
     if not destination:
@@ -2719,7 +2772,11 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                 assert(fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt")
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
-        ib_override_ini += f"[TextureOverride{current_name}IB]\nhash = {component['ib']}\nhandling = skip\ndrawindexed = auto\n\n"
+        curr_offsets = [v for k, v in offsets.items() if k.lower().startswith(current_name.lower())]
+        if any(len(x) > 1 for x in curr_offsets):
+            ib_override_ini += f"[TextureOverride{current_name}IB]\nhash = {component['ib']}\nhandling = skip\n\n"
+        else:
+            ib_override_ini += f"[TextureOverride{current_name}IB]\nhash = {component['ib']}\nhandling = skip\ndrawindexed = auto\n\n"
         for i in range(len(component["object_indexes"])):
             if i + 1 > len(object_classifications):
                 current_object = f"{object_classifications[-1]}{i + 2 - len(object_classifications)}"
@@ -2738,11 +2795,13 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                 position += x
                 blend += y
                 texcoord += z
+                vertex_count = len(x + y + z) // stride
             # This is the path for components without blend data (simple weapons, objects, etc.)
             # Simplest route since we do not need to split up the buffer into multiple components
             else:
                 position += collect_vb_single(path, current_name, current_object, stride)
                 position_stride = stride
+                vertex_count = len(position) // stride
 
             print("Collecting IB")
             print(f"{current_name}{current_object} offset: {offset}")
@@ -2755,9 +2814,6 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                     ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nrun = CommandListSkinTexture\nib = Resource{current_name}{current_object}IB\n"
                 else:
                     ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = Resource{current_name}{current_object}IB\n"
-                # for item in offsets:
-                #     ib_override_ini += f";{item['name']}"
-                #     ib_override_ini += f"drawindexed = {item['count']}, {item['offset']}, 0\n"
             else:
                 ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = null\n"
             ib_res_ini += f"[Resource{current_name}{current_object}IB]\ntype = Buffer\nformat = DXGI_FORMAT_R32_UINT\nfilename = {current_name}{current_object}.ib\n\n"
@@ -2790,6 +2846,12 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
                 tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                     texture_hashes_written.append(texture[2])
+            if any(len(x) > 1 for x in curr_offsets):
+                last_count = 0
+                for name, count in offsets[current_name + current_object]:
+                    ib_override_ini += f"; {name}\n"
+                    ib_override_ini += f"drawindexed = {count}, {last_count}, 0\n"
+                    last_count += count
             ib_override_ini += "\n"
 
         if component["blend_vb"]:
@@ -2812,7 +2874,9 @@ def generate_mod_folder(path, character_name, no_ramps, delete_intermediate, cre
             if game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
                 vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\nvb1 = Resource{current_name}Blend\nhandling = skip\ndraw = {len(position) // position_stride},0 \n\n"
             vb_override_ini += f"[TextureOverride{current_name}Texcoord]\nhash = {component['texcoord_vb']}\nvb1 = Resource{current_name}Texcoord\n\n"
-            vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n\n"
+            vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n"
+            #### EXPERIMENTAL ####
+            vb_override_ini += f"; override_vertex_count = {vertex_count}\n; override_byte_stride = {stride}\n\n"
 
             vb_res_ini += f"[Resource{current_name}Position]\ntype = Buffer\nstride = {position_stride}\nfilename = {current_name}Position.buf\n\n"
             vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
@@ -3190,7 +3254,7 @@ def split_vb(vb, fmt_layout ,dtype):
         tex[field] = vb[field]
     return pos, blend, tex
 
-def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game:GameEnum, translate_normal, translate_tangent, outline_properties=None):
+def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties=None):
     texcoord_layers = {}
     translate_normal = numpy.vectorize(translate_normal)
     translate_tangent = numpy.vectorize(translate_tangent)
@@ -3228,7 +3292,8 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game:GameEnum, t
             raise Fatal('File uses an unsupported DXGI Format: %s' % elem.Format)
     migoto_verts = numpy.zeros(len(mesh.loops), dtype=dtype)
     weights_error_flag = -1
-    weights = [{g.group:g.weight for g in v.groups if g.weight > 0} for v in mesh.vertices]
+    masked_vgs = [vg.index for vg in obj.vertex_groups if vg.name.startswith('MASK')]
+    weights = [{g.group:g.weight for g in v.groups if g.weight > 0 and g.group not in masked_vgs} for v in mesh.vertices]
     for i, w in enumerate(weights):
         weights[i] = dict(sorted(w.items(), key=lambda item: item[1], reverse=True))
     for elem in fmt_layout:
@@ -3312,7 +3377,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game:GameEnum, t
                     temp_uv = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 2))
                     mesh.uv_layers[uv].data.foreach_get("uv", temp_uv.ravel())
                     try:
-                        if obj['3DMigoto:' + uv]['flip_v']:
+                        if main_obj['3DMigoto:' + uv]['flip_v']:
                             temp_uv[:, 1] = 1.0 - temp_uv[:, 1]
                     except KeyError:
                         pass
@@ -3356,11 +3421,21 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game:GameEnum, t
         print(f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.")
     return migoto_verts, dtype
 
-def mesh_to_bin(operator, mesh, obj, game:GameEnum, translate_normal, translate_tangent, outline_properties):
-    fmt_layout = InputLayout(obj['3DMigoto:VBLayout'])
+def mesh_to_bin(context, operator, mesh, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties):
     vb = VertexBufferGroup(layout=fmt_layout, topology="trianglelist")
     vb.flag_invalid_semantics()
-    migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, outline_properties)
+    mesh_triangulate(mesh)
+    if len(mesh.polygons) > 0:
+        # Calculates tangents and makes loop normals valid (still with our
+        # # custom normal data from import time):
+        try:
+            mesh.calc_tangents()
+        except RuntimeError:
+            raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
+        if operator.apply_modifiers_and_shapekeys:
+            apply_modifiers_and_shapekeys(context, mesh, obj, main_obj)
+    start_timer = time.time()
+    migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
 
     ib = []
     indexed_vertices = collections.OrderedDict()
@@ -3377,8 +3452,8 @@ def mesh_to_bin(operator, mesh, obj, game:GameEnum, translate_normal, translate_
 
     ib = numpy.array(ib, dtype=numpy.uint32)
     vb = numpy.frombuffer(vb, dtype=dtype)
-    pos, blend, tex = split_vb(vb, fmt_layout, dtype)
-    return ib, vb, pos, blend, tex
+    print(f"\tMesh to bin took {time.time() - start_timer} seconds")
+    return ib, vb
 
 def shapekey_generation(obj, mesh):
     sk_dtype = numpy.dtype([

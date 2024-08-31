@@ -752,10 +752,10 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
     name="Game to mod",
     description="Select the game you are modding to optimize the mod for that game",
     items=game_enums,
-    )
-    join_meshes : BoolProperty(
-        name="Join meshes",
-        description="Join meshes together to reduce draw calls. Recommended for games with many draw calls",
+    )    
+    apply_modifiers_and_shapekeys: bpy.props.BoolProperty(
+        name="Apply modifiers and shapekeys",
+        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
     normalize_weights: bpy.props.BoolProperty(
@@ -763,9 +763,9 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
-    shape_key: bpy.props.BoolProperty(
+    export_shapekeys: bpy.props.BoolProperty(
         name="Export shape keys",
-        description="Exports shape keys for the selected object. Also generates the necessary sections in ini file",
+        description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
         default=False,
     )
 
@@ -782,9 +782,9 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         col.prop(self, 'delete_intermediate')
         col.prop(self, 'copy_textures')
         col.prop(self, 'credit')
-        col.prop(self, 'join_meshes')
+        col.prop(self, 'apply_modifiers_and_shapekeys')
         col.prop(self, 'normalize_weights')
-        col.prop(self, 'shape_key')
+        col.prop(self, 'export_shapekeys')
         layout.separator()
         
         col = layout.column(align=True)
@@ -949,8 +949,8 @@ class XXMIProperties(bpy.types.PropertyGroup):
     description="Select the game you are modding to optimize the mod for that game",
     items=game_enums,
     )
-    join_meshes: bpy.props.BoolProperty(
-        name="Join meshes",
+    apply_modifiers_and_shapekeys: bpy.props.BoolProperty(
+        name="Apply modifiers and shapekeys",
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
@@ -959,9 +959,9 @@ class XXMIProperties(bpy.types.PropertyGroup):
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
-    shape_key: bpy.props.BoolProperty(
+    export_shapekeys: bpy.props.BoolProperty(
         name="Export shape keys",
-        description="Exports shape keys for the selected object. Also generates the necessary sections in ini file",
+        description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
         default=False,
     )
 class DestinationSelector(bpy.types.Operator, ExportHelper):
@@ -1026,9 +1026,9 @@ class ExportAdvancedOperator(bpy.types.Operator):
         self.flip_winding = xxmi.flip_winding
         self.flip_normal = xxmi.flip_normal
         self.flip_tangent = xxmi.flip_tangent
-        self.join_meshes = xxmi.join_meshes
+        self.apply_modifiers_and_shapekeys = xxmi.apply_modifiers_and_shapekeys
         self.normalize_weights = xxmi.normalize_weights
-        self.shape_key = xxmi.shape_key
+        self.export_shapekeys = xxmi.export_shapekeys
         try:
             vb_path = os.path.join(xxmi.dump_path, ".vb0")
             ib_path = os.path.splitext(vb_path)[0] + '.ib'
