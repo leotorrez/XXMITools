@@ -2315,13 +2315,14 @@ def optimized_outline_generation(obj, mesh, outline_properties):
     print(f"\tOptimize Outline: {obj.name.lower()}; Completed in {time.time() - start_timer} seconds       ")    
     return export_outline
 
-def appendto(collection, destination):
+def appendto(collection, destination, depth=1):
     '''Append all meshes in a collection to a list'''
+    objs = [obj for obj in collection.objects if obj.type == "MESH"]
+    sorted_objs = sorted(objs, key=lambda x: x.name)
+    for obj in sorted_objs:
+        destination.append((collection.name, depth, obj))
     for a_collection in collection.children:
-        appendto(a_collection, destination)
-    for obj in collection.objects:
-        if obj.type == "MESH":
-            destination.append(obj)
+        appendto(a_collection, destination, depth + 1)
 
 def join_into(context, collection_name, obj):
     '''Join all meshes in a collection into a single mesh'''
@@ -2373,30 +2374,24 @@ def join_into(context, collection_name, obj):
             target_obj.vertex_groups.remove(vg)
         print(f"Removed {len(vgs)} vertex groups with the word 'MASK' in them")
 
-def apply_modifiers_and_shapekeys(context, mesh, obj, main_obj):
+def apply_modifiers_and_shapekeys(context, obj):
     '''Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform'''
     start_timer = time.time()
     deform_SKs = []
     total_applied = 0
-    result_obj = obj.copy()
-    result_obj.data = mesh.copy()
-    context.collection.objects.link(result_obj)
-    context.view_layer.objects.active = result_obj
-    modifiers_to_apply = [mod for mod in result_obj.modifiers if mod.show_viewport]
-    if mesh.shape_keys is not None:
-        deform_SKs = [sk.name for sk in mesh.shape_keys.key_blocks if 'deform' in sk.name.lower()]
-        total_applied = len(mesh.shape_keys.key_blocks) - len(deform_SKs)
+    desgraph = context.evaluated_depsgraph_get()
+    modifiers_to_apply = [mod for mod in obj.modifiers if mod.show_viewport]
+    if obj.data.shape_keys is not None:
+        deform_SKs = [sk.name for sk in obj.data.shape_keys.key_blocks if 'deform' in sk.name.lower()]
+        total_applied = len(obj.data.shape_keys.key_blocks) - len(deform_SKs)
 
     if len(deform_SKs) == 0:
-        if result_obj.data.shape_keys:
-            result_obj.shape_key_add(name='CombinedKeys', from_mix=True)
-            for shape_key in result_obj.data.shape_keys.key_blocks:
-                result_obj.shape_key_remove(shape_key)
-
-        for modifier in modifiers_to_apply:
-            result_obj.modifiers.append(modifier)
-            bpy.ops.object.modifier_apply(modifier=modifier.name)
+        mesh = obj.evaluated_get(desgraph).to_mesh()
     else:
+        mesh = obj.to_mesh()
+        result_obj = obj.copy()
+        result_obj.data = mesh.copy()
+        context.collection.objects.link(result_obj)
         for sk in obj.data.shape_keys.key_blocks:
             if sk.name not in deform_SKs:
                 result_obj.shape_key_remove(sk)
@@ -2423,10 +2418,12 @@ def apply_modifiers_and_shapekeys(context, mesh, obj, main_obj):
             list_properties.append(properties_object)
             result_obj.shape_key_remove(key_b)
         # Set up Basis
-        for mod in modifiers_to_apply:
-            bpy.ops.object.modifier_apply(modifier=mod.name)
+        result_obj = result_obj.evaluated_get(desgraph)
+        # bpy.ops.object.shape_key_add(from_mix=False)
+        # for mod in modifiers_to_apply:
+        #     bpy.ops.object.modifier_apply(modifier=mod.name)
+        mesh = result_obj.to_mesh()
         vert_count = len(result_obj.data.vertices)
-        bpy.ops.object.shape_key_add(from_mix=False)
         result_obj.select_set(False)
         # Create a temp object to apply modifiers into once per SK
         for i in range(1, obj.data.shape_keys.key_blocks):
@@ -2478,21 +2475,14 @@ def apply_modifiers_and_shapekeys(context, mesh, obj, main_obj):
         context.view_layer.objects.active = copy_obj
         copy_obj.select_set(True)
         bpy.ops.object.delete(use_global=False)
+        bpy.ops.object.select_all(action='DESELECT')
+        context.view_layer.objects.active = result_obj
+        context.view_layer.objects.active.select_set(True)
+        mesh = result_obj.data
+        bpy.ops.object.delete(use_global=False)
 
-    bpy.ops.object.select_all(action='DESELECT')
-    context.view_layer.objects.active = result_obj
-    context.view_layer.objects.active.select_set(True)
-    if main_obj != obj:
-        # Matrix world seems to be the summatory of all transforms parents included
-        # Might need to test for more edge cases and to confirm these suspicious,
-        # other available options: matrix_local, matrix_basis, matrix_parent_inverse
-        mesh.transform(result_obj.matrix_world)
-        mesh.transform(main_obj.matrix_world.inverted())
-
-    mesh = result_obj.data
-    bpy.ops.object.delete(use_global=False)
-    mesh.update()
-    print(f"{obj.name}: Applied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(deform_SKs)} shapekeys in {time.time() - start_timer} seconds")
+    print(f"\t{obj.name}: Applied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(deform_SKs)} shapekeys in {time.time() - start_timer} seconds")
+    return mesh
 
 def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_path, use_foldername, ignore_hidden, only_selected, no_ramps, delete_intermediate, credit, copy_textures, outline_properties, game:GameEnum, destination=None):
     scene = bpy.context.scene
@@ -2649,10 +2639,11 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             #     vb.revert_blendindices_remap()
             #     sorted_vgmap = collections.OrderedDict(sorted(vgmap.items(), key=lambda x:x[1]))
             #     json.dump(sorted_vgmap, open(vgmap_path, 'w'), indent=2)
-            mesh = obj.evaluated_get(context.evaluated_depsgraph_get()).to_mesh()
             if topology == 'trianglelist':
-                ib, vbarr = mesh_to_bin(context, operator, mesh, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
-                offsets[current_name + classification] = [(obj.name, len(ib)*3)]
+                print(f"Exporting {current_name + classification}...")
+                print(f"Exporting {obj.name}:")
+                ib, vbarr = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
+                offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3)]
             else:
                 raise Fatal('topology "%s" is not supported for export' % vb.topology)
 
@@ -2663,17 +2654,17 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             if collection_name:
                 objs_to_compile = []
                 appendto(bpy.data.collections[collection_name[0].name], objs_to_compile)
-                objs_to_compile = [obj for obj in objs_to_compile if obj.type == "MESH" and obj.visible_get()]
-                print(f'Objects to export: {objs_to_compile}')
+                objs_to_compile = [obj for obj in objs_to_compile if obj[-1].type == "MESH" and obj[-1].visible_get()]
+                print(f'Objects to export: {[obj[-1] for obj in objs_to_compile]}')
                 count = len(vbarr)
-                for obj_c in objs_to_compile:
-                    compile_mesh = obj_c.evaluated_get(context.evaluated_depsgraph_get()).to_mesh()
-                    obj_ib, obj_vbarr = mesh_to_bin(context, operator, compile_mesh, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
-                    obj_ib +=  count
+                for collection, depth, obj_c in objs_to_compile:
+                    print(f"Exporting {obj_c.name}:")
+                    obj_ib, obj_vbarr = mesh_to_bin(context, operator, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
+                    obj_ib += count
                     count += len(obj_vbarr)
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
-                    offsets[current_name + classification].append((obj_c.name, len(obj_ib)*3))
+                    offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3))
 
             # Must be done to all meshes and then compiled
             # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
@@ -2848,10 +2839,14 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                     texture_hashes_written.append(texture[2])
             if any(len(x) > 1 for x in curr_offsets):
                 last_count = 0
-                for name, count in offsets[current_name + current_object]:
-                    ib_override_ini += f"; {name}\n"
-                    ib_override_ini += f"drawindexed = {count}, {last_count}, 0\n"
+                old_collection = ""
+                for collection, depth, name, count in offsets[current_name + current_object]:
+                    if collection != old_collection:
+                        ib_override_ini += "\t" * (depth-1) + f"; {collection}\n"
+                    ib_override_ini += "\t" * depth + f"; {name}\n"
+                    ib_override_ini += "\t" * depth + f"drawindexed = {count}, {last_count}, 0\n"
                     last_count += count
+                    old_collection = collection
             ib_override_ini += "\n"
 
         if component["blend_vb"]:
@@ -3323,7 +3318,8 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 for loop in mesh.loops:
                     loop_normal_w[loop.index] = custom_attributes_float(mesh)['NORMAL.w'].data[loop.vertex_index].value
                 result = numpy.concatenate((result, loop_normal_w), axis=1)
-            translate_normal(result)
+            if len(mesh.polygons) > 0:
+                translate_normal(result)
         elif translated_elem_name.startswith("TANGENT"):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
             bitangent_sign = numpy.zeros(len(mesh.loops), dtype=numpy.float16)
@@ -3334,7 +3330,8 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 export_outline = optimized_outline_generation(obj, mesh, outline_properties)
                 for loop in mesh.loops:
                     temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
-            translate_tangent(temp_tangent)
+            if len(mesh.polygons) > 0:
+                translate_tangent(temp_tangent)
             result[:, 0:3] = temp_tangent
             result[:, 3] = bitangent_sign
             if game == GameEnum.ZenlessZoneZero:
@@ -3421,19 +3418,31 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
         print(f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.")
     return migoto_verts, dtype
 
-def mesh_to_bin(context, operator, mesh, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties):
+def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties):
     vb = VertexBufferGroup(layout=fmt_layout, topology="trianglelist")
     vb.flag_invalid_semantics()
-    mesh_triangulate(mesh)
-    if len(mesh.polygons) > 0:
-        # Calculates tangents and makes loop normals valid (still with our
-        # # custom normal data from import time):
+    if len(obj.data.polygons) > 0:
+        # Calculates tangents and makes loop normals valid (still with our custom normal data from import time):
+        if operator.apply_modifiers_and_shapekeys:
+            mesh = apply_modifiers_and_shapekeys(context, obj)
+        else:
+            # FIXME: Going down this path makes it not inherit scale properly
+            mesh = obj.to_mesh()
+        if main_obj != obj:
+            # Matrix world seems to be the summatory of all transforms parents included
+            # Might need to test for more edge cases and to confirm these suspicious,
+            # other available options: matrix_local, matrix_basis, matrix_parent_inverse
+            # if operator.apply_modifiers_and_shapekeys:
+            mesh.transform(obj.matrix_world)
+            mesh.transform(main_obj.matrix_world.inverted())
+        mesh.update()
+        mesh_triangulate(mesh)
         try:
             mesh.calc_tangents()
         except RuntimeError:
             raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
-        if operator.apply_modifiers_and_shapekeys:
-            apply_modifiers_and_shapekeys(context, mesh, obj, main_obj)
+    else:
+        mesh = obj.to_mesh()
     start_timer = time.time()
     migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
 
@@ -3453,6 +3462,7 @@ def mesh_to_bin(context, operator, mesh, obj, fmt_layout:InputLayout, game:GameE
     ib = numpy.array(ib, dtype=numpy.uint32)
     vb = numpy.frombuffer(vb, dtype=dtype)
     print(f"\tMesh to bin took {time.time() - start_timer} seconds")
+    obj.to_mesh_clear()
     return ib, vb
 
 def shapekey_generation(obj, mesh):

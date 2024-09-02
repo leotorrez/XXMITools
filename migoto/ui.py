@@ -1,7 +1,8 @@
 import bpy
+import addon_utils
 from bl_ui.generic_ui_list import draw_ui_list
 from .operators import ClearSemanticRemapList,PrefillSemanticRemapList, Import3DMigotoFrameAnalysis, Import3DMigotoRaw, Import3DMigotoPose, Export3DMigoto, ApplyVGMap, Export3DMigotoXXMI
-from .datahandling import GameEnum,game_enums
+
 class MIGOTO_UL_semantic_remap_list(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
@@ -150,17 +151,23 @@ class XXMI_PT_Sidebar(bpy.types.Panel):
     bl_label = "XXMI Tools"
     bl_context = "objectmode"
 
-    # def draw_header(self, context):
-    #     layout = self.layout
-    #     row = layout.row()
-    #     row.operator("wm.url_open", text="",icon="QUESTION"
-    #                 ).url = "github.com/leotorrez/LeoTools/blob/main/guides/JoinMeshesGuide.md"
+    def draw_header(self, context):
+        layout = self.layout
+        row = layout.row()
+        version = ""
+        for module in addon_utils.modules():
+            if module.bl_info.get('name') == "XXMI_Tools":
+                version = module.bl_info.get('version', (-1, -1, -1))
+                break
+        version = ".".join(str(i) for i in version)
+        row.alignment = 'RIGHT'
+        row.label(text="v "+version)
 
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         xxmi = context.scene.xxmi
-        split = layout.split(factor=0.75)
+        split = layout.split(factor=0.85)
         col_1 = split.column()
         col_2 = split.column()
         col_1.prop(xxmi, "dump_path")
@@ -181,7 +188,7 @@ class XXMISidebarOptionsPanelBase(object):
     #     return operator.bl_idname == "XXMI_PT_Sidebar"
 
     def draw(self, context):
-        self.layout.use_property_split = True
+        self.layout.use_property_split = False
         self.layout.use_property_decorate = False
 class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = "Export Settings"
@@ -191,7 +198,9 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Pan
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)
         xxmi = context.scene.xxmi
-        col = self.layout.column(align=True)
+        box = self.layout.box()
+        row = box.row()
+        col = row.column(align=True)
         col.prop(xxmi, 'flip_winding')
         col.prop(xxmi, 'flip_normal')
         col.prop(xxmi, 'use_foldername')
@@ -225,15 +234,19 @@ class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
         XXMISidebarOptionsPanelBase.draw(self, context)
         xxmi = context.scene.xxmi
         self.layout.enabled = xxmi.outline_optimization
-        self.layout.prop(xxmi, "toggle_rounding_outline", text='Vertex Position Rounding', toggle=True, icon="SHADING_WIRE")
-        self.layout.prop(xxmi, "decimal_rounding_outline")
+        box = self.layout.box()
+        row = box.row()
+        col = row.column(align=True)
+        
+        col.prop(xxmi, "toggle_rounding_outline", text='Vertex Position Rounding', toggle=True, icon="SHADING_WIRE")
+        col.prop(xxmi, "decimal_rounding_outline")
         if xxmi.toggle_rounding_outline:
-            self.layout.prop(xxmi, "detect_edges")
+            col.prop(xxmi, "detect_edges")
         if xxmi.detect_edges and xxmi.toggle_rounding_outline:
-            self.layout.prop(xxmi, "nearest_edge_distance")
-        self.layout.prop(xxmi, "overlapping_faces")
-        self.layout.prop(xxmi, "angle_weighted")
-        self.layout.prop(xxmi, "calculate_all_faces")
+            col.prop(xxmi, "nearest_edge_distance")
+        col.prop(xxmi, "overlapping_faces")
+        col.prop(xxmi, "angle_weighted")
+        col.prop(xxmi, "calculate_all_faces")
 class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
