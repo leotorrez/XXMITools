@@ -2824,6 +2824,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             texture_hashes = component["texture_hashes"][i] if "texture_hashes" in component else [["Diffuse", ".dds", "_"], ["LightMap", ".dds", "_"]]
 
             print("Copying texture files")
+            texture_overrides = ""
             for j, texture in enumerate(texture_hashes):
                 if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
                     continue
@@ -2831,23 +2832,28 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                     shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
                         os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                 if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
-                    ib_override_ini += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
+                    texture_overrides += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
                 elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
-                    ib_override_ini += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
+                    texture_overrides += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
                 tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                     texture_hashes_written.append(texture[2])
+            collection_list = ""
             if any(len(x) > 1 for x in curr_offsets):
                 last_count = 0
                 old_collection = ""
                 for collection, depth, name, count in offsets[current_name + current_object]:
                     if collection != old_collection:
-                        ib_override_ini += "\t" * (depth-1) + f"; {collection}\n"
-                    ib_override_ini += "\t" * depth + f"; {name}\n"
-                    ib_override_ini += "\t" * depth + f"drawindexed = {count}, {last_count}, 0\n"
+                        collection_list += "\t" * (depth-1) + f"; {collection}\n"
+                    collection_list += "\t" * depth + f"; {name}\n"
+                    collection_list += "\t" * depth + f"drawindexed = {count}, {last_count}, 0\n"
                     last_count += count
                     old_collection = collection
-            ib_override_ini += "\n"
+            # Correctly order the collections for the different style of texture
+            if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
+                ib_override_ini += collection_list + texture_overrides + "\n"
+            elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+                ib_override_ini += texture_overrides + collection_list + "\n"
 
         if component["blend_vb"]:
             print("Writing merged buffer files")
