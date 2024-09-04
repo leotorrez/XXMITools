@@ -3308,11 +3308,11 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             result = numpy.zeros((len(mesh.loops), 4), dtype=numpy.float16)
             mesh.loops.foreach_get("tangent", temp_tangent.ravel())
             mesh.loops.foreach_get("bitangent_sign", bitangent_sign)
-            if outline_properties[0]:
-                export_outline = optimized_outline_generation(obj, mesh, outline_properties)
-                for loop in mesh.loops:
-                    temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
             if len(mesh.polygons) > 0:
+                if outline_properties[0]:
+                    export_outline = optimized_outline_generation(obj, mesh, outline_properties)
+                    for loop in mesh.loops:
+                        temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
                 translate_tangent(temp_tangent)
             result[:, 0:3] = temp_tangent
             result[:, 3] = bitangent_sign
