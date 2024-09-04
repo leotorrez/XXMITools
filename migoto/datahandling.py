@@ -2981,7 +2981,7 @@ def collect_ib(folder, name, classification, offset):
             i += 4
     return ib
 
-def collect_vb_single(folder, name, classification, stride): 
+def collect_vb_single(folder, name, classification, stride):
     result = bytearray()
     # FIXME: harcoded vb0. This should be flexible for multiple buffer export
     if not os.path.exists(os.path.join(folder, f"{name}{classification}.vb0")):
@@ -3232,31 +3232,7 @@ def merge_armatures(operator, context):
         src_obj.parent = target_arm
         unlink_object(context, src_arm)
 
-
-def split_vb(vb, fmt_layout ,dtype):
-    range_pos, range_blend, range_tex = 0, 0, 0
-    for elem in fmt_layout:
-        if elem.SemanticName in ["POSITION", "NORMAL", "TANGENT"]:
-            range_pos += 1
-        elif elem.SemanticName in ["BLENDWEIGHT", "BLENDWEIGHTS", "BLENDINDICES"]:
-            range_blend += 1
-        elif elem.SemanticName in ["COLOR", "TEXCOORD"]:
-            range_tex += 1
-
-    # split vertex buffer into separate arrays
-    pos = numpy.zeros(len(vb), dtype=numpy.dtype(dtype.descr[0:range_pos]))
-    blend = numpy.zeros(len(vb), dtype=numpy.dtype(dtype.descr[range_pos:range_pos + range_blend]))
-    tex = numpy.zeros(len(vb), dtype=numpy.dtype(dtype.descr[range_pos + range_blend:]))
-    for field in dtype.names[0: range_pos]:
-        pos[field] = vb[field]
-    for field in dtype.names[range_pos:range_pos + range_blend]:
-        blend[field] = vb[field]
-    for field in dtype.names[range_pos + range_blend:]:
-        tex[field] = vb[field]
-    return pos, blend, tex
-
 def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties=None):
-    texcoord_layers = {}
     translate_normal = numpy.vectorize(translate_normal)
     translate_tangent = numpy.vectorize(translate_tangent)
     dtype = numpy.dtype([])
@@ -3432,13 +3408,11 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         if operator.apply_modifiers_and_shapekeys:
             mesh = apply_modifiers_and_shapekeys(context, obj)
         else:
-            # FIXME: Going down this path makes it not inherit scale properly
             mesh = obj.to_mesh()
         if main_obj != obj:
             # Matrix world seems to be the summatory of all transforms parents included
             # Might need to test for more edge cases and to confirm these suspicious,
             # other available options: matrix_local, matrix_basis, matrix_parent_inverse
-            # if operator.apply_modifiers_and_shapekeys:
             mesh.transform(obj.matrix_world)
             mesh.transform(main_obj.matrix_world.inverted())
         mesh.update()
