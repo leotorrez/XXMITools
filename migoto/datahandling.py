@@ -2598,24 +2598,6 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # Blender to do this, but it's easy enough to do this ourselves
             
             # if vb.topology == 'trianglelist':
-            #     for poly in mesh.polygons:
-            #         face = []
-            #         for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
-            #             vertex = blender_vertex_to_3dmigoto_vertex(mesh, obj, blender_lvertex, layout, texcoord_layers, None, translate_normal, translate_tangent, export_outline)
-            #             if ib is not None:
-            #                 face.append(indexed_vertices.setdefault(HashableVertex(vertex), len(indexed_vertices)))
-            #             else:
-            #                 if operator.flip_winding:
-            #                     raise Fatal('Flipping winding order without index buffer not implemented')
-            #                 vb.append(vertex)
-            #         if ib is not None:
-            #             if operator.flip_winding:
-            #                 face.reverse()
-            #             ib.append(face)
-
-            #     if ib is not None:
-            #         for vertex in indexed_vertices:
-            #             vb.append(vertex)
             # elif vb.topology == 'pointlist':
             #     for index, blender_vertex in enumerate(mesh.vertices):
             #         vb.append(blender_vertex_to_3dmigoto_vertex(mesh, obj, None, layout, texcoord_layers, blender_vertex, translate_normal, translate_tangent, export_outline))
@@ -3434,6 +3416,8 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
             vertex = migoto_verts[blender_lvertex.index]
             face.append(indexed_vertices.setdefault(HashableVertexBytes(vertex.tobytes()), len(indexed_vertices)))
+        if operator.flip_winding:
+            face = face.reverse()
         ib.append(face)
     vb = bytearray()
     for vertex in indexed_vertices:
