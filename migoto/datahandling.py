@@ -2569,6 +2569,8 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             layout = InputLayout(obj['3DMigoto:VBLayout'])
             translate_normal = normal_export_translation(layout, 'NORMAL', operator.flip_normal)
             translate_tangent = normal_export_translation(layout, 'TANGENT', operator.flip_tangent)
+            translate_normal = numpy.vectorize(translate_normal)
+            translate_tangent = numpy.vectorize(translate_tangent)
             strides = {x[11:-6]: obj[x] for x in obj.keys() if x.startswith('3DMigoto:VB') and x.endswith('Stride')}
             topology = 'trianglelist'
             if '3DMigoto:Topology' in obj:
@@ -3233,8 +3235,6 @@ def merge_armatures(operator, context):
         unlink_object(context, src_arm)
 
 def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties=None):
-    translate_normal = numpy.vectorize(translate_normal)
-    translate_tangent = numpy.vectorize(translate_tangent)
     dtype = numpy.dtype([])
     for elem in fmt_layout:
         # Numpy Future warning: 1 vs (1,) shape. 
