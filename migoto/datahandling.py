@@ -2627,7 +2627,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 print(f"Exporting {current_name + classification}...")
                 print(f"Exporting {obj.name}:")
                 ib, vbarr = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
-                offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3)]
+                offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3,len(vbarr))]
             else:
                 raise Fatal('topology "%s" is not supported for export' % vb.topology)
 
@@ -2648,7 +2648,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                     count += len(obj_vbarr)
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
-                    offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3))
+                    offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr)))
 
             # Must be done to all meshes and then compiled
             # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
@@ -2826,12 +2826,12 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             if any(len(x) > 1 for x in curr_offsets):
                 last_count = 0
                 old_collection = ""
-                for collection, depth, name, count in offsets[current_name + current_object]:
+                for collection, depth, name, icount, vcount in offsets[current_name + current_object]:
                     if collection != old_collection:
                         collection_list += "\t" * (depth-1) + f"; {collection}\n"
-                    collection_list += "\t" * depth + f"; {name}\n"
-                    collection_list += "\t" * depth + f"drawindexed = {count}, {last_count}, 0\n"
-                    last_count += count
+                    collection_list += "\t" * depth + f"; {name} ({vcount})\n"
+                    collection_list += "\t" * depth + f"drawindexed = {icount}, {last_count}, 0\n"
+                    last_count += icount
                     old_collection = collection
             # Correctly order the collections for the different style of texture
             if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
