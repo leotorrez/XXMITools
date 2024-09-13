@@ -17,8 +17,8 @@ Then you can enable the plugin in Blender by going to `Edit > Preferences > Add-
 
 # Planned & necessary changes:
 - Faster export Numpy
-    - Outfit compiler Features
-        - Apply join meshes per outfit
+    - ~~Outfit compiler Features~~
+        - ~~Apply join meshes per outfit~~
         - $variable in name(its the least of pains)
     - JoinMeshes features
         - ~~Make all objects single use to temporarily remove linked data~~
@@ -26,12 +26,12 @@ Then you can enable the plugin in Blender by going to `Edit > Preferences > Add-
         - Export marked $variable as data shapekeys
         - ~~Apply all visible modifiers~~
         - ~~Remove the vertex groups that contain the word MASK in their name. To avoid DX11 hard limit~~
-        - Join all objects in the collection+$variable into a single "container" mesh
-        - conver to numpy arrays
-        - free bmesh/undo bs
-        - concat vbs and ib concat + offset
-            - store draw slices
-        - write ini + resources into destination folder
+        - ~~Join all objects in the collection+$variable into a single "container" mesh~~
+        - ~~conver to numpy arrays~~
+        - ~~free bmesh/undo bs~~
+        - ~~concat vbs and ib concat + offset~~
+            - ~~store draw slices~~
+        - ~~write ini + resources into destination folder~~
 - update DUMP format to add split vbuffer
     - Adding support for several texture hashes in hash.json
     - 2.8 to 3.5 support

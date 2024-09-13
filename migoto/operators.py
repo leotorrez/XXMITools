@@ -781,13 +781,10 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         col.prop(self, 'no_ramps')
         col.prop(self, 'delete_intermediate')
         col.prop(self, 'copy_textures')
-        col.prop(self, 'credit')
         col.prop(self, 'apply_modifiers_and_shapekeys')
         col.prop(self, 'normalize_weights')
         col.prop(self, 'export_shapekeys')
         layout.separator()
-        
-        col = layout.column(align=True)
         col.prop(self, 'outline_optimization')
         
         if self.outline_optimization:
@@ -800,7 +797,9 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
             col.prop(self, 'overlapping_faces')
             col.prop(self, 'angle_weighted')
             col.prop(self, 'calculate_all_faces')
-
+        layout.separator()
+        
+        col.prop(self, 'credit')
     def invoke(self, context, event):
         obj = context.object
         if obj is None:
