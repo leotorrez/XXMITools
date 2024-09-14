@@ -783,7 +783,7 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         col.prop(self, 'copy_textures')
         col.prop(self, 'apply_modifiers_and_shapekeys')
         col.prop(self, 'normalize_weights')
-        col.prop(self, 'export_shapekeys')
+        # col.prop(self, 'export_shapekeys')
         layout.separator()
         col.prop(self, 'outline_optimization')
         

@@ -2658,7 +2658,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             if topology == 'trianglelist':
                 print(f"Exporting {current_name + classification}...")
                 print(f"Exporting {obj.name}:")
-                ib, vbarr, sk_buf, sko_buf = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
+                ib, vbarr = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
                 offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3,len(vbarr))]
             else:
                 raise Fatal('topology "%s" is not supported for export' % vb.topology)
@@ -2675,19 +2675,18 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 count = len(vbarr)
                 for collection, depth, obj_c in objs_to_compile:
                     print(f"Exporting {obj_c.name}:")
-                    obj_ib, obj_vbarr, obj_sk_buf, obj_sko_buf = mesh_to_bin(context, operator, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
+                    obj_ib, obj_vbarr = mesh_to_bin(context, operator, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
                     obj_ib += count
                     count += len(obj_vbarr)
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
-                    sk_buf = numpy.append(sk_buf, obj_sk_buf)
-                    sko_buf.append(obj_sko_buf)
                     offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr)))
 
             # Must be done to all meshes and then compiled
-            if operator.export_shapekeys and obj.data.shape_keys is not None and len(obj.data.shape_keys.key_blocks) > 1:
-                sko_buf.tofile(sko_path, format='bytes')
-                sk_buf.tofile(skb_path, format='bytes')
+            # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
+            #     sk_offsets, sk_buf = shapekey_generation(obj, mesh)
+            #     json.dump(sk_offsets, open(sko_path, 'w'), indent=2)
+            #     sk_buf.tofile(skb_path, format='bytes')
 
             vbarr.tofile(vb_path, format='bytes')
             ib.tofile(ib_path, format='bytes')
@@ -2786,20 +2785,10 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
         else:
             ib_override_ini += f"[TextureOverride{current_name}IB]\nhash = {component['ib']}\nhandling = skip\ndrawindexed = auto\n\n"
         for i in range(len(component["object_indexes"])):
-
             if i + 1 > len(object_classifications):
                 current_object = f"{object_classifications[-1]}{i + 2 - len(object_classifications)}"
             else:
                 current_object = object_classifications[i]
-
-            try:
-                shutil.copy(os.path.join(path, f"{current_name}{current_object}.sko"),
-                     os.path.join(destination, f"{current_name}{current_object}.sko"))
-                shutil.copy(os.path.join(path, f"{current_name}{current_object}.skb"),
-                     os.path.join(destination, f"{current_name}{current_object}.skb"))
-            except:
-                pass
-            
 
             print(f"\nCollecting {current_object}")
 
@@ -3424,11 +3413,12 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
 def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties):
     vb = VertexBufferGroup(layout=fmt_layout, topology="trianglelist")
     vb.flag_invalid_semantics()
-    mesh = obj.to_mesh()
     if len(obj.data.polygons) > 0:
         # Calculates tangents and makes loop normals valid (still with our custom normal data from import time):
         if operator.apply_modifiers_and_shapekeys:
             mesh = apply_modifiers_and_shapekeys(context, obj)
+        else:
+            mesh = obj.to_mesh()
         if main_obj != obj:
             # Matrix world seems to be the summatory of all transforms parents included
             # Might need to test for more edge cases and to confirm these suspicious,
@@ -3441,33 +3431,19 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
             mesh.calc_tangents()
         except RuntimeError:
             raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
+    else:
+        mesh = obj.to_mesh()
     start_timer = time.time()
-    is_shapekey_exporting = operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1
     migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
 
-    if is_shapekey_exporting:
-        sk_dtype = numpy.dtype([])
-        for i, sk in enumerate(mesh.shape_keys.key_blocks):
-            sk_dtype = numpy.dtype(sk_dtype.descr + [(f"{sk.name}", (numpy.float32, 3))])
-        shapekey_data = numpy.zeros(len(mesh.vertices), dtype=sk_dtype)
-        for i, sk in enumerate(mesh.shape_keys.key_blocks):
-            print(f"Processing shapekey: {sk.name}")
-            pos = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
-            sk.data.foreach_get('co', pos.ravel())
-            shapekey_data[sk.name] = pos
     ib = []
     indexed_vertices = collections.OrderedDict()
-    if is_shapekey_exporting:
-        indexed_sks = numpy.array([], dtype=sk_dtype)
 
     for poly in mesh.polygons:
         face = []
         for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
             vertex = migoto_verts[blender_lvertex.index]
-            indexed_verts_len = len(indexed_vertices)
             face.append(indexed_vertices.setdefault(HashableVertexBytes(vertex.tobytes()), len(indexed_vertices)))
-            if len(indexed_vertices) > indexed_verts_len and is_shapekey_exporting:
-                indexed_sks = numpy.append(indexed_sks, shapekey_data[blender_lvertex.vertex_index])
         if operator.flip_winding:
             face = face.reverse()
         ib.append(face)
@@ -3478,39 +3454,6 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
     for vertex in indexed_vertices:
         vb += vertex
 
-    sk_dtype = numpy.dtype([
-        ('VERTEX_INDEX', numpy.uint32),
-        ('POSITION', numpy.float32, 3),
-        ('NORMAL', numpy.float32, 3),
-        ('TANGENT', numpy.float32, 3),
-    ])
-    sk_buf = numpy.array([], dtype=sk_dtype)
-    sko_buf = numpy.zeros(len(mesh.shape_keys.key_blocks)-1 if is_shapekey_exporting else [], dtype=numpy.dtype([
-        ('OLD_OFFSET', numpy.uint32),
-        ('OLD_COUNT', numpy.uint32),
-        ('NEW_OFFSET', numpy.uint32),
-        ('NEW_COUNT', numpy.uint32),
-    ]))
-    if is_shapekey_exporting:
-        aux_counter = 0
-        basis = numpy.zeros(len(indexed_sks), dtype=sk_dtype)
-        basis['VERTEX_INDEX'] = numpy.arange(len(indexed_sks))
-        for i, sk in enumerate(mesh.shape_keys.key_blocks):
-            if i == 0:
-                basis['POSITION'] = indexed_sks[sk.name]
-                continue
-            temp = numpy.zeros(len(indexed_sks), dtype=sk_dtype)
-            temp['VERTEX_INDEX'] = basis['VERTEX_INDEX']
-            temp['POSITION'] = indexed_sks[sk.name] - basis['POSITION']
-            temp = numpy.delete(temp, numpy.nonzero(numpy.all(temp['POSITION'] + basis['POSITION'] == basis['POSITION'], axis=1)), axis=0)
-            sk_buf = numpy.concatenate((sk_buf, temp))
-            sk_pattern = re.compile(r"c_(\d+).o_(\d+)")
-            old_count, old_offset = sk_pattern.match(sk.name).groups()
-            sko_buf[i-1] = (int(old_offset), int(old_count), aux_counter, len(temp))
-            aux_counter += len(temp)
-        print(f"Shapekey buffer has {len(sk_buf)} vertices")
-        print(f"Shapekey counts: {sko_buf}")
-
     ib = numpy.array(ib, dtype=numpy.uint32)
     
     if outline_properties[0]:
@@ -3519,5 +3462,32 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         vb = numpy.frombuffer(vb, dtype=dtype)
     print(f"\tMesh to bin took {time.time() - start_timer} seconds")
     obj.to_mesh_clear()
+    return ib, vb
 
-    return ib, vb, sk_buf, sko_buf
+def shapekey_generation(obj, mesh):
+    sk_dtype = numpy.dtype([
+        ('VERTEX_INDEX', numpy.uint32),
+        ('POSITION', numpy.float32, 3),
+    ])
+    sk_datas = []
+    for i, sk in enumerate(mesh.shape_keys.key_blocks):
+        print(f"Processing shapekey {sk.name}")
+        sk_data = numpy.zeros(len(mesh.vertices), dtype=sk_dtype)
+        pos = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
+        sk_data['VERTEX_INDEX'] = numpy.array(range(len(mesh.vertices)), dtype=(numpy.uint32))
+        sk.data.foreach_get('co', pos.ravel())
+        sk_data['POSITION'] = pos
+        if i != 0: # skip Basis
+            sk_data = numpy.delete(sk_data, numpy.nonzero(numpy.all(sk_data['POSITION'] == sk_datas[0]['POSITION'], axis=1)), axis=0)
+        sk_datas.append(sk_data)
+    total = sum(len(sk_data) for sk_data in sk_datas)
+    shapekey_buff = numpy.zeros(total, dtype=sk_dtype)
+    offset_count = []
+    offset = 0
+    for i, sk_data in enumerate(sk_datas):
+        if i == 0: # skip Basis
+            continue
+        offset_count.append(offset)
+        shapekey_buff[offset:offset + len(sk_data)] = sk_data
+        offset += len(sk_data)
+    return offset_count, shapekey_buff
