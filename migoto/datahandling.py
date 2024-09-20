@@ -2680,7 +2680,8 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                     count += len(obj_vbarr)
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
-                    offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr)))
+                    if operator.join_meshes is False:
+                        offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr)))
 
             # Must be done to all meshes and then compiled
             # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
