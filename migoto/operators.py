@@ -1079,27 +1079,26 @@ class ExportAdvancedBatchedOperator(bpy.types.Operator):
     def execute(self, context):
         scene = bpy.context.scene
         xxmi = scene.xxmi
-
-        if "#" not in xxmi.batch_pattern:
-            self.report({'ERROR'}, "Batch pattern must contain any number of # wildcard characters for the frame number to be written into it. Example name_### -> name_001")
-            return False
+        start_time = time.time()
+        base_dir = xxmi.destination_path
+        wildcards = ("#####", "####", "###", "##", "#")
         try:
-            start_time = time.time()
-            base_dir = xxmi.destination_path
-            wildcards = ["#####", "####", "###", "##", "#"]
             for frame in range(scene.frame_start, scene.frame_end + 1):
                 context.scene.frame_set(frame)
-                for wildcard in wildcards:
-                    frame_folder = xxmi.batch_pattern.replace(wildcard, str(frame).zfill(len(wildcard)))
+                for w in wildcards:
+                    frame_folder = xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
                     if frame_folder != xxmi.batch_pattern:
                         break
+                else:
+                    self.report({'ERROR'}, "Batch pattern must contain any number of # wildcard characters for the frame number to be written into it. Example name_### -> name_001")
+                    return False
                 xxmi.destination_path = os.path.join(base_dir, frame_folder)
                 bpy.ops.xxmi.exportadvanced()
                 print(f"Exported frame {frame + 1 - scene.frame_start}/{scene.frame_end + 1 - scene.frame_start}")
             print(f"Batch export took {time.time() - start_time} seconds")
-            xxmi.destination_path = base_dir
         except Fatal as e:
             self.report({'ERROR'}, str(e))
+        xxmi.destination_path = base_dir
         return {'FINISHED'}
 
 def register():
