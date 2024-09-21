@@ -1071,10 +1071,11 @@ class ExportAdvancedBatchedOperator(bpy.types.Operator):
         scene = bpy.context.scene
         return context.window_manager.invoke_confirm(operator = self,
             event=event,
-            message = f"Exporting {scene.frame_end + 1 - scene.frame_start} copies of the mod. This may take a while. Continue?",
-            title = "Batch export",
-            icon = 'WARNING',
-            confirm_text = "Continue")
+            # message = f"Exporting {scene.frame_end + 1 - scene.frame_start} copies of the mod. This may take a while. Continue?",
+            # title = "Batch export",
+            # icon = 'WARNING',
+            # confirm_text = "Continue"
+            )
 
     def execute(self, context):
         scene = bpy.context.scene
@@ -1094,6 +1095,8 @@ class ExportAdvancedBatchedOperator(bpy.types.Operator):
                     return False
                 xxmi.destination_path = os.path.join(base_dir, frame_folder)
                 bpy.ops.xxmi.exportadvanced()
+                bpy.ops.object.mode_set(mode = 'EDIT')
+                bpy.ops.object.mode_set(mode = 'OBJECT')
                 print(f"Exported frame {frame + 1 - scene.frame_start}/{scene.frame_end + 1 - scene.frame_start}")
             print(f"Batch export took {time.time() - start_time} seconds")
         except Fatal as e:
