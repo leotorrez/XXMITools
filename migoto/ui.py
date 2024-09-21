@@ -210,8 +210,10 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Pan
         col.prop(xxmi, 'delete_intermediate')
         col.prop(xxmi, 'copy_textures')
         col.prop(xxmi, 'apply_modifiers_and_shapekeys')
+        col.prop(xxmi, 'join_meshes')
         col.prop(xxmi, 'normalize_weights')
         # col.prop(xxmi, 'export_shapekeys')
+
 class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
@@ -222,6 +224,22 @@ class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel
         xxmi = context.scene.xxmi
         col = self.layout.column(align=True)
         col.prop(xxmi, 'credit')
+
+class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+    bl_label = ""
+    bl_options = {'HIDE_HEADER'}
+    bl_order = 99
+
+    def draw(self, context):
+        XXMISidebarOptionsPanelBase.draw(self, context)
+        xxmi = context.scene.xxmi
+        row = self.layout.column(align=True)
+        split = row.split(factor=0.5)
+        col1 = split.column()
+        col2 = split.column()
+        col1.prop(xxmi, 'batch_pattern')
+        col2.operator("xxmi.exportadvancedbatched", text="Start Batch export")
+
 class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_order = 1
@@ -250,7 +268,7 @@ class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
 class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
-    bl_order = 99
+    bl_order = 98
 
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)

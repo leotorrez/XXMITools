@@ -758,6 +758,11 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
+    join_meshes: bpy.props.BoolProperty(
+        name="Join meshes",
+        description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
+        default=False,
+    )
     normalize_weights: bpy.props.BoolProperty(
         name="Normalize weights to format",
         description="Limits weights to match export format. Also normalizes the remaining weights",
@@ -782,6 +787,7 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         col.prop(self, 'delete_intermediate')
         col.prop(self, 'copy_textures')
         col.prop(self, 'apply_modifiers_and_shapekeys')
+        col.prop(self, 'join_meshes')
         col.prop(self, 'normalize_weights')
         # col.prop(self, 'export_shapekeys')
         layout.separator()
@@ -953,6 +959,11 @@ class XXMIProperties(bpy.types.PropertyGroup):
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
+    join_meshes: bpy.props.BoolProperty(
+        name="Join meshes",
+        description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
+        default=False,
+    )
     normalize_weights: bpy.props.BoolProperty(
         name="Normalize weights to format",
         description="Limits weights to match export format. Also normalizes the remaining weights",
@@ -962,6 +973,11 @@ class XXMIProperties(bpy.types.PropertyGroup):
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
         default=False,
+    )
+    batch_pattern: bpy.props.StringProperty(
+        name="Batch pattern",
+        description="Pattern to name export folders. Example: name_###",
+        default="",
     )
 class DestinationSelector(bpy.types.Operator, ExportHelper):
     """Export single mod based on current frame"""
@@ -1026,6 +1042,7 @@ class ExportAdvancedOperator(bpy.types.Operator):
         self.flip_normal = xxmi.flip_normal
         self.flip_tangent = xxmi.flip_tangent
         self.apply_modifiers_and_shapekeys = xxmi.apply_modifiers_and_shapekeys
+        self.join_meshes = xxmi.join_meshes
         self.normalize_weights = xxmi.normalize_weights
         self.export_shapekeys = xxmi.export_shapekeys
         try:
@@ -1042,6 +1059,46 @@ class ExportAdvancedOperator(bpy.types.Operator):
             self.report({'INFO'}, "Export completed")
         except Fatal as e:
             self.report({'ERROR'}, str(e))
+        return {'FINISHED'}
+class ExportAdvancedBatchedOperator(bpy.types.Operator):
+    """Export operation base class"""
+    bl_idname = "xxmi.exportadvancedbatched"
+    bl_label = "Batch export"
+    bl_description = "Exports 1 mod per frame of blender timeline as a single mod. Folder names follow the pattern specified in the batch pattern"
+    bl_options = {'REGISTER'}
+    operations = []
+    def invoke(self, context, event):
+        scene = bpy.context.scene
+        return context.window_manager.invoke_confirm(operator = self,
+            event=event,
+            message = f"Exporting {scene.frame_end + 1 - scene.frame_start} copies of the mod. This may take a while. Continue?",
+            title = "Batch export",
+            icon = 'WARNING',
+            confirm_text = "Continue")
+
+    def execute(self, context):
+        scene = bpy.context.scene
+        xxmi = scene.xxmi
+        start_time = time.time()
+        base_dir = xxmi.destination_path
+        wildcards = ("#####", "####", "###", "##", "#")
+        try:
+            for frame in range(scene.frame_start, scene.frame_end + 1):
+                context.scene.frame_set(frame)
+                for w in wildcards:
+                    frame_folder = xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
+                    if frame_folder != xxmi.batch_pattern:
+                        break
+                else:
+                    self.report({'ERROR'}, "Batch pattern must contain any number of # wildcard characters for the frame number to be written into it. Example name_### -> name_001")
+                    return False
+                xxmi.destination_path = os.path.join(base_dir, frame_folder)
+                bpy.ops.xxmi.exportadvanced()
+                print(f"Exported frame {frame + 1 - scene.frame_start}/{scene.frame_end + 1 - scene.frame_start}")
+            print(f"Batch export took {time.time() - start_time} seconds")
+        except Fatal as e:
+            self.report({'ERROR'}, str(e))
+        xxmi.destination_path = base_dir
         return {'FINISHED'}
 
 def register():
