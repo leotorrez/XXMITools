@@ -3463,6 +3463,7 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         vb = numpy.frombuffer(vb, dtype=dtype)
     print(f"\tMesh to bin took {time.time() - start_timer} seconds")
     obj.to_mesh_clear()
+    obj.data.update()
     return ib, vb
 
 def shapekey_generation(obj, mesh):
