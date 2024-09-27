@@ -14,8 +14,6 @@ from enum import Enum
 from mathutils import Matrix, Vector
 from bpy_extras.io_utils import unpack_list, axis_conversion
 import time
-
-import numpy.typing
 ############## Begin (deprecated) Blender 2.7/2.8 compatibility wrappers (2.7 options removed) ##############
 
 vertex_color_layer_channels = 4
@@ -2150,41 +2148,11 @@ def blender_vertex_to_3dmigoto_vertex_outline(mesh, obj, blender_loop_vertex, la
             print('NOTICE: Unhandled vertex element: %s' % elem.name)
 
     return vertex
-def average_normals_into_tangent(vb, dtype, outline_properties)-> numpy.typing.NDArray:
+def optimized_outline_generation(obj, mesh, outline_properties):
     '''Outline optimization for genshin impact by HummyR#8131'''
-    # Improved outlines for GI source material: https://www.bilibili.com/read/cv16418815/
-    start_timer = time.time()
-    # outline_optimization, toggle_rounding_outline, decimal_rounding_outline,angle_weighted, overlapping_faces, detect_edges, calculate_all_faces, nearest_edge_distance = outline_properties
-    vb_np = numpy.frombuffer(vb, dtype=dtype)
-    positions = vb_np['POSITION']
-    tangents = vb_np['TANGENT']
-    normals = vb_np['NORMAL']
-
-    avg_normal = dict()
-
-    for i, pos in enumerate(positions):
-        hashed_np = HashableVertexBytes(pos.tobytes())
-        if hashed_np not in avg_normal:
-            avg_normal[hashed_np] = normals[i]
-            continue
-        normal_sum = avg_normal.get(hashed_np) + normals[i]
-        normal_sum /= numpy.linalg.norm(normal_sum)
-        avg_normal[hashed_np] = normal_sum
-
-    for i, pos in enumerate(positions):
-        hashed_np = HashableVertexBytes(pos.tobytes())
-        tangents[i, 0:3] = avg_normal[hashed_np]
-    
-    vb_np['TANGENT'] = tangents
-    print(f"\tOptimize Outline: Completed in {time.time() - start_timer} seconds       ")  
-    return vb_np
-
-def optimized_outline_generation(obj, mesh, outline_properties)->numpy.typing.NDArray:
     start_timer = time.time()
     outline_optimization, toggle_rounding_outline, decimal_rounding_outline,angle_weighted, overlapping_faces, detect_edges, calculate_all_faces, nearest_edge_distance = outline_properties
-
     export_outline = {}
-    
     Precalculated_Outline_data = {}
     print("\tOptimize Outline: " + obj.name.lower() + "; Initialize data sets         ", end='\r')
 
@@ -3324,6 +3292,10 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             mesh.loops.foreach_get("tangent", temp_tangent.ravel())
             mesh.loops.foreach_get("bitangent_sign", bitangent_sign)
             if len(mesh.polygons) > 0:
+                if outline_properties[0]:
+                    export_outline = optimized_outline_generation(obj, mesh, outline_properties)
+                    for loop in mesh.loops:
+                        temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
                 translate_tangent(temp_tangent)
             result[:, 0:3] = temp_tangent
             result[:, 3] = bitangent_sign
@@ -3448,19 +3420,12 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         if operator.flip_winding:
             face = face.reverse()
         ib.append(face)
-
-    
-        
     vb = bytearray()
     for vertex in indexed_vertices:
         vb += vertex
 
     ib = numpy.array(ib, dtype=numpy.uint32)
-    
-    if outline_properties[0]:
-        vb = average_normals_into_tangent(vb, dtype, outline_properties)
-    else:
-        vb = numpy.frombuffer(vb, dtype=dtype)
+    vb = numpy.frombuffer(vb, dtype=dtype)
     print(f"\tMesh to bin took {time.time() - start_timer} seconds")
     obj.to_mesh_clear()
     obj.data.update()
