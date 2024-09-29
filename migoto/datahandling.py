@@ -3409,22 +3409,30 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
     start_timer = time.time()
     migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
 
-    ib = []
     indexed_vertices = collections.OrderedDict()
+    ib = numpy.zeros(len(mesh.polygons), dtype=(numpy.uint32, 3))
 
-    for poly in mesh.polygons:
+    for i, poly in enumerate(mesh.polygons):
         face = []
         for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
             vertex = migoto_verts[blender_lvertex.index]
             face.append(indexed_vertices.setdefault(HashableVertexBytes(vertex.tobytes()), len(indexed_vertices)))
         if operator.flip_winding:
             face = face.reverse()
-        ib.append(face)
+        ib[i] = face
+
+    # This is a more optimized way to do the same thing as above
+    # ib = [
+    #         [indexed_vertices.setdefault(HashableVertexBytes(migoto_verts[blender_lvertex.index].tobytes()), len(indexed_vertices))
+    #             for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]]
+    #                     for poly in mesh.polygons]
+    # if operator.flip_winding:
+    #     ib = [face.reverse() for face in ib]
+
     vb = bytearray()
     for vertex in indexed_vertices:
         vb += vertex
 
-    ib = numpy.array(ib, dtype=numpy.uint32)
     vb = numpy.frombuffer(vb, dtype=dtype)
     print(f"\tMesh to bin took {time.time() - start_timer} seconds")
     obj.to_mesh_clear()
