@@ -225,7 +225,7 @@ class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel
         col = self.layout.column(align=True)
         col.prop(xxmi, 'credit')
 
-class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
     bl_order = 99

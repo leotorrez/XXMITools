@@ -14,8 +14,6 @@ from enum import Enum
 from mathutils import Matrix, Vector
 from bpy_extras.io_utils import unpack_list, axis_conversion
 import time
-
-import numpy.typing
 ############## Begin (deprecated) Blender 2.7/2.8 compatibility wrappers (2.7 options removed) ##############
 
 vertex_color_layer_channels = 4
@@ -2150,41 +2148,11 @@ def blender_vertex_to_3dmigoto_vertex_outline(mesh, obj, blender_loop_vertex, la
             print('NOTICE: Unhandled vertex element: %s' % elem.name)
 
     return vertex
-def average_normals_into_tangent(vb, dtype, outline_properties)-> numpy.typing.NDArray:
+def optimized_outline_generation(obj, mesh, outline_properties):
     '''Outline optimization for genshin impact by HummyR#8131'''
-    # Improved outlines for GI source material: https://www.bilibili.com/read/cv16418815/
-    start_timer = time.time()
-    # outline_optimization, toggle_rounding_outline, decimal_rounding_outline,angle_weighted, overlapping_faces, detect_edges, calculate_all_faces, nearest_edge_distance = outline_properties
-    vb_np = numpy.frombuffer(vb, dtype=dtype)
-    positions = vb_np['POSITION']
-    tangents = vb_np['TANGENT']
-    normals = vb_np['NORMAL']
-
-    avg_normal = dict()
-
-    for i, pos in enumerate(positions):
-        hashed_np = HashableVertexBytes(pos.tobytes())
-        if hashed_np not in avg_normal:
-            avg_normal[hashed_np] = normals[i]
-            continue
-        normal_sum = avg_normal.get(hashed_np) + normals[i]
-        normal_sum /= numpy.linalg.norm(normal_sum)
-        avg_normal[hashed_np] = normal_sum
-
-    for i, pos in enumerate(positions):
-        hashed_np = HashableVertexBytes(pos.tobytes())
-        tangents[i, 0:3] = avg_normal[hashed_np]
-    
-    vb_np['TANGENT'] = tangents
-    print(f"\tOptimize Outline: Completed in {time.time() - start_timer} seconds       ")  
-    return vb_np
-
-def optimized_outline_generation(obj, mesh, outline_properties)->numpy.typing.NDArray:
     start_timer = time.time()
     outline_optimization, toggle_rounding_outline, decimal_rounding_outline,angle_weighted, overlapping_faces, detect_edges, calculate_all_faces, nearest_edge_distance = outline_properties
-
     export_outline = {}
-    
     Precalculated_Outline_data = {}
     print("\tOptimize Outline: " + obj.name.lower() + "; Initialize data sets         ", end='\r')
 
@@ -3283,6 +3251,8 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
         else:
             raise Fatal('File uses an unsupported DXGI Format: %s' % elem.Format)
     migoto_verts = numpy.zeros(len(mesh.loops), dtype=dtype)
+    if len(mesh.polygons) == 0:
+        return migoto_verts, dtype
     weights_error_flag = -1
     masked_vgs = [vg.index for vg in obj.vertex_groups if vg.name.startswith('MASK')]
     weights = [{g.group:g.weight for g in v.groups if g.weight > 0 and g.group not in masked_vgs} for v in mesh.vertices]
@@ -3434,42 +3404,54 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
 def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties):
     vb = VertexBufferGroup(layout=fmt_layout, topology="trianglelist")
     vb.flag_invalid_semantics()
-    if len(obj.data.polygons) > 0:
-        # Calculates tangents and makes loop normals valid (still with our custom normal data from import time):
-        if operator.apply_modifiers_and_shapekeys:
-            mesh = apply_modifiers_and_shapekeys(context, obj)
-        else:
-            mesh = obj.to_mesh()
-        if main_obj != obj:
-            # Matrix world seems to be the summatory of all transforms parents included
-            # Might need to test for more edge cases and to confirm these suspicious,
-            # other available options: matrix_local, matrix_basis, matrix_parent_inverse
-            mesh.transform(obj.matrix_world)
-            mesh.transform(main_obj.matrix_world.inverted())
-        mesh.update()
-        mesh_triangulate(mesh)
-        try:
-            mesh.calc_tangents()
-        except RuntimeError:
-            raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
-    else:
+    if len(obj.data.polygons) == 0:
         mesh = obj.to_mesh()
+        start_timer = time.time()
+        migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
+        ib = numpy.array([], dtype=(numpy.uint32, 3))
+        vb = numpy.array([], dtype=dtype)
+        print(f"\tMesh to bin generated {len(vb)} vertex in {time.time() - start_timer} seconds")
+        obj.to_mesh_clear()
+        obj.data.update()
+        return ib, vb
+    
+    # Calculates tangents and makes loop normals valid (still with our custom normal data from import time):
+    mesh = apply_modifiers_and_shapekeys(context, obj) if operator.apply_modifiers_and_shapekeys else obj.to_mesh()
+    if main_obj != obj:
+        # Matrix world seems to be the summatory of all transforms parents included
+        # Might need to test for more edge cases and to confirm these suspicious,
+        # other available options: matrix_local, matrix_basis, matrix_parent_inverse
+        mesh.transform(obj.matrix_world)
+        mesh.transform(main_obj.matrix_world.inverted())
+    mesh.update()
+    mesh_triangulate(mesh)
+    try:
+        mesh.calc_tangents()
+    except RuntimeError:
+        raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
     start_timer = time.time()
     migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
 
     ibvb_timer = time.time()
     
-    ib = []
     indexed_vertices = collections.OrderedDict()
+    # ib = numpy.zeros(len(mesh.polygons), dtype=(numpy.uint32, 3))
+    # for i, poly in enumerate(mesh.polygons):
+    #     face = []
+    #     for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
+    #         vertex = migoto_verts[blender_lvertex.index]
+    #         face.append(indexed_vertices.setdefault(HashableVertexBytes(vertex.tobytes()), len(indexed_vertices)))
+    #     if operator.flip_winding:
+    #         face = face.reverse()
+    #     ib[i] = face
+    # This is a more optimized way to do the same thing as above. Leave prior comment for better readability
+    ib = [[indexed_vertices.setdefault(HashableVertexBytes(migoto_verts[blender_lvertex.index].tobytes()), len(indexed_vertices))
+                for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]
+                    ]for poly in mesh.polygons]
+    if operator.flip_winding:
+        ib = [face.reverse() for face in ib]
 
-    for poly in mesh.polygons:
-        face = []
-        for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
-            vertex = migoto_verts[blender_lvertex.index]
-            face.append(indexed_vertices.setdefault(HashableVertexBytes(vertex.tobytes()), len(indexed_vertices)))
-        if operator.flip_winding:
-            face = face.reverse()
-        ib.append(face)
+    ib = numpy.array(ib, dtype=numpy.uint32)
 
     print(f"\t\tIB GEN: {time.time() - ibvb_timer}")
     
@@ -3478,15 +3460,14 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
     vb = bytearray()
     for vertex in indexed_vertices:
         vb += vertex
-
-    print(f"\t\tVB GEN: {time.time() - ibvb_timer}")
-
-    ib = numpy.array(ib, dtype=numpy.uint32)
     
     if outline_properties[0]:
         vb = average_normals_into_tangent(vb, dtype, outline_properties)
     else:
         vb = numpy.frombuffer(vb, dtype=dtype)
+
+    print(f"\t\tVB GEN: {time.time() - ibvb_timer}")
+
     print(f"\tMesh to bin took {time.time() - start_timer} seconds")
     obj.to_mesh_clear()
     obj.data.update()
