@@ -1069,13 +1069,14 @@ class ExportAdvancedBatchedOperator(bpy.types.Operator):
     operations = []
     def invoke(self, context, event):
         scene = bpy.context.scene
+        if bpy.app.version < (4, 1, 0):
+            return context.window_manager.invoke_confirm(operator = self, event = event)
         return context.window_manager.invoke_confirm(operator = self,
-            event=event,
-            # message = f"Exporting {scene.frame_end + 1 - scene.frame_start} copies of the mod. This may take a while. Continue?",
-            # title = "Batch export",
-            # icon = 'WARNING',
-            # confirm_text = "Continue"
-            )
+            event = event,
+            message = f"Exporting {scene.frame_end + 1 - scene.frame_start} copies of the mod. This may take a while. Continue?",
+            title = "Batch export",
+            icon = 'WARNING',
+            confirm_text = "Continue")
 
     def execute(self, context):
         scene = bpy.context.scene
