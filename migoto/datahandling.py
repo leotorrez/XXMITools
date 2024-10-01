@@ -3317,6 +3317,24 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             print(f"\t\tTANGENT: {time.time() - start_timer_short}")
         elif translated_elem_name.startswith("BLENDWEIGHT"):
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
+
+            # if elem.format_len == 1:
+            #     #fill with single weights from mesh.loops
+            #     for loop in mesh.loops:
+            #         for i, g in enumerate(weights[loop.vertex_index].values()):
+            #             if i >= elem.format_len:
+            #                 weights_error_flag = elem.format_len
+            #                 break
+            #             if elem.format_len == 1:
+            #                 result[loop.index] = g
+
+            #     [for loop in mesh.loops]
+
+            # else:
+            #     #fill with multi weight from mesh.loops
+
+            #     #result = result / numpy.sum(result, axis=1)[:, None]
+
             for loop in mesh.loops:
                 for i, g in enumerate(weights[loop.vertex_index].values()):
                     if i >= elem.format_len:
@@ -3326,9 +3344,10 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                         result[loop.index] = g
                     else:
                         result[loop.index][i] = g
-            if operator.normalize_weights:
-                for i, r in enumerate(result):
-                    result[i] = r / numpy.sum(r)
+            # Only enter if more than one weight to sum in the format.
+            if operator.normalize_weights and elem.format_len > 1:
+                result = result / numpy.sum(result, axis=1)[:, None]
+
             print(f"\t\tBLENDWEIGHT: {time.time() - start_timer_short}")
         elif translated_elem_name.startswith("BLENDINDICES"):
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, elem.format_len))
@@ -3445,30 +3464,32 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
     #         face = face.reverse()
     #     ib[i] = face
     # This is a more optimized way to do the same thing as above. Leave prior comment for better readability
-    ib = [[indexed_vertices.setdefault(HashableVertexBytes(migoto_verts[blender_lvertex.index].tobytes()), len(indexed_vertices))
+
+    # migoto_verts = migoto_verts.tobytes()
+    # stride = dtype.itemsize
+
+    ib = [[indexed_vertices.setdefault(migoto_verts[blender_lvertex.index].tobytes(), len(indexed_vertices))
                 for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]
                     ]for poly in mesh.polygons]
-    if operator.flip_winding:
-        ib = [face.reverse() for face in ib]
-
+    
     ib = numpy.array(ib, dtype=numpy.uint32)
+    ib = numpy.reshape(ib, (-1, 3))
+    if operator.flip_winding:
+        ib = numpy.fliplr(ib)
 
-    print(f"\t\tIB GEN: {time.time() - ibvb_timer}")
+    print(f"\t\tIB GEN: {time.time() - ibvb_timer}, {len(ib)},{len(mesh.loops)//3}")
     
     ibvb_timer = time.time()
-        
+    
     vb = bytearray()
     for vertex in indexed_vertices:
-        vb += vertex
-    
-    if outline_properties[0]:
-        vb = average_normals_into_tangent(vb, dtype, outline_properties)
-    else:
-        vb = numpy.frombuffer(vb, dtype=dtype)
+        vb += bytes(vertex)
+
+    vb = numpy.frombuffer(vb, dtype = dtype)
 
     print(f"\t\tVB GEN: {time.time() - ibvb_timer}")
 
-    print(f"\tMesh to bin took {time.time() - start_timer} seconds")
+    print(f"\tMesh to bin generated {len(vb)} vertex in {time.time() - start_timer} seconds")
     obj.to_mesh_clear()
     obj.data.update()
     return ib, vb
