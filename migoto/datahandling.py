@@ -1,4 +1,5 @@
 import bpy
+import bmesh
 import os
 import io
 import re
@@ -440,11 +441,6 @@ class HashableVertex(dict):
     def __hash__(self):
         # Convert keys and values into immutable types that can be hashed
         immutable = tuple((k, tuple(v)) for k,v in sorted(self.items()))
-        return hash(immutable)
-class HashableVertexBytes(bytes):
-    def __hash__(self):
-        # Convert keys and values into immutable types that can be hashed
-        immutable = tuple(self)
         return hash(immutable)
 
 class IndividualVertexBuffer(object):
@@ -1427,7 +1423,6 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
 
 # from export_obj:
 def mesh_triangulate(me):
-    import bmesh
     bm = bmesh.new()
     bm.from_mesh(me)
     bmesh.ops.triangulate(bm, faces=bm.faces)
@@ -3254,26 +3249,39 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
     if len(mesh.polygons) == 0:
         return migoto_verts, dtype
     weights_error_flag = -1
-    masked_vgs = [vg.index for vg in obj.vertex_groups if vg.name.startswith('MASK')]
-    weights = [{g.group:g.weight for g in v.groups if g.weight > 0 and g.group not in masked_vgs} for v in mesh.vertices]
-    for i, w in enumerate(weights):
-        weights[i] = dict(sorted(w.items(), key=lambda item: item[1], reverse=True))
+
+    masked_vgs = [vg.index for vg in obj.vertex_groups if vg.name.startswith("MASK")]
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    layer_deform = bm.verts.layers.deform.active
+    assert layer_deform is not None
+    bm.verts.ensure_lookup_table()
+    weights = [{index: weight
+                    for index, weight in v[layer_deform].items()
+                    if index not in masked_vgs}
+                for v in bm.verts]
+    weights = [dict(sorted(w.items(), key=lambda item: item[1], reverse=True)) for w in weights]
+    weights_np = None
+    blend_len = None
+    print("\t--TIME PER ELEMENT--")
+    start_timer = time.time()
+    run = len(mesh.polygons)>0
+    idxs = [loop.index for loop in mesh.loops if run]
+    verts = [loop.vertex_index for loop in mesh.loops if run]
     for elem in fmt_layout:
+        start_timer_short = time.time()
         if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
             continue
         semantic_translations = fmt_layout.get_semantic_remap()
-        translated_elem_name, translated_elem_index = \
-                semantic_translations.get(elem.name, (elem.name, elem.SemanticIndex))
+        translated_elem_name, translated_elem_index = semantic_translations.get(elem.name, (elem.name, elem.SemanticIndex))
         if translated_elem_name == "POSITION":
             position = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
             result = numpy.ones(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
-            for loop in mesh.loops:
-                result[loop.index][0:3] = position[loop.vertex_index]
+            result[idxs] = position[verts]
             if 'POSITION.w' in custom_attributes_float(mesh):
                 loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
-                for loop in mesh.loops:
-                    loop_position_w[loop.index] = custom_attributes_float(mesh)['POSITION.w'].data[loop.vertex_index].value
+                loop_position_w[idxs] = custom_attributes_float(mesh)['POSITION.w'].data[verts].value
                 result = numpy.concatenate((result, loop_position_w), axis=1)
         elif translated_elem_name == "NORMAL":
             normal = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
@@ -3284,8 +3292,11 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 loop_normal_w = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 for loop in mesh.loops:
                     loop_normal_w[loop.index] = custom_attributes_float(mesh)['NORMAL.w'].data[loop.vertex_index].value
-                result = numpy.concatenate((result, loop_normal_w), axis=1)
-            translate_normal(result)
+                result = numpy.concatenate((result, loop_normal_w), axis=1) 
+            if operator.flip_normal: #This flips and converts normals to UNORM if needed
+                result = -result
+            if elem.Format.upper().endswith("_UNORM"):
+                result = result * 2 - 1
         elif translated_elem_name.startswith("TANGENT"):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
             bitangent_sign = numpy.zeros(len(mesh.loops), dtype=numpy.float16)
@@ -3296,37 +3307,57 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 export_outline = optimized_outline_generation(obj, mesh, outline_properties)
                 for loop in mesh.loops:
                     temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
-            translate_tangent(temp_tangent)
+            if operator.flip_tangent: #This flips and converts tangent to UNORM if needed
+                temp_tangent = -temp_tangent
+            if elem.Format.upper().endswith("_UNORM"):
+                temp_tangent = temp_tangent * 2 - 1
             result[:, 0:3] = temp_tangent
             result[:, 3] = bitangent_sign
             if game == GameEnum.ZenlessZoneZero:
-                result[:, 3] = result[:, 3] * -1
+                result[:, 3] = -result[:, 3]
             result = result[:, 0:elem.format_len]
         elif translated_elem_name.startswith("BLENDWEIGHT"):
+            if weights_np is None:
+                assert blend_len is None or blend_len == elem.format_len
+                blend_len = elem.format_len
+                weights_np = numpy.zeros(len(mesh.vertices), dtype=numpy.dtype([
+                    ("INDEX", numpy.int32, elem.format_len),
+                    ("WEIGHT", numpy.float32, elem.format_len)]))
+                for vert_idx, vert in enumerate(weights):
+                    for i,(g, w) in enumerate(vert.items()):
+                        try:
+                            if elem.format_len > 1:
+                                weights_np['INDEX'][vert_idx][i] = g
+                                weights_np['WEIGHT'][vert_idx][i] = w
+                            else:
+                                weights_np['INDEX'][vert_idx] = g
+                                weights_np['WEIGHT'][vert_idx] = w
+                        except IndexError:
+                            continue
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
-            for loop in mesh.loops:
-                for i, g in enumerate(weights[loop.vertex_index].values()):
-                    if i >= elem.format_len:
-                        weights_error_flag = elem.format_len
-                        break
-                    if elem.format_len == 1:
-                        result[loop.index] = g
-                    else:
-                        result[loop.index][i] = g
+            result[idxs] = weights_np["WEIGHT"][verts]
             if operator.normalize_weights:
-                for i, r in enumerate(result):
-                    result[i] = r / numpy.sum(r)
+                result = result / result
         elif translated_elem_name.startswith("BLENDINDICES"):
-            result = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, elem.format_len))
-            for loop in mesh.loops:
-                for i, g in enumerate(weights[loop.vertex_index].keys()):
-                    if i >= elem.format_len:
-                        weights_error_flag = elem.format_len
-                        break
-                    if elem.format_len == 1:
-                        result[loop.index] = g
-                    else:
-                        result[loop.index][i] = g
+            if weights_np is None:
+                assert blend_len is None or blend_len == elem.format_len
+                blend_len = elem.format_len
+                weights_np = numpy.zeros(len(mesh.vertices), dtype=numpy.dtype([
+                    ("INDEX", numpy.int32, elem.format_len),
+                    ("WEIGHT", numpy.float32, elem.format_len)]))
+                for vert_idx, vert in enumerate(weights):
+                    for i,(g, w) in enumerate(vert.items()):
+                        try:
+                            if elem.format_len > 1:
+                                weights_np['INDEX'][vert_idx][i] = g
+                                weights_np['WEIGHT'][vert_idx][i] = w
+                            else:
+                                weights_np['INDEX'][vert_idx] = g
+                                weights_np['WEIGHT'][vert_idx] = w
+                        except IndexError:
+                            continue
+            result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
+            result[idxs] = weights_np["INDEX"][verts]
         elif translated_elem_name.startswith("COLOR"):
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 4))
             mesh.vertex_colors[elem.name].data.foreach_get("color", result.ravel())
@@ -3379,8 +3410,11 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             elif snorm8_pattern.match(elem.Format):
                 result = numpy.round(result * 127).astype(numpy.int8)
         migoto_verts[elem.name] = result
+        print(f"\t\t{elem.name}: {time.time() - start_timer_short}")
     if weights_error_flag != -1:
         print(f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.")
+    print(f"\tMigoto verts took {time.time() - start_timer} seconds")
+    bm.free()
     return migoto_verts, dtype
 
 def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, translate_normal, translate_tangent, main_obj, outline_properties):
@@ -3413,7 +3447,8 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
     start_timer = time.time()
     migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
-
+    
+    ibvb_timer = time.time()
     indexed_vertices = collections.OrderedDict()
     # ib = numpy.zeros(len(mesh.polygons), dtype=(numpy.uint32, 3))
     # for i, poly in enumerate(mesh.polygons):
@@ -3425,18 +3460,23 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
     #         face = face.reverse()
     #     ib[i] = face
     # This is a more optimized way to do the same thing as above. Leave prior comment for better readability
-    ib = [[indexed_vertices.setdefault(HashableVertexBytes(migoto_verts[blender_lvertex.index].tobytes()), len(indexed_vertices))
+    ib = [[indexed_vertices.setdefault(migoto_verts[blender_lvertex.index].tobytes(), len(indexed_vertices))
                 for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]
                     ]for poly in mesh.polygons]
+    ib = numpy.array(ib, dtype=numpy.uint32)
+    ib = numpy.reshape(ib, (-1, 3))
     if operator.flip_winding:
-        ib = [face.reverse() for face in ib]
+        ib = numpy.fliplr(ib)
+    print(f"\t\tIB GEN: {time.time() - ibvb_timer}, {len(ib)},{len(mesh.loops)//3}")
 
-    ib = numpy.array(ib, dtype=(numpy.uint32, 3))
+    ibvb_timer = time.time()
     vb = bytearray()
     for vertex in indexed_vertices:
-        vb += vertex
+        vb += bytes(vertex)
 
-    vb = numpy.frombuffer(vb, dtype=dtype)
+    vb = numpy.frombuffer(vb, dtype = dtype)
+
+    print(f"\t\tVB GEN: {time.time() - ibvb_timer}")
     print(f"\tMesh to bin generated {len(vb)} vertex in {time.time() - start_timer} seconds")
     obj.to_mesh_clear()
     obj.data.update()
