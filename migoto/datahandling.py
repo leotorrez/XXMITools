@@ -2476,7 +2476,7 @@ def apply_modifiers_and_shapekeys(context, obj):
         mesh = result_obj.data
         bpy.ops.object.delete(use_global=False)
 
-    print(f"\t{obj.name}: Applied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(deform_SKs)} shapekeys in {time.time() - start_timer} seconds")
+    print(f"\tApplied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(deform_SKs)} shapekeys in {time.time() - start_timer:.5f} seconds")
     return mesh
 
 def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_path, use_foldername, ignore_hidden, only_selected, no_ramps, delete_intermediate, credit, copy_textures, outline_properties, game:GameEnum, destination=None):
@@ -3263,7 +3263,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
     weights = [dict(sorted(w.items(), key=lambda item: item[1], reverse=True)) for w in weights]
     weights_np = None
     blend_len = None
-    print("\t--TIME PER ELEMENT--")
+    debug_text = "\t--TIME PER ELEMENT--\n"
     start_timer = time.time()
     run = len(mesh.polygons)>0
     idxs = [loop.index for loop in mesh.loops if run]
@@ -3337,7 +3337,10 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             result[idxs] = weights_np["WEIGHT"][verts]
             if operator.normalize_weights:
-                result = result / result
+                if elem.format_len > 1:
+                    result = result / numpy.sum(result, axis=1)[:, None]
+                else:
+                    result = result / result
         elif translated_elem_name.startswith("BLENDINDICES"):
             if weights_np is None:
                 assert blend_len is None or blend_len == elem.format_len
@@ -3410,10 +3413,11 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             elif snorm8_pattern.match(elem.Format):
                 result = numpy.round(result * 127).astype(numpy.int8)
         migoto_verts[elem.name] = result
-        print(f"\t\t{elem.name}: {time.time() - start_timer_short}")
+        debug_text += f"\t{elem.name:>12}: {(time.time() - start_timer_short):.5f}\n"
     if weights_error_flag != -1:
-        print(f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.")
-    print(f"\tMigoto verts took {time.time() - start_timer} seconds")
+        debug_text += f"Warning: Mesh: {obj.name} has more than {weights_error_flag} blend weights or indices per vertex. The extra weights or indices will be ignored.\n"
+    debug_text += f"\tMigoto verts took {(time.time() - start_timer):.5f} seconds"
+    print(debug_text)
     bm.free()
     return migoto_verts, dtype
 
@@ -3426,7 +3430,7 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
         ib = numpy.array([], dtype=(numpy.uint32, 3))
         vb = numpy.array([], dtype=dtype)
-        print(f"\tMesh to bin generated {len(vb)} vertex in {time.time() - start_timer} seconds")
+        print(f"\tMesh to bin generated {len(vb)} vertex in {(time.time() - start_timer):.5f} seconds")
         obj.to_mesh_clear()
         obj.data.update()
         return ib, vb
@@ -3467,7 +3471,7 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
     ib = numpy.reshape(ib, (-1, 3))
     if operator.flip_winding:
         ib = numpy.fliplr(ib)
-    print(f"\t\tIB GEN: {time.time() - ibvb_timer}, {len(ib)},{len(mesh.loops)//3}")
+    print(f"\t\tIB GEN: {time.time() - ibvb_timer:.5f}, {len(ib)},{len(mesh.loops)//3}")
 
     ibvb_timer = time.time()
     vb = bytearray()
@@ -3476,8 +3480,8 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
 
     vb = numpy.frombuffer(vb, dtype = dtype)
 
-    print(f"\t\tVB GEN: {time.time() - ibvb_timer}")
-    print(f"\tMesh to bin generated {len(vb)} vertex in {time.time() - start_timer} seconds")
+    print(f"\t\tVB GEN: {time.time() - ibvb_timer:.5f}")
+    print(f"\tMesh to bin generated {len(vb)} vertex in {time.time() - start_timer:.5f} seconds")
     obj.to_mesh_clear()
     obj.data.update()
     return ib, vb
