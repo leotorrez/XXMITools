@@ -3255,20 +3255,20 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
     bm = bmesh.new()
     bm.from_mesh(mesh)
     layer_deform = bm.verts.layers.deform.active
-    assert layer_deform is not None
-    bm.verts.ensure_lookup_table()
-    weights = [{index: weight
-                    for index, weight in v[layer_deform].items()
-                    if index not in masked_vgs}
-                for v in bm.verts]
-    weights = [dict(sorted(w.items(), key=lambda item: item[1], reverse=True)) for w in weights]
+    weights = None
+    if layer_deform is not None:
+        bm.verts.ensure_lookup_table()
+        weights = [{index: weight
+                        for index, weight in v[layer_deform].items()
+                        if index not in masked_vgs}
+                    for v in bm.verts]
+        weights = [dict(sorted(w.items(), key=lambda item: item[1], reverse=True)) for w in weights]
     weights_np = None
     blend_len = None
     debug_text = "\t--TIME PER ELEMENT--\n"
     start_timer = time.time()
-    run = len(mesh.polygons)>0
-    idxs = [loop.index for loop in mesh.loops if run]
-    verts = [loop.vertex_index for loop in mesh.loops if run]
+    idxs = [loop.index for loop in mesh.loops]
+    verts = [loop.vertex_index for loop in mesh.loops]
     for elem in fmt_layout:
         start_timer_short = time.time()
         if elem.InputSlotClass != 'per-vertex' or elem.reused_offset:
@@ -3279,12 +3279,16 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             position = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
             result = numpy.ones(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
-            result[idxs] = position[verts]
+            result[idxs, 0:3] = position[verts]
             if 'POSITION.w' in custom_attributes_float(mesh):
                 loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 loop_position_w[idxs] = custom_attributes_float(mesh)['POSITION.w'].data[verts].value
+<<<<<<< HEAD
                 result = numpy.concatenate((result, loop_position_w), axis=1)
             print(f"\t\tPOSITION: {time.time() - start_timer_short}")
+=======
+                result[idxs, 3] = loop_position_w[verts, 3]
+>>>>>>> ab78c8ac238f5df8661245cb6efbd2ecf61cbcc2
         elif translated_elem_name == "NORMAL":
             normal = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
             mesh.loops.foreach_get("normal", normal.ravel())
@@ -3294,7 +3298,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 loop_normal_w = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 for loop in mesh.loops:
                     loop_normal_w[loop.index] = custom_attributes_float(mesh)['NORMAL.w'].data[loop.vertex_index].value
-                result = numpy.concatenate((result, loop_normal_w), axis=1) 
+                result[:, 3] = loop_normal_w
             if operator.flip_normal: #This flips and converts normals to UNORM if needed
                 result = -result
             if elem.Format.upper().endswith("_UNORM"):
@@ -3322,6 +3326,8 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             print(f"\t\tTANGENT: {time.time() - start_timer_short}")
         elif translated_elem_name.startswith("BLENDWEIGHT"):
             if weights_np is None:
+                if weights is None:
+                    raise Fatal('The export format is expecting weights and the model has none. Aborting.')
                 assert blend_len is None or blend_len == elem.format_len
                 blend_len = elem.format_len
                 weights_np = numpy.zeros(len(mesh.vertices), dtype=numpy.dtype([
@@ -3347,6 +3353,8 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                     result = result / result
         elif translated_elem_name.startswith("BLENDINDICES"):
             if weights_np is None:
+                if weights is None:
+                    raise Fatal('The export format is expecting weights and the model has none. Aborting.')
                 assert blend_len is None or blend_len == elem.format_len
                 blend_len = elem.format_len
                 weights_np = numpy.zeros(len(mesh.vertices), dtype=numpy.dtype([
