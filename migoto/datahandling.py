@@ -3283,12 +3283,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             if 'POSITION.w' in custom_attributes_float(mesh):
                 loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 loop_position_w[idxs] = custom_attributes_float(mesh)['POSITION.w'].data[verts].value
-<<<<<<< HEAD
-                result = numpy.concatenate((result, loop_position_w), axis=1)
-            print(f"\t\tPOSITION: {time.time() - start_timer_short}")
-=======
                 result[idxs, 3] = loop_position_w[verts, 3]
->>>>>>> ab78c8ac238f5df8661245cb6efbd2ecf61cbcc2
         elif translated_elem_name == "NORMAL":
             normal = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, 3))
             mesh.loops.foreach_get("normal", normal.ravel())
@@ -3303,7 +3298,6 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 result = -result
             if elem.Format.upper().endswith("_UNORM"):
                 result = result * 2 - 1
-            print(f"\t\tNORMAL: {time.time() - start_timer_short}")
         elif translated_elem_name.startswith("TANGENT"):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
             bitangent_sign = numpy.zeros(len(mesh.loops), dtype=numpy.float16)
@@ -3323,7 +3317,6 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             if game == GameEnum.ZenlessZoneZero:
                 result[:, 3] = -result[:, 3]
             result = result[:, 0:elem.format_len]
-            print(f"\t\tTANGENT: {time.time() - start_timer_short}")
         elif translated_elem_name.startswith("BLENDWEIGHT"):
             if weights_np is None:
                 if weights is None:
@@ -3373,12 +3366,10 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                             continue
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             result[idxs] = weights_np["INDEX"][verts]
-            print(f"\t\tBLENDINDICES: {time.time() - start_timer_short}")
         elif translated_elem_name.startswith("COLOR"):
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, 4))
             mesh.vertex_colors[elem.name].data.foreach_get("color", result.ravel())
             result = result[:, 0:elem.format_len]
-            print(f"\t\tCOLOR: {time.time() - start_timer_short}")
         elif translated_elem_name.startswith("TEXCOORD") and elem.is_float():
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             count = 0
@@ -3399,7 +3390,6 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                     mesh.uv_layers[uv].data.foreach_get("uv", result[uv].ravel())
                     temp_uv = temp_uv[:, 0]
                     result[:, count] = temp_uv
-            print(f"\t\tTEXCOORD: {time.time() - start_timer_short}")
         else:
             # Unhandled semantics are saved in vertex layers
             if elem.is_float():
