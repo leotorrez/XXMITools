@@ -240,6 +240,17 @@ class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, bpy.types.Panel)
         col1.prop(xxmi, 'batch_pattern')
         col2.operator("xxmi.exportadvancedbatched", text="Start Batch export")
 
+class XXMI_PT_SidePanelTexcoordExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+    bl_label = ""
+    bl_options = {'HIDE_HEADER'}
+    bl_order = 100
+
+    def draw(self, context):
+        XXMISidebarOptionsPanelBase.draw(self, context)
+        layout = self.layout
+        row = layout.row()
+        row.operator("xxmi.exporttexcoord", text="Export Texcoord")
+
 class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
     bl_order = 1

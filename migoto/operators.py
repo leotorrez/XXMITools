@@ -6,7 +6,7 @@ import time
 import bpy
 from bpy_extras.io_utils import  ImportHelper, ExportHelper, orientation_helper
 from bpy.props import BoolProperty, StringProperty, CollectionProperty
-from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, silly_lookup
+from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, silly_lookup, export_3dmigoto_texcoord
 IOOBJOrientationHelper = type('DummyIOOBJOrientationHelper', (object,), {})
 
 class ClearSemanticRemapList(bpy.types.Operator):
@@ -1057,6 +1057,24 @@ class ExportAdvancedOperator(bpy.types.Operator):
             export_3dmigoto_xxmi(self, context, object_name, vb_path, ib_path, fmt_path, xxmi.use_foldername, xxmi.ignore_hidden, xxmi.only_selected, xxmi.no_ramps, xxmi.delete_intermediate, xxmi.credit, xxmi.copy_textures, outline_properties, game, xxmi.destination_path)
             print("Export took", time.time() - start, "seconds")
             self.report({'INFO'}, "Export completed")
+        except Fatal as e:
+            self.report({'ERROR'}, str(e))
+        return {'FINISHED'}
+class ExportTexcoordOperator(bpy.types.Operator):
+    """Export operation base class"""
+    bl_idname = "xxmi.exporttexcoord"
+    bl_label = "Export Texcoord"
+    bl_description = "Export Texcoord"
+    bl_options = {'REGISTER'}
+    operations = []
+    def execute(self, context):
+        scene = bpy.context.scene
+        xxmi = scene.xxmi
+        if not xxmi.destination_path:
+            self.report({'ERROR'}, "Destination path not set")
+            return {'CANCELLED'}
+        try:
+            export_3dmigoto_texcoord(silly_lookup(xxmi.game),context,xxmi.destination_path)
         except Fatal as e:
             self.report({'ERROR'}, str(e))
         return {'FINISHED'}
