@@ -2660,54 +2660,6 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
 
     generate_mod_folder(os.path.dirname(vb_path), object_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
 
-def export_3dmigoto_texcoord(game, context, directory):
-    meshes = {}
-    if game == GameEnum.GenshinImpact:
-        for obj in bpy.data.objects:
-            if 'Head-vb0' in obj.name:
-                bufPrefix = obj.name.split('Head-vb0')[0]
-                meshes[0] = obj.data
-            elif 'Body-vb0' in obj.name:
-                meshes[1] = obj.data
-            elif 'Dress-vb0' in obj.name:
-                meshes[2] = obj.data
-            elif 'Extra-vb0' in obj.name:
-                meshes[3] = obj.data
-            else:
-                raise Fatal(f'Unknown part: {obj.name}')
-    else:
-        if '-vb0=' in context.object.name:
-            bufPrefix = context.object.name.split('-vb0=')[0][:-1]
-        else:
-            raise Fatal(f'Unknown part: {obj.name}')
-        objs = sorted([obj for obj in bpy.data.objects if bufPrefix in obj.name], key=lambda o: o.name)
-        for i,obj in enumerate(objs):
-            meshes[i] = obj.data
-    vertices = {}
-    for i,mesh in meshes.items():
-        start = 0
-        if(i>0):
-            start = len(meshes[i-1].vertices)
-        texcoords = sorted([txc for txc in mesh.uv_layers if "TEXCOORD" in txc.name], key=lambda txc: txc.name)
-        for l in mesh.loops:
-            color = tuple(mesh.vertex_colors["COLOR"].data[l.index].color)
-            uvs = [(txc.data[l.index].uv[0], 1 - txc.data[l.index].uv[1]) for txc in texcoords]
-            vertices[l.vertex_index + start] = (color, uvs)
-    texbytes = bytearray()
-    for v in [v for k,v in sorted(vertices.items())]:
-        for c in v[0]:
-            texbytes.extend(struct.pack('B',int(c*255)))
-        for i, uv in enumerate(v[1]):
-            if game == GameEnum.ZenlessZoneZero and i%2:
-                texbytes.extend(struct.pack('e',uv[0]))
-                texbytes.extend(struct.pack('e',uv[1]))
-            else:
-                texbytes.extend(struct.pack('f',uv[0]))
-                texbytes.extend(struct.pack('f',uv[1]))
-
-    with open(os.path.join(directory,f'{bufPrefix}Texcoord.buf'), 'wb') as f:
-        f.write(texbytes)
-
 def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
     parent_folder = os.path.join(path, "../")
     char_hash = load_hashes(path, character_name, "hash.json")
