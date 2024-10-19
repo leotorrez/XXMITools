@@ -67,11 +67,13 @@ class GameEnum(Enum):
     GenshinImpact = 1
     HonkaiStarRail = 2
     ZenlessZoneZero = 3
+    HonkaiImpactPart2 = 4
 
 game_enums = [(GameEnum.HonkaiImpact3rd.name, 'Honkai Impact 3rd' , 'Honkai Impact 3rd', '', GameEnum.HonkaiImpact3rd.value),
               (GameEnum.GenshinImpact.name, 'Genshin Impact' , 'Genshin Impact', '', GameEnum.GenshinImpact.value),
               (GameEnum.HonkaiStarRail.name, 'Honkai Star Rail' , 'Honkai Star Rail', '', GameEnum.HonkaiStarRail.value),
-              (GameEnum.ZenlessZoneZero.name, 'Zenless Zone Zero' , 'Zenless Zone Zero', '', GameEnum.ZenlessZoneZero.value)]
+              (GameEnum.ZenlessZoneZero.name, 'Zenless Zone Zero' , 'Zenless Zone Zero', '', GameEnum.ZenlessZoneZero.value),
+              (GameEnum.HonkaiImpactPart2.name, 'Honkai Impact Part 2' , 'Honkai Impact Part 2', '', GameEnum.HonkaiImpactPart2.value)]
 
 def silly_lookup(game:bpy.props.EnumProperty):
     '''Converts a EnumProperty to a GameEnum'''
@@ -83,6 +85,8 @@ def silly_lookup(game:bpy.props.EnumProperty):
         return GameEnum.HonkaiStarRail
     elif game == game_enums[3][0]:
         return GameEnum.ZenlessZoneZero
+    elif game == game_enums[4][0]:
+        return GameEnum.HonkaiImpactPart2
 class SemanticRemapItem(bpy.types.PropertyGroup):
     semantic_from: bpy.props.StringProperty(name="From", default="ATTRIBUTE")
     semantic_to:   bpy.props.EnumProperty(items=semantic_remap_enum, name="Change semantic interpretation")
@@ -2728,12 +2732,20 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
 
                 position_stride, blend_stride, texcoord_stride = 0, 0, 0
                 for element in fmt_layout:
-                    if element.SemanticName in ["POSITION", "NORMAL", "TANGENT"]:
-                        position_stride += element.size()
-                    elif element.SemanticName in ["BLENDWEIGHT", "BLENDWEIGHTS", "BLENDINDICES"]:
-                        blend_stride += element.size()
-                    elif element.SemanticName in ["COLOR", "TEXCOORD"]:
-                        texcoord_stride += element.size()
+                    if game == GameEnum.HonkaiImpactPart2:
+                        if element.SemanticName in ["POSITION", "NORMAL", "COLOR", "TANGENT"]:
+                            position_stride += element.size()
+                        elif element.SemanticName in ["BLENDWEIGHT", "BLENDWEIGHTS", "BLENDINDICES"]:
+                            blend_stride += element.size()
+                        elif element.SemanticName in ["TEXCOORD"]:
+                            texcoord_stride += element.size()
+                    else:
+                        if element.SemanticName in ["POSITION", "NORMAL", "TANGENT"]:
+                            position_stride += element.size()
+                        elif element.SemanticName in ["BLENDWEIGHT", "BLENDWEIGHTS", "BLENDINDICES"]:
+                            blend_stride += element.size()
+                        elif element.SemanticName in ["COLOR", "TEXCOORD"]:
+                            texcoord_stride += element.size()
 
                 stride = position_stride + blend_stride + texcoord_stride
                 print("\tPosition Stride:", position_stride)
@@ -2766,13 +2778,11 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 position += x
                 blend += y
                 texcoord += z
-                vertex_count = len(x + y + z) // stride
             # This is the path for components without blend data (simple weapons, objects, etc.)
             # Simplest route since we do not need to split up the buffer into multiple components
             else:
                 position += collect_vb_single(path, current_name, current_object, stride)
                 position_stride = stride
-                vertex_count = len(position) // stride
 
             print("Collecting IB")
             print(f"{current_name}{current_object} offset: {offset}")
@@ -2813,7 +2823,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                         os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                 if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
                     texture_overrides += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
-                elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+                elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
                     texture_overrides += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
                 tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
@@ -2825,14 +2835,15 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 for collection, depth, name, icount, vcount in offsets[current_name + current_object]:
                     if collection != old_collection:
                         collection_list += "\t" * (depth-1) + f"; {collection}\n"
-                    collection_list += "\t" * depth + f"; {name} ({vcount})\n"
-                    collection_list += "\t" * depth + f"drawindexed = {icount}, {last_count}, 0\n"
-                    last_count += icount
+                        if icount > 0:
+                            collection_list += "\t" * depth + f"; {name} ({vcount})\n"
+                            collection_list += "\t" * depth + f"drawindexed = {icount}, {last_count}, 0\n"
+                            last_count += icount
                     old_collection = collection
             # Correctly order the collections for the different style of texture
             if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
                 ib_override_ini += collection_list + texture_overrides + "\n"
-            elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+            elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
                 ib_override_ini += texture_overrides + collection_list + "\n"
 
         if component["blend_vb"]:
@@ -2844,20 +2855,21 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 g.write(blend)
                 h.write(texcoord)
 
-            vb_override_ini += f"[TextureOverride{current_name}Position]\nhash = {component['position_vb']}\n"
             if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
-                vb_override_ini += f"handling = skip\nvb0 = Resource{current_name}Position\nvb2 = Resource{current_name}Blend\ndraw = {len(position) // position_stride},0\n"
-            elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+                vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\n"
+                vb_override_ini += f"handling = skip\nif DRAW_TYPE == 1\n\tvb0 = Resource{current_name}Position\n\tvb2 = Resource{current_name}Blend\n\tdraw = {len(position) // position_stride},0\nendif\n"
+            elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
+                vb_override_ini += f"[TextureOverride{current_name}Position]\nhash = {component['position_vb']}\n"
                 vb_override_ini += f"vb0 = Resource{current_name}Position\n"
             if credit:
                 vb_override_ini += "$active = 1\n"
             vb_override_ini += "\n"
-            if game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd:
+            if game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
                 vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\nvb1 = Resource{current_name}Blend\nhandling = skip\ndraw = {len(position) // position_stride},0 \n\n"
             vb_override_ini += f"[TextureOverride{current_name}Texcoord]\nhash = {component['texcoord_vb']}\nvb1 = Resource{current_name}Texcoord\n\n"
             vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n"
             #### EXPERIMENTAL ####
-            vb_override_ini += f"; override_vertex_count = {vertex_count}\n; override_byte_stride = {stride}\n\n"
+            vb_override_ini += f"; override_vertex_count = {len(position) // position_stride}\n; override_byte_stride = {stride}\n\n"
 
             vb_res_ini += f"[Resource{current_name}Position]\ntype = Buffer\nstride = {position_stride}\nfilename = {current_name}Position.buf\n\n"
             vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
