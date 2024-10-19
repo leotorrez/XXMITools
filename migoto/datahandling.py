@@ -2778,13 +2778,11 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 position += x
                 blend += y
                 texcoord += z
-                vertex_count = len(x + y + z) // stride
             # This is the path for components without blend data (simple weapons, objects, etc.)
             # Simplest route since we do not need to split up the buffer into multiple components
             else:
                 position += collect_vb_single(path, current_name, current_object, stride)
                 position_stride = stride
-                vertex_count = len(position) // stride
 
             print("Collecting IB")
             print(f"{current_name}{current_object} offset: {offset}")
@@ -2871,7 +2869,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             vb_override_ini += f"[TextureOverride{current_name}Texcoord]\nhash = {component['texcoord_vb']}\nvb1 = Resource{current_name}Texcoord\n\n"
             vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n"
             #### EXPERIMENTAL ####
-            vb_override_ini += f"; override_vertex_count = {vertex_count}\n; override_byte_stride = {stride}\n\n"
+            vb_override_ini += f"; override_vertex_count = {len(position) // position_stride}\n; override_byte_stride = {stride}\n\n"
 
             vb_res_ini += f"[Resource{current_name}Position]\ntype = Buffer\nstride = {position_stride}\nfilename = {current_name}Position.buf\n\n"
             vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
