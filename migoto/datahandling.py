@@ -2856,8 +2856,10 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\nvb1 = Resource{current_name}Blend\nhandling = skip\ndraw = {len(position) // position_stride},0 \n\n"
             vb_override_ini += f"[TextureOverride{current_name}Texcoord]\nhash = {component['texcoord_vb']}\nvb1 = Resource{current_name}Texcoord\n\n"
             vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n"
-            #### EXPERIMENTAL ####
-            vb_override_ini += f"; override_vertex_count = {vertex_count}\n; override_byte_stride = {stride}\n\n"
+            if game == GameEnum.ZenlessZoneZero:
+                vb_override_ini += f"override_vertex_count = {vertex_count}\noverride_byte_stride = {stride}\n\n"
+            else:
+                vb_override_ini += f"; override_vertex_count = {vertex_count}\n; override_byte_stride = {stride}\n\n"
 
             vb_res_ini += f"[Resource{current_name}Position]\ntype = Buffer\nstride = {position_stride}\nfilename = {current_name}Position.buf\n\n"
             vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
@@ -3307,6 +3309,8 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 export_outline = optimized_outline_generation(obj, mesh, outline_properties)
                 for loop in mesh.loops:
                     temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
+            elif game == GameEnum.GenshinImpact:
+                mesh.loops.foreach_get("normal", temp_tangent.ravel())
             if operator.flip_tangent: #This flips and converts tangent to UNORM if needed
                 temp_tangent = -temp_tangent
             if elem.Format.upper().endswith("_UNORM"):
@@ -3319,6 +3323,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
         elif translated_elem_name.startswith("BLENDWEIGHT"):
             if weights_np is None:
                 if weights is None:
+                    # TODO: Meshes without weights should export. Remove this fatal error.
                     raise Fatal('The export format is expecting weights and the model has none. Aborting.')
                 assert blend_len is None or blend_len == elem.format_len
                 blend_len = elem.format_len
