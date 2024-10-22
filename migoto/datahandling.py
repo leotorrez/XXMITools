@@ -2752,7 +2752,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 print("\tBlend Stride:", blend_stride)
                 print("\tTexcoord Stride:", texcoord_stride)
                 print("\tStride:", stride)
-                assert(fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt")
+                assert fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
         curr_offsets = [v for k, v in offsets.items() if k.lower().startswith(current_name.lower())]
