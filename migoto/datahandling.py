@@ -2835,10 +2835,10 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 for collection, depth, name, icount, vcount in offsets[current_name + current_object]:
                     if collection != old_collection:
                         collection_list += "\t" * (depth-1) + f"; {collection}\n"
-                        if icount > 0:
-                            collection_list += "\t" * depth + f"; {name} ({vcount})\n"
-                            collection_list += "\t" * depth + f"drawindexed = {icount}, {last_count}, 0\n"
-                            last_count += icount
+                    if icount > 0:
+                        collection_list += "\t" * depth + f"; {name} ({vcount})\n"
+                        collection_list += "\t" * depth + f"drawindexed = {icount}, {last_count}, 0\n"
+                        last_count += icount
                     old_collection = collection
             # Correctly order the collections for the different style of texture
             if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
