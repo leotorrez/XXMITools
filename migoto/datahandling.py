@@ -1120,18 +1120,19 @@ def new_custom_attribute_int(mesh, layer_name):
         mesh.vertex_layers_int.new(name=layer_name)
         return mesh.vertex_layers_int[layer_name]
 
-def new_custom_attribute_float(mesh, layer_name):
-    if bpy.app.version >= (4, 0):
-        # TODO: float2 and float3 could be stored directly as 'FLOAT2' /
-        # 'FLOAT_VECTOR' types (in fact, UV layers in 4.0 show up in attributes
-        # using FLOAT2) instead of saving each component as a separate layer.
-        # float4 is missing though. For now just get it working equivelently to
-        # the old vertex layers.
-        mesh.attributes.new(name=layer_name, type='FLOAT', domain='POINT')
-        return mesh.attributes[layer_name]
+def new_custom_attribute_float(mesh, layer_name, dim):
+    suffix = '.xyzw'
+    layers = []
+    dimtypes = {1:'FLOAT',2:'FLOAT2',3:'FLOAT_VECTOR',4:'QUATERNION'}
+    if bpy.app.version >= (4, 0) or dim < 4:
+        mesh.attributes.new(name=layer_name+suffix[0:dim+1], type=dimtypes[dim], domain='POINT')
+        layers.append(mesh.attributes[layer_name+suffix[0:dim+1]])
     else:
-        mesh.vertex_layers_float.new(name=layer_name)
-        return mesh.vertex_layers_float[layer_name]
+            mesh.attributes.new(name=layer_name+suffix[0:4], type=dimtypes[dim-1], domain='POINT')
+            mesh.attributes.new(name=f'{layer_name}.{suffix[4]}', type=dimtypes[1], domain='POINT')
+            layers.append(mesh.attributes[layer_name+suffix[0:4]])
+            layers.append(mesh.attributes[f'{layer_name}.{suffix[4]}'])
+    return layers
 
 # TODO: Refactor to prefer attributes over vertex layers even on 3.x if they exist
 def custom_attributes_int(mesh):
@@ -1142,25 +1143,30 @@ def custom_attributes_int(mesh):
         return mesh.vertex_layers_int
 
 def custom_attributes_float(mesh):
-    if bpy.app.version >= (4, 0):
-        return { k: v for k,v in mesh.attributes.items()
-                if (v.data_type, v.domain) == ('FLOAT', 'POINT') }
-    else:
-        return mesh.vertex_layers_float
+    return { k: v for k,v in mesh.attributes.items()
+            if v.data_type in ['FLOAT', 'FLOAT2', 'FLOAT_VECTOR', 'QUATERNION'] and v.domain == 'POINT'}
 
 # This loads unknown data from the vertex buffers as vertex layers
 def import_vertex_layers(mesh, obj, vertex_layers):
     for (element_name, data) in sorted(vertex_layers.items()):
         dim = len(data[0])
-        cmap = {0: 'x', 1: 'y', 2: 'z', 3: 'w'}
-        for component in range(dim):
-
-            if dim != 1 or element_name.find('.') == -1:
-                layer_name = '%s.%s' % (element_name, cmap[component])
-            else:
-                layer_name = element_name
-
-            if type(data[0][0]) == int:
+        if type(data[0][0]) == float:
+            layers = new_custom_attribute_float(mesh, element_name, dim)
+            for v in mesh.vertices:
+                if bpy.app.version >= (4, 0) or dim < 4:
+                    # in blender 4 and higher or blender 2.9.3 and higher with less than 4 dimensions, layers will only contain a single layer
+                    # float and quaternion attributes use .value, float2 and float_vector use .vector
+                    setattr(layers[0].data[v.index],'value' if dim == 1 or dim == 4 else 'vector',data[v.index][0] if dim == 1 else data[v.index])
+                else: # in blender 2.9.3-3.6 4 dimension layers will be split into .xyz and .w layers
+                    layers[0].data[v.index].vector = data[v.index][0:3]
+                    layers[1].data[v.index].value = data[v.index][3]
+        elif type(data[0][0]) == int:
+            cmap = {0: 'x', 1: 'y', 2: 'z', 3: 'w'}
+            for component in range(dim):
+                if dim != 1 or element_name.find('.') == -1:
+                    layer_name = '%s.%s' % (element_name, cmap[component])
+                else:
+                    layer_name = element_name
                 layer = new_custom_attribute_int(mesh, layer_name)
                 for v in mesh.vertices:
                     val = data[v.index][component]
@@ -1171,12 +1177,8 @@ def import_vertex_layers(mesh, obj, vertex_layers):
                         layer.data[v.index].value = val
                     else:
                         layer.data[v.index].value = struct.unpack('i', struct.pack('I', val))[0]
-            elif type(data[0][0]) == float:
-                layer = new_custom_attribute_float(mesh, layer_name)
-                for v in mesh.vertices:
-                    layer.data[v.index].value = data[v.index][component]
-            else:
-                raise Fatal('BUG: Bad layer type %s' % type(data[0][0]))
+        else:
+            raise Fatal('BUG: Bad layer type %s' % type(data[0][0]))
 
 def import_faces_from_ib(mesh, ib, flip_winding):
     mesh.loops.add(len(ib.faces) * 3)
@@ -3311,7 +3313,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 result = -result
             if elem.Format.upper().endswith("_UNORM"):
                 result = result * 2 - 1
-        elif translated_elem_name.startswith("TANGENT"):
+        elif translated_elem_name.startswith("TANGENT") or (elem.name.startswith("TANGENT") and outline_properties[0]):
             temp_tangent = numpy.zeros((len(mesh.loops), 3), dtype=numpy.float16)
             bitangent_sign = numpy.zeros(len(mesh.loops), dtype=numpy.float16)
             result = numpy.zeros((len(mesh.loops), 4), dtype=numpy.float16)
@@ -3408,12 +3410,20 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                     result[:, count] = temp_uv
         else:
             # Unhandled semantics are saved in vertex layers
+            operator.report({'INFO'}, 'Retrieving unhandled semantic %s %s from vertex layer' % (elem.name, elem.Format))
             if elem.is_float():
                 result = numpy.zeros(len(mesh.loops), dtype=(numpy.float32, (elem.format_len,)))
             elif elem.is_int():
                 result = numpy.zeros(len(mesh.loops), dtype=(numpy.int32, (elem.format_len,)))
             else:
                 print('Warning: Unhandled semantic %s %s' % (elem.name, elem.Format))
+            elem_float_layers = {k:v for k,v in custom_attributes_float(mesh).items() if elem.name in k}
+            for layer_name in elem_float_layers:
+                components = layer_name.split('.')[1]
+                comp_indices = {'x':0,'y':1,'z':2,'w':3}
+                attr = 'value' if len(components) in [1,4] else 'vector'
+                for loop in mesh.loops:
+                    result[:, comp_indices[components[0]]:comp_indices[components[-1]]+1][loop.index] = getattr(elem_float_layers[layer_name].data[loop.vertex_index], attr)
             for i, component in enumerate('xyzw'):
                 if i >= elem.format_len:
                     break
@@ -3421,9 +3431,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                 if layer_name in custom_attributes_int(mesh):
                     for loop in mesh.loops:
                         result[:, i][loop.index] = custom_attributes_int(mesh)[layer_name].data[loop.vertex_index].value
-                elif layer_name in custom_attributes_float(mesh):
-                    for loop in mesh.loops:
-                        result[:, i][loop.index] = custom_attributes_float(mesh)[layer_name].data[loop.vertex_index].value
+                
         if not translated_elem_name.startswith("BLENDINDICES"):
             if unorm16_pattern.match(elem.Format):
                 result = numpy.round(result * 65535).astype(numpy.uint16)
