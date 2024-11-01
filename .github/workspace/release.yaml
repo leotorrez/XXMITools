@@ -1,0 +1,46 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Move contents to XXMITools folder
+      run: |
+        mkdir XXMITools
+        mv * XXMITools
+        mv .[^.]* XXMITools
+
+    - name: Create zip of repository
+      run: zip -r repository-content.zip XXMITools
+
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
+        body: |
+          See the [changelog](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for details.
+        draft: false
+        prerelease: false
+
+    - name: Upload release asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./repository-content.zip
+        asset_name: XXMITools_v${{ github.ref_name }}.zip
+        asset_content_type: application/zip
