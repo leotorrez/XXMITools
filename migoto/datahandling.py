@@ -16,6 +16,7 @@ from mathutils import Matrix, Vector
 from bpy_extras.io_utils import unpack_list, axis_conversion
 import time
 from .ini import generate_ini
+from .. import bl_info
 ############## Begin (deprecated) Blender 2.7/2.8 compatibility wrappers (2.7 options removed) ##############
 
 vertex_color_layer_channels = 4
@@ -2674,7 +2675,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
 
     texture_hashes_written = {}
 
-    for component in char_hash:
+    for num, component in enumerate(char_hash):
         # Support for custom names was added so we need this to retain backwards compatibility
         component_name = component["component_name"] if "component_name" in component else ""
         # Old version used "Extra" as the third object, but I've replaced it with dress - need this for backwards compatibility
@@ -2701,11 +2702,13 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                             os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                     if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                         texture_hashes_written[texture[2]] = f"{current_name}{current_object}{texture[0]}{texture[1]}"
+            char_hash[num]["objects"] = []
+            char_hash[num]["strides"] = [0]
             continue
 
         with open(os.path.join(path, f"{current_name}{object_classifications[0]}.fmt"), "r") as f:
             if not component["blend_vb"]:
-                strides = int([x.split(": ")[1] for x in f.readlines() if "stride:" in x][0])
+                strides = [x.split(": ")[1] for x in f.readlines() if "stride:" in x]
             else:
                 # Parse the fmt using existing classes instead of hard coding element stride values
                 fmt_layout = InputLayout()
@@ -2732,14 +2735,17 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                         elif element.SemanticName in ["COLOR", "TEXCOORD"]:
                             texcoord_stride += element.size()
 
-                strides = position_stride + blend_stride + texcoord_stride
+                strides = [position_stride, blend_stride, texcoord_stride]
+                total = sum(strides)
                 print("\tPosition Stride:", position_stride)
                 print("\tBlend Stride:", blend_stride)
                 print("\tTexcoord Stride:", texcoord_stride)
-                print("\tStride:", strides)
-                assert fmt_layout.stride == strides, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
+                print("\tStride:", total)
+
+                assert fmt_layout.stride == total, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
+        char_hash[num]["objects"] = []
         for i in range(len(component["object_indexes"])):
             if i + 1 > len(object_classifications):
                 current_object = f"{object_classifications[-1]}{i + 2 - len(object_classifications)}"
@@ -2760,8 +2766,8 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             # This is the path for components without blend data (simple weapons, objects, etc.)
             # Simplest route since we do not need to split up the buffer into multiple components
             else:
-                position += collect_vb_single(path, current_name, current_object, strides)
-                position_stride = strides
+                position += collect_vb_single(path, current_name, current_object, int(strides[0]))
+                position_stride = int(strides[0])
 
             print("Collecting IB")
             print(f"{current_name}{current_object} offset: {offset}")
@@ -2778,9 +2784,10 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             if len(position) % position_stride != 0:
                 print("ERROR: VB buffer length does not match stride")
 
+            char_hash[num]["objects"].append({"fullname": f"{current_name}{current_object}", "offsets": offsets[current_name + current_object]})
+
             offset += len(position) // position_stride
 
-            char_hash[i]["object"] = {"fullname": f"{current_name}{current_object}", "offsets": offsets[current_name + current_object]}
             # Older versions can only manage diffuse and lightmaps
             texture_hashes = component["texture_hashes"][i] if "texture_hashes" in component else [["Diffuse", ".dds", "_"], ["LightMap", ".dds", "_"]]
 
@@ -2794,7 +2801,8 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                     texture_hashes_written[texture[2]] = f"{current_name}{current_object}{texture[0]}{texture[1]}"
 
-        char_hash[i]["total_verts"] = offset
+        char_hash[num]["total_verts"] = offset
+        char_hash[num]["strides"] = strides
         if component["blend_vb"]:
             print("Writing merged buffer files")
             with open(os.path.join(destination, f"{current_name}Position.buf"), "wb") as f, \
@@ -2818,9 +2826,9 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
 #            - filtered_resources(each point to a file)
 
     print("Generating .ini file")
-    ini_data = generate_ini(character_name, char_hash, offsets, strides, texture_hashes_written, credit, game,"path", "template")
+    ini_data = generate_ini(character_name, char_hash, offsets, texture_hashes_written, credit, game,)
 
-    with open(os.path.join(destination, f"{character_name}.ini"), "w") as f:
+    with open(os.path.join(destination, f"{character_name}.ini"), "w", encoding="UTF-8") as f:
         print("Writing ini file")
         f.write(ini_data)
     print("All operations completed, exiting")

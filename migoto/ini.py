@@ -1,29 +1,46 @@
+"""Generates an ini file from a template file using Jinja2."""
 import os
 import addon_utils
-from ..wheels.jinja2 import Environment, FileSystemLoader, Template
+from ..wheels.jinja2 import Environment, FileSystemLoader
+from .. import bl_info
 
-def generate_ini(charater_name:str, char_hash: dict, offsets: list,
-                strides: list, texture_hashes_written: dict, credit: str, game, path: str, template: str):
-    
-    addon_path = None
-    for mod in addon_utils.modules():
-        if mod.bl_info['name'] == 'XXMI_Tools':
-            addon_path = os.path.dirname(mod.__file__)
-            break
+def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_hashes_written: dict, credit: str,
+                game, path: str = None, template_name: str = "default.ini"):
+    """Generates an ini file from a template file using Jinja2.
+    Trailing spaces are removed from the template file.
+    Args:
+        version (tuple): _description_
+        character_name (str): _description_
+        char_hash (dict): _description_
+        offsets (list): _description_
+        strides (list): _description_
+        texture_hashes_written (dict): _description_
+        credit (str): _description_
+        game (_type_): _description_
+        path (str, optional): _description_. Defaults to None.
+        template_name (str, optional): _description_. Defaults to "default.j2".
 
-    template_path = os.path.join(addon_path, 'templates', 'test.j2')
-    with open(template_path, 'r') as r:
-        template = Template(r.read())
-    
-    env = Environment(loader=FileSystemLoader(searchpath=addon_path)).get_template(template)
-    
+    Returns:
+        _type_: _description_
+    """
 
-    return env.render(
+    if path is None:
+        addon_path = None
+        for mod in addon_utils.modules():
+            if mod.bl_info['name'] == 'XXMI_Tools':
+                addon_path = os.path.dirname(mod.__file__)
+                break
+        path = os.path.join(addon_path, "templates")
+
+    env = Environment(loader=FileSystemLoader(searchpath=path), trim_blocks=True, lstrip_blocks=True)
+    template = env.get_template(template_name)
+
+    return template.render(
+        version=bl_info['version'],
         char_hash=char_hash,
         offsets=offsets,
-        strides=strides,
         texture_hashes_written=texture_hashes_written,
         credit=credit,
         game=game,
-        character_name=charater_name
+        character_name=character_name
         )
