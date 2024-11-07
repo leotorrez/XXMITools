@@ -1,11 +1,11 @@
 """Generates an ini file from a template file using Jinja2."""
 import os
 import addon_utils
-from ..wheels.jinja2 import Environment, FileSystemLoader
+from ..wheels.jinja2 import Environment, FileSystemLoader, Template
 from .. import bl_info
 
 def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_hashes_written: dict, credit: str,
-                game, path: str = None, template_name: str = "default.ini"):
+                game, templates_paths: list[str] = None, template_name: str = "default.ini"):
     """Generates an ini file from a template file using Jinja2.
     Trailing spaces are removed from the template file.
     Args:
@@ -23,16 +23,15 @@ def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_has
     Returns:
         _type_: _description_
     """
+    addon_path = None
+    for mod in addon_utils.modules():
+        if mod.bl_info['name'] == 'XXMI_Tools':
+            addon_path = os.path.dirname(mod.__file__)
+            break
+    main_path = os.path.join(addon_path, "templates")
+    templates_paths.insert(0, main_path)
 
-    if path is None:
-        addon_path = None
-        for mod in addon_utils.modules():
-            if mod.bl_info['name'] == 'XXMI_Tools':
-                addon_path = os.path.dirname(mod.__file__)
-                break
-        path = os.path.join(addon_path, "templates")
-
-    env = Environment(loader=FileSystemLoader(searchpath=path), trim_blocks=True, lstrip_blocks=True)
+    env = Environment(loader=FileSystemLoader(searchpath=templates_paths), trim_blocks=True, lstrip_blocks=True)
     template = env.get_template(template_name)
 
     return template.render(

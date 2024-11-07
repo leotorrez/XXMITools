@@ -2597,7 +2597,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # completely blow this out - we still want to reuse identical vertices
             # via the index buffer. There might be a convenience function in
             # Blender to do this, but it's easy enough to do this ourselves
-            
+ 
             # if vb.topology == 'trianglelist':
             # elif vb.topology == 'pointlist':
             #     for index, blender_vertex in enumerate(mesh.vertices):
