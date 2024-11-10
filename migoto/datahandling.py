@@ -2857,7 +2857,12 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
 
             vb_override_ini += f"[TextureOverride{current_name}Position]\nhash = {component['position_vb']}\n"
             if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
-                vb_override_ini += f"handling = skip\nvb0 = Resource{current_name}Position\nvb2 = Resource{current_name}Blend\ndraw = {len(position) // position_stride},0\n"
+                vb_override_ini += (f"""handling = skip
+                                        vb2 = Resource{current_name}Blend
+                                        if DRAW_TYPE == 1
+                                        \tvb0 = Resource{current_name}Position
+                                        \tdraw = {len(position) // position_stride},0
+                                        endif\n""").replace("    ", "")
             elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
                 vb_override_ini += f"vb0 = Resource{current_name}Position\n"
             if credit:
@@ -2885,7 +2890,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             vb_res_ini += f"[Resource{current_name}]\ntype = Buffer\nstride = {stride}\nfilename = {current_name}.buf\n\n"
 
     if credit:
-        constant_ini += textwrap.dedent(f'''
+        constant_ini += textwrap.dedent('''
                         [Constants]
                         global $active = 0
                         global $creditinfo = 0
@@ -2893,7 +2898,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                         [Present]
                         post $active = 0
                         run = CommandListCreditInfo\n''')
-        command_ini += textwrap.dedent(f'''
+        command_ini += textwrap.dedent('''
                         [CommandListCreditInfo]
                         if $creditinfo == 0 && $active == 1
                             pre Resource\\ShaderFixes\\help.ini\\Notification = ResourceCreditInfo
