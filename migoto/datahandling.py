@@ -2628,7 +2628,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 print(f"Exporting {current_name + classification}...")
                 print(f"Exporting {obj.name}:")
                 ib, vbarr = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
-                offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3,len(vbarr))]
+                offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3, len(vbarr), 0)]
             else:
                 raise Fatal('topology "%s" is not supported for export' % vb.topology)
 
@@ -2642,15 +2642,17 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 objs_to_compile = [obj for obj in objs_to_compile if obj[-1].type == "MESH" and obj[-1].visible_get()]
                 print(f'Objects to export: {[obj[-1] for obj in objs_to_compile]}')
                 count = len(vbarr)
+                offset = len(ib)
                 for collection, depth, obj_c in objs_to_compile:
                     print(f"Exporting {obj_c.name}:")
                     obj_ib, obj_vbarr = mesh_to_bin(context, operator, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
                     obj_ib += count
                     count += len(obj_vbarr)
+                    offset += len(ib)
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
                     if operator.join_meshes is False:
-                        offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr)))
+                        offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr), offset))
 
             # Must be done to all meshes and then compiled
             # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
@@ -2703,7 +2705,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                     if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                         texture_hashes_written[texture[2]] = f"{current_name}{current_object}{texture[0]}{texture[1]}"
             char_hash[num]["objects"] = []
-            char_hash[num]["strides"] = [0]
+            char_hash[num]["strides"] = []
             continue
 
         with open(os.path.join(path, f"{current_name}{object_classifications[0]}.fmt"), "r") as f:
