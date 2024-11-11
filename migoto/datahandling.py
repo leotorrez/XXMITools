@@ -2642,17 +2642,17 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 objs_to_compile = [obj for obj in objs_to_compile if obj[-1].type == "MESH" and obj[-1].visible_get()]
                 print(f'Objects to export: {[obj[-1] for obj in objs_to_compile]}')
                 count = len(vbarr)
-                offset = len(ib)
+                ib_offset = len(ib) * 3
                 for collection, depth, obj_c in objs_to_compile:
                     print(f"Exporting {obj_c.name}:")
                     obj_ib, obj_vbarr = mesh_to_bin(context, operator, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
                     obj_ib += count
                     count += len(obj_vbarr)
-                    offset += len(ib)
+                    if operator.join_meshes is False:
+                        offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib) * 3, len(obj_vbarr), ib_offset))
+                    ib_offset += len(obj_ib) * 3
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
-                    if operator.join_meshes is False:
-                        offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr), offset))
 
             # Must be done to all meshes and then compiled
             # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
