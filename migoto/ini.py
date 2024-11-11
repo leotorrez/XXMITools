@@ -5,7 +5,7 @@ from ..wheels.jinja2 import Environment, FileSystemLoader
 from .. import bl_info
 
 def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_hashes_written: dict, credit: str,
-                game, user_paths: list[str] = None, template_name: str = "default.ini"):
+                game, operator, user_paths: list[str] = None, template_name: str = "default.ini"):
     """Generates an ini file from a template file using Jinja2.
     Trailing spaces are removed from the template file."""
     addon_path = None
@@ -27,5 +27,6 @@ def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_has
         texture_hashes_written=texture_hashes_written,
         credit=credit,
         game=game,
-        character_name=character_name
+        character_name=character_name,
+        operator=operator
         )

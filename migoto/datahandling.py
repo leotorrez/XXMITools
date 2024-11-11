@@ -2666,9 +2666,9 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             vb = VertexBufferGroup(layout=layout, topology=topology)
             write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
 
-    generate_mod_folder(os.path.dirname(vb_path), object_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
+    generate_mod_folder(operator, os.path.dirname(vb_path), object_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
 
-def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
+def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
     parent_folder = os.path.join(path, "../")
     char_hash = load_hashes(path, character_name, "hash.json")
     if not destination:
@@ -2828,7 +2828,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
 #            - filtered_resources(each point to a file)
 
     print("Generating .ini file")
-    ini_data = generate_ini(character_name, char_hash, offsets, texture_hashes_written, credit, game,)
+    ini_data = generate_ini(character_name, char_hash, offsets, texture_hashes_written, credit, game, operator)
 
     with open(os.path.join(destination, f"{character_name}.ini"), "w", encoding="UTF-8") as f:
         print("Writing ini file")
