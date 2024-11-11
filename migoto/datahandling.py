@@ -2855,8 +2855,8 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 g.write(blend)
                 h.write(texcoord)
 
-            vb_override_ini += f"[TextureOverride{current_name}Position]\nhash = {component['position_vb']}\n"
             if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
+                vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\n"
                 vb_override_ini += (f"""handling = skip
                                         vb2 = Resource{current_name}Blend
                                         if DRAW_TYPE == 1
@@ -2864,6 +2864,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                                         \tdraw = {len(position) // position_stride},0
                                         endif\n""").replace("    ", "")
             elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
+                vb_override_ini += f"[TextureOverride{current_name}Position]\nhash = {component['position_vb']}\n"
                 vb_override_ini += f"vb0 = Resource{current_name}Position\n"
             if credit:
                 vb_override_ini += "$active = 1\n"
