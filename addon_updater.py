@@ -1029,7 +1029,7 @@ class SingletonUpdater:
                     self.print_verbose(
                         "Clean removing file {}".format(os.path.join(base, f)))
                 for f in folders:
-                    if os.path.join(base, f) is self._updater_path:
+                    if os.path.join(base, f) == self._updater_path:
                         continue
                     shutil.rmtree(os.path.join(base, f))
                     self.print_verbose(
