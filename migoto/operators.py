@@ -6,6 +6,8 @@ import time
 import bpy
 from bpy_extras.io_utils import  ImportHelper, ExportHelper, orientation_helper
 from bpy.props import BoolProperty, StringProperty, CollectionProperty, IntProperty
+
+from ..dependencies import XXMI_PT_dependency_panel 
 from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, silly_lookup
 from .. import addon_updater_ops
 from .. import __name__ as package_name
@@ -1145,7 +1147,7 @@ class Preferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        print(addon_updater_ops.get_user_preferences(context))
+        # print(addon_updater_ops.get_user_preferences(context))
         # Works best if a column, or even just self.layout.
         mainrow = layout.row()
         col = mainrow.column()
@@ -1163,6 +1165,7 @@ class Preferences(bpy.types.AddonPreferences):
         # col.scale_y = 2
         # ops = col.operator("wm.url_open","Open webpage ")
         # ops.url=addon_updater_ops.updater.website
+        XXMI_PT_dependency_panel.draw(self, context)
 
 def register():
     '''Register all classes'''

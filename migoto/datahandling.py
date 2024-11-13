@@ -2829,7 +2829,8 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
 
     print("Generating .ini file")
     ini_data = generate_ini(character_name, char_hash, offsets, texture_hashes_written, credit, game, operator)
-
+    if not ini_data:
+        raise Fatal("ERROR: Could not generate ini file. Install dependencies from settings")
     with open(os.path.join(destination, f"{character_name}.ini"), "w", encoding="UTF-8") as f:
         print("Writing ini file")
         f.write(ini_data)

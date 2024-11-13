@@ -256,7 +256,7 @@ class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
         box = self.layout.box()
         row = box.row()
         col = row.column(align=True)
-        
+ 
         col.prop(xxmi, "toggle_rounding_outline", text='Vertex Position Rounding', toggle=True, icon="SHADING_WIRE")
         col.prop(xxmi, "decimal_rounding_outline")
         if xxmi.toggle_rounding_outline:
