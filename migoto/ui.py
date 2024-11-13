@@ -270,7 +270,7 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
         row = layout.row()
         row.operator("xxmi.exportadvanced", text="Export Mod")
 
-class UpdaterPanel(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+class XXMIT_PT_UpdaterPanel(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     """Update Panel"""
     bl_label = "Updater"
     bl_order = 99
@@ -333,7 +333,7 @@ classes = (
     XXMI_PT_SidePanelBatchExport,
     XXMI_PT_SidePanelOutline,
     XXMI_PT_SidePanelExport,
-    UpdaterPanel,
+    XXMIT_PT_UpdaterPanel,
 )
 
 def register():
