@@ -1,7 +1,6 @@
 import bpy
 from bl_ui.generic_ui_list import draw_ui_list
 from .operators import ClearSemanticRemapList,PrefillSemanticRemapList, Import3DMigotoFrameAnalysis, Import3DMigotoRaw, Import3DMigotoPose, Export3DMigoto, ApplyVGMap, Export3DMigotoXXMI
-from .. import addon_updater_ops
 from .datahandling import get_addon_version
 class MIGOTO_UL_semantic_remap_list(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
@@ -270,31 +269,6 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
         row = layout.row()
         row.operator("xxmi.exportadvanced", text="Export Mod")
 
-class XXMIT_PT_UpdaterPanel(XXMISidebarOptionsPanelBase, bpy.types.Panel):
-    """Update Panel"""
-    bl_label = "Updater"
-    bl_order = 99
-    bl_options = {'DEFAULT_CLOSED'}
-
-    def draw(self, context):
-        layout = self.layout
-
-        # Call to check for update in background.
-        # Note: built-in checks ensure it runs at most once, and will run in
-        # the background thread, not blocking or hanging blender.
-        # Internally also checks to see if auto-check enabled and if the time
-        # interval has passed.
-        addon_updater_ops.check_for_update_background()
-        col = layout.column()
-        col.scale_y = 0.7
-        # Could also use your own custom drawing based on shared variables.
-        if addon_updater_ops.updater.update_ready:
-            layout.label(text="There's a new update available!", icon="INFO")
-
-        # Call built-in function with draw code/checks.
-        addon_updater_ops.update_notice_box_ui(self, context)
-        # addon_updater_ops.update_settings_ui(self, context)
-        addon_updater_ops.update_settings_ui_condensed(self, context, col)
 
 def menu_func_import_fa(self, context):
     self.layout.operator(Import3DMigotoFrameAnalysis.bl_idname, text="3DMigoto frame analysis dump (vb.txt + ib.txt)")
@@ -333,8 +307,7 @@ classes = (
     XXMI_PT_SidePanelBatchExport,
     XXMI_PT_SidePanelOutline,
     XXMI_PT_SidePanelExport,
-    XXMIT_PT_UpdaterPanel,
-)
+    )
 
 def register():
     for cls in classes:

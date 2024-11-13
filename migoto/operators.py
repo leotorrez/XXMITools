@@ -5,10 +5,8 @@ import os
 import time
 import bpy
 from bpy_extras.io_utils import  ImportHelper, ExportHelper, orientation_helper
-from bpy.props import BoolProperty, StringProperty, CollectionProperty, IntProperty
+from bpy.props import BoolProperty, StringProperty, CollectionProperty
 from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, silly_lookup
-from .. import addon_updater_ops
-from .. import __name__ as package_name
 
 IOOBJOrientationHelper = type('DummyIOOBJOrientationHelper', (object,), {})
 
@@ -1106,63 +1104,6 @@ class ExportAdvancedBatchedOperator(bpy.types.Operator):
         xxmi.destination_path = base_dir
         return {'FINISHED'}
 
-class Preferences(bpy.types.AddonPreferences):
-    """Preferences updater"""
-    bl_idname = package_name
-    # Addon updater preferences.
-
-    auto_check_update: BoolProperty(
-        name="Auto-check for Update",
-        description="If enabled, auto-check for updates using an interval",
-        default=False)
-
-    updater_interval_months: IntProperty(
-        name='Months',
-        description="Number of months between checking for updates",
-        default=0,
-        min=0)
-
-    updater_interval_days: IntProperty(
-        name='Days',
-        description="Number of days between checking for updates",
-        default=7,
-        min=0,
-        max=31)
-
-    updater_interval_hours: IntProperty(
-        name='Hours',
-        description="Number of hours between checking for updates",
-        default=0,
-        min=0,
-        max=23)
-
-    updater_interval_minutes: IntProperty(
-        name='Minutes',
-        description="Number of minutes between checking for updates",
-        default=0,
-        min=0,
-        max=59)
-
-    def draw(self, context):
-        layout = self.layout
-        # print(addon_updater_ops.get_user_preferences(context))
-        # Works best if a column, or even just self.layout.
-        mainrow = layout.row()
-        col = mainrow.column()
-        # Updater draw function, could also pass in col as third arg.
-        addon_updater_ops.update_settings_ui(self, context)
-
-        # Alternate draw function, which is more condensed and can be
-        # placed within an existing draw function. Only contains:
-        #   1) check for update/update now buttons
-        #   2) toggle for auto-check (interval will be equal to what is set above)
-        # addon_updater_ops.update_settings_ui_condensed(self, context, col)
-
-        # Adding another column to help show the above condensed ui as one column
-        # col = mainrow.column()
-        # col.scale_y = 2
-        # ops = col.operator("wm.url_open","Open webpage ")
-        # ops.url=addon_updater_ops.updater.website
 classes = (
     Import3DMigotoRaw,
     Import3DMigotoReferenceInputFormat,
@@ -1178,7 +1119,6 @@ classes = (
     DumpSelector,
     ExportAdvancedOperator,
     ExportAdvancedBatchedOperator,
-    Preferences,
 )
 
 def register():
