@@ -25,8 +25,7 @@ import os
 import traceback
 import bpy
 from bpy.app.handlers import persistent
-from . import bl_info
-
+from .migoto.datahandling import get_addon_version
 # Safely import the updater.
 # Prevents popups for users with invalid python installs e.g. missing libraries
 # and will replace with a fake class instead if it fails (so UI draws work).
@@ -1341,7 +1340,7 @@ def register():
     # updater.addon = # define at top of module, MUST be done first
     updater.website = "https://github.com/leotorrez/XXMITools/releases"
     updater.subfolder_path = ""
-    updater.current_version = bl_info["version"]
+    updater.current_version = get_addon_version()
     updater.verbose = True  # make False for production default
     updater.backup_current = True  # True by default
     updater.backup_ignore_patterns = ["__pycache__"]
@@ -1364,7 +1363,8 @@ def register():
     # Special situation: we just updated the addon, show a popup to tell the
     # user it worked. Could enclosed in try/catch in case other issues arise.
     show_reload_popup()
-
+    for cls in classes:
+        bpy.utils.register_class(cls)
 
 def unregister():
     # Clear global vars since they may persist if not restarting blender.
@@ -1378,3 +1378,6 @@ def unregister():
 
     global ran_background_check
     ran_background_check = False
+
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)

@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-from . import auto_load
-
 # Original plugin by DarkStarSword (https://github.com/DarkStarSword/3d-fixes/blob/master/blender_3dmigoto.py)
 # Updated to support 3.0 by MicroKnightmare from the DOA modding discord
 
@@ -10,6 +7,11 @@ from . import auto_load
 # QOL feature (ignoring hidden meshes while exporting) added by HazrateGolabi#1364
 # HummyR#8131
 # merged several iterations of this plugin for other games back into a single one by LeoTorreZ
+from .migoto.operators import register as ops_register, unregister as ops_unregister
+from .migoto.ui import register as ui_register, unregister as ui_unregister
+from .addon_updater_ops import register as updater_register, unregister as updater_unregister
+
+#if blender version <4.2.0
 
 bl_info = {
     "name": "XXMI_Tools",
@@ -21,10 +23,15 @@ bl_info = {
     "tracker_url": "https://github.com/leotorrez/XXMITools",
     "version" : (1, 4, 1),
 }
-auto_load.init()
 
 def register():
-    auto_load.register()
+    '''Registers the plugin with Blender'''
+    ops_register()
+    ui_register()
+    updater_register()
 
 def unregister():
-    auto_load.unregister()
+    '''Unregisters the plugin with Blender'''
+    updater_unregister()
+    ui_unregister()
+    ops_unregister()

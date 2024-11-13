@@ -15,6 +15,7 @@ from enum import Enum
 from mathutils import Matrix, Vector
 from bpy_extras.io_utils import unpack_list, axis_conversion
 import time
+import addon_utils
 ############## Begin (deprecated) Blender 2.7/2.8 compatibility wrappers (2.7 options removed) ##############
 
 vertex_color_layer_channels = 4
@@ -3539,3 +3540,11 @@ def shapekey_generation(obj, mesh):
         shapekey_buff[offset:offset + len(sk_data)] = sk_data
         offset += len(sk_data)
     return offset_count, shapekey_buff
+
+def get_addon_version():
+    version = (0, 0, 0)
+    for mod in addon_utils.modules():
+        if mod.bl_info.get('name') == __package__:
+            version = mod.bl_info.get('version')
+            break
+    return version

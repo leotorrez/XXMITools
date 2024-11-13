@@ -1,9 +1,8 @@
 import bpy
-import addon_utils
 from bl_ui.generic_ui_list import draw_ui_list
 from .operators import ClearSemanticRemapList,PrefillSemanticRemapList, Import3DMigotoFrameAnalysis, Import3DMigotoRaw, Import3DMigotoPose, Export3DMigoto, ApplyVGMap, Export3DMigotoXXMI
 from .. import addon_updater_ops
-
+from .datahandling import get_addon_version
 class MIGOTO_UL_semantic_remap_list(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
@@ -155,14 +154,8 @@ class XXMI_PT_Sidebar(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
         row = layout.row()
-        version = ""
-        for module in addon_utils.modules():
-            if module.bl_info.get('name') == "XXMI_Tools":
-                version = module.bl_info.get('version', (-1, -1, -1))
-                break
-        version = ".".join(str(i) for i in version)
         row.alignment = 'RIGHT'
-        row.label(text="v "+version)
+        row.label(text="v " + get_addon_version().__repr__())
 
     def draw(self, context):
         layout = self.layout
@@ -277,14 +270,9 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
         row = layout.row()
         row.operator("xxmi.exportadvanced", text="Export Mod")
 
-class UpdaterPanel(bpy.types.Panel):
+class UpdaterPanel(XXMISidebarOptionsPanelBase, bpy.types.Panel):
     """Update Panel"""
     bl_label = "Updater"
-    bl_idname = "XXMI_PT_UpdaterPanel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_context = "objectmode"
-    bl_category = "XXMI Tools"
     bl_order = 99
     bl_options = {'DEFAULT_CLOSED'}
 
@@ -305,7 +293,8 @@ class UpdaterPanel(bpy.types.Panel):
 
         # Call built-in function with draw code/checks.
         addon_updater_ops.update_notice_box_ui(self, context)
-        addon_updater_ops.update_settings_ui(self, context)
+        # addon_updater_ops.update_settings_ui(self, context)
+        addon_updater_ops.update_settings_ui_condensed(self, context, col)
 
 def menu_func_import_fa(self, context):
     self.layout.operator(Import3DMigotoFrameAnalysis.bl_idname, text="3DMigoto frame analysis dump (vb.txt + ib.txt)")
@@ -327,7 +316,29 @@ def menu_func_apply_vgmap(self, context):
 
 import_menu = bpy.types.TOPBAR_MT_file_import
 export_menu = bpy.types.TOPBAR_MT_file_export
+
+classes = (
+    MIGOTO_UL_semantic_remap_list,
+    MIGOTO_MT_semantic_remap_menu,
+    MIGOTO_PT_ImportFrameAnalysisMainPanel,
+    MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel,
+    MIGOTO_PT_ImportFrameAnalysisBufFilesPanel,
+    MIGOTO_PT_ImportFrameAnalysisBonePanel,
+    MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel,
+    MIGOTO_PT_ImportFrameAnalysisManualOrientation,
+    MIGOTO_PT_ImportFrameAnalysisCleanUp,
+    XXMI_PT_Sidebar,
+    XXMI_PT_SidePanelExportSettings,
+    XXMI_PT_SidePanelExportCredit,
+    XXMI_PT_SidePanelBatchExport,
+    XXMI_PT_SidePanelOutline,
+    XXMI_PT_SidePanelExport,
+    UpdaterPanel,
+)
+
 def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
     import_menu.append(menu_func_import_fa)
     import_menu.append(menu_func_import_raw)
     export_menu.append(menu_func_export)
@@ -342,3 +353,5 @@ def unregister():
     export_menu.remove(menu_func_export_xxmi)
     import_menu.remove(menu_func_apply_vgmap)
     import_menu.remove(menu_func_import_pose)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)

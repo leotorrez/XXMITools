@@ -1145,7 +1145,7 @@ class Preferences(bpy.types.AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
-        print(addon_updater_ops.get_user_preferences(context))
+        # print(addon_updater_ops.get_user_preferences(context))
         # Works best if a column, or even just self.layout.
         mainrow = layout.row()
         col = mainrow.column()
@@ -1163,11 +1163,32 @@ class Preferences(bpy.types.AddonPreferences):
         # col.scale_y = 2
         # ops = col.operator("wm.url_open","Open webpage ")
         # ops.url=addon_updater_ops.updater.website
+classes = (
+    Import3DMigotoRaw,
+    Import3DMigotoReferenceInputFormat,
+    Export3DMigoto,
+    ApplyVGMap,
+    UpdateVGMap,
+    Import3DMigotoPose,
+    Merge3DMigotoPose,
+    DeleteNonNumericVertexGroups,
+    Export3DMigotoXXMI,
+    XXMIProperties,
+    DestinationSelector,
+    DumpSelector,
+    ExportAdvancedOperator,
+    ExportAdvancedBatchedOperator,
+    Preferences,
+)
 
 def register():
     '''Register all classes'''
+    for cls in classes:
+        bpy.utils.register_class(cls)
     bpy.types.Scene.xxmi = bpy.props.PointerProperty(type=XXMIProperties)
 
 def unregister():
     '''Unregister all classes'''
     del bpy.types.Scene.xxmi
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
