@@ -1119,6 +1119,7 @@ classes = (
     DumpSelector,
     ExportAdvancedOperator,
     ExportAdvancedBatchedOperator,
+    Import3DMigotoFrameAnalysis,
 )
 
 def register():
