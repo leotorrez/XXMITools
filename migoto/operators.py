@@ -1105,8 +1105,10 @@ class ExportAdvancedBatchedOperator(bpy.types.Operator):
         return {'FINISHED'}
 
 classes = (
+    SemanticRemapItem,
     Import3DMigotoRaw,
     Import3DMigotoReferenceInputFormat,
+    Import3DMigotoFrameAnalysis,
     Export3DMigoto,
     ApplyVGMap,
     UpdateVGMap,
@@ -1119,7 +1121,6 @@ classes = (
     DumpSelector,
     ExportAdvancedOperator,
     ExportAdvancedBatchedOperator,
-    Import3DMigotoFrameAnalysis,
 )
 
 def register():
