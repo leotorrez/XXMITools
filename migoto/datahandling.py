@@ -2654,7 +2654,8 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                     ib_offset += len(obj_ib) * 3
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
-
+            if operator.join_meshes is True:
+                offsets[current_name + classification][0] = ("", 0, obj.name, len(ib)*3, len(vbarr), 0)
             # Must be done to all meshes and then compiled
             # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
             #     sk_offsets, sk_buf = shapekey_generation(obj, mesh)
@@ -2829,13 +2830,10 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
                 credit = credit,
                 game = game,
                 operator = operator)
-    if not ini_data:
-        raise Fatal("ERROR: Could not generate ini file. Install dependencies from settings")
     with open(os.path.join(destination, f"{character_name}.ini"), "w", encoding="UTF-8") as f:
         print("Writing ini file")
         f.write(ini_data) 
     print("All operations completed, exiting")
-
 
 def load_hashes(path, name, hashfile):
     parent_folder = os.path.join(path, "../")
