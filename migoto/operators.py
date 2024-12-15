@@ -79,6 +79,12 @@ class Import3DMigotoFrameAnalysis(bpy.types.Operator, ImportHelper, IOOBJOrienta
             description="Flip winding order (face orientation) during importing. Try if the model doesn't seem to be shading as expected in Blender and enabling the 'Face Orientation' overlay shows **RED** (if it shows BLUE, try 'Flip Normal' instead). Not quite the same as flipping normals within Blender as this only reverses the winding order without flipping the normals. Recommended for Unreal Engine",
             default=False,
             )
+    
+    flip_mesh: BoolProperty(
+            name="Flip Mesh",
+            description="Mirrors mesh over the X Axis on import, and invert the winding order.",
+            default=False,
+            )
 
     flip_normal: BoolProperty(
             name="Flip Normal",
@@ -814,7 +820,10 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
                 obj = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.visible_get() and obj.get('3DMigoto:FlipWinding')][0]
             except IndexError:
                 return ExportHelper.invoke(self, context, event)
-        self.flip_winding = obj.get('3DMigoto:FlipWinding', False)
+        obj_winding = obj.get('3DMigoto:FlipWinding', False)
+        if obj_winding:
+            self.flip_winding = not self.flip_winding
+        #self.flip_winding = obj.get('3DMigoto:FlipWinding', False)
         self.flip_tangent = self.flip_normal = obj.get('3DMigoto:FlipNormal', False)
         return ExportHelper.invoke(self, context, event)
 
