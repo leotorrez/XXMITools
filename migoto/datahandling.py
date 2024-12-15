@@ -3213,7 +3213,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
             result = numpy.ones(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             result[idxs, 0:3] = position[verts]
-            result[idxs, 0:1] *= 2*obj['3DMigoto:FlipMesh']-1
+            result[idxs, 0:1] *= -(2*main_obj['3DMigoto:FlipMesh']-1)
             if 'POSITION.w' in custom_attributes_float(mesh):
                 loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 loop_position_w[idxs] = custom_attributes_float(mesh)['POSITION.w'].data[verts].value
