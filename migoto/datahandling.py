@@ -2556,7 +2556,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
         relevant_objects = [x for x in relevant_objects if x]
         print(f'Objects to export: {relevant_objects}')
 
-        
+
         for i, obj in enumerate(relevant_objects):
             if i < len(base_classifications):
                 classification = base_classifications[i]
@@ -2631,7 +2631,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 ib, vbarr = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
                 offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3, len(vbarr), 0)]
             else:
-                raise Fatal('topology "%s" is not supported for export' % vb.topology)
+                raise Fatal(f'topology "{topology}" is not supported for export')
 
             # get all objects in collection of the same name as current mesh
             # convert them all to binary
@@ -2746,7 +2746,7 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
                 print("\tTexcoord Stride:", texcoord_stride)
                 print("\tStride:", total)
 
-                assert fmt_layout.stride == total, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
+                assert fmt_layout.stride == total, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {total}, file: {current_name}{object_classifications[0]}.fmt"
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
         char_hash[num]["objects"] = []
@@ -2787,10 +2787,7 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
 
             if len(position) % position_stride != 0:
                 print("ERROR: VB buffer length does not match stride")
-
-            char_hash[num]["objects"].append({"fullname": f"{current_name}{current_object}", "offsets": offsets[current_name + current_object]})
-
-            offset += len(position) // position_stride
+            offset = len(position) // position_stride
 
             # Older versions can only manage diffuse and lightmaps
             texture_hashes = component["texture_hashes"][i] if "texture_hashes" in component else [["Diffuse", ".dds", "_"], ["LightMap", ".dds", "_"]]
@@ -2804,6 +2801,8 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
                         os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                     texture_hashes_written[texture[2]] = f"{current_name}{current_object}{texture[0]}{texture[1]}"
+
+            char_hash[num]["objects"].append({"fullname": f"{current_name}{current_object}", "offsets": offsets[current_name + current_object]})
 
         char_hash[num]["total_verts"] = offset
         char_hash[num]["strides"] = strides
@@ -2822,7 +2821,7 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
     print("Generating .ini file")
     ini_data = generate_ini(user_paths = None,
                 template_name = "default.ini",
-                version = get_addon_version(), 
+                version = get_addon_version(),
                 character_name = character_name,
                 char_hash = char_hash,
                 offset = offsets,
@@ -2832,7 +2831,7 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
                 operator = operator)
     with open(os.path.join(destination, f"{character_name}.ini"), "w", encoding="UTF-8") as f:
         print("Writing ini file")
-        f.write(ini_data) 
+        f.write(ini_data)
     print("All operations completed, exiting")
 
 def load_hashes(path, name, hashfile):
@@ -3371,7 +3370,7 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         obj.to_mesh_clear()
         obj.data.update()
         return ib, vb
-    
+
     # Calculates tangents and makes loop normals valid (still with our custom normal data from import time):
     mesh = apply_modifiers_and_shapekeys(context, obj) if operator.apply_modifiers_and_shapekeys else obj.to_mesh()
     if main_obj != obj:
@@ -3388,7 +3387,7 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
     start_timer = time.time()
     migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
-    
+
     ibvb_timer = time.time()
     indexed_vertices = collections.OrderedDict()
     # ib = numpy.zeros(len(mesh.polygons), dtype=(numpy.uint32, 3))

@@ -18,6 +18,6 @@ def generate_ini(user_paths: list[str],
     env = Environment(loader=FileSystemLoader(searchpath=templates_paths),
                         trim_blocks=True, lstrip_blocks=True)
     template = env.get_template(template_name)
-    for k,v in variables.items():
-        print(f"{k}: {v}")
+    # for k,v in variables.items():
+    #     print(f"{k}: {v}")
     return template.render(**variables)
