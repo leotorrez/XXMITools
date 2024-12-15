@@ -1225,7 +1225,7 @@ def import_faces_from_vb_trianglestrip(mesh, vb, flip_winding):
     mesh.polygons.foreach_set('loop_start', [x*3 for x in range(num_faces)])
     mesh.polygons.foreach_set('loop_total', [3] * num_faces)
 
-def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_normal=False):
+def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_normal=False, flip_mesh=False):
     mesh.vertices.add(len(vb.vertices))
 
     blend_indices = {}
@@ -1270,7 +1270,8 @@ def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_norm
                     # store it in a vertex layer and warn the modder.
                     operator.report({'WARNING'}, 'Positions are 4D, storing W coordinate in POSITION.w vertex layer. Beware that some types of edits on this mesh may be problematic.')
                     vertex_layers['POSITION.w'] = [[x[3]] for x in data]
-            positions = [(x[0], x[1], x[2]) for x in data]
+
+            positions = [(-(2*flip_mesh-1)*x[0], x[1], x[2]) for x in data]
             mesh.vertices.foreach_set('co', unpack_list(positions))
         elif translated_elem_name.startswith('COLOR'):
             if len(data[0]) <= 3 or vertex_color_layer_channels == 4:
@@ -1337,7 +1338,7 @@ def assert_pointlist_ib_is_pointless(ib, vb):
     assert(len(vb) == len(ib)) # FIXME: Properly implement point list index buffers
     assert(all([(i,) == j for i,j in enumerate(ib.faces)])) # FIXME: Properly implement point list index buffers
 
-def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_winding=False, flip_normal=False, axis_forward='-Z', axis_up='Y', pose_cb_off=[0,0], pose_cb_step=1, merge_verts=False, tris_to_quads=False, clean_loose=False):
+def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_winding=False, flip_mesh=False, flip_normal=False, axis_forward='-Z', axis_up='Y', pose_cb_off=[0,0], pose_cb_step=1, merge_verts=False, tris_to_quads=False, clean_loose=False):
     vb, ib, name, pose_path = load_3dmigoto_mesh(operator, paths)
 
     mesh = bpy.data.meshes.new(name)
@@ -1361,8 +1362,11 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
     # Record these import options so the exporter can set them to match by
     # default. Might also consider adding them to the .fmt file so reimporting
     # a previously exported file can also set them by default?
+    if flip_mesh:
+        flip_winding = not flip_winding
     obj['3DMigoto:FlipWinding'] = flip_winding
     obj['3DMigoto:FlipNormal'] = flip_normal
+    obj['3DMigoto:FlipMesh'] = flip_mesh
 
     if ib is not None:
         if ib.topology in ('trianglelist', 'trianglestrip'):
@@ -1383,7 +1387,7 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
     if vb.topology == 'pointlist':
         operator.report({'WARNING'}, '{}: uses point list topology, which is highly experimental and may have issues with normals/tangents/lighting. This may not be the mesh you are looking for.'.format(mesh.name))
 
-    (blend_indices, blend_weights, texcoords, vertex_layers, use_normals, normals) = import_vertices(mesh, obj, vb, operator, semantic_translations, flip_normal)
+    (blend_indices, blend_weights, texcoords, vertex_layers, use_normals, normals) = import_vertices(mesh, obj, vb, operator, semantic_translations, flip_normal, flip_mesh)
 
     import_uv_layers(mesh, obj, texcoords, flip_texcoord_v)
     if not texcoords:
@@ -1717,6 +1721,7 @@ def export_3dmigoto(operator, context, vb_path, ib_path, fmt_path, ini_path):
     # completely blow this out - we still want to reuse identical vertices
     # via the index buffer. There might be a convenience function in
     # Blender to do this, but it's easy enough to do this ourselves
+
     indexed_vertices = collections.OrderedDict()
     vb = VertexBufferGroup(layout=layout, topology=topology)
     vb.flag_invalid_semantics()
@@ -1728,11 +1733,11 @@ def export_3dmigoto(operator, context, vb_path, ib_path, fmt_path, ini_path):
                 if ib is not None:
                     face.append(indexed_vertices.setdefault(HashableVertex(vertex), len(indexed_vertices)))
                 else:
-                    if operator.flip_winding:
+                    if flip_winding:
                         raise Fatal('Flipping winding order without index buffer not implemented')
                     vb.append(vertex)
             if ib is not None:
-                if operator.flip_winding:
+                if flip_winding:
                     face.reverse()
                 ib.append(face)
 
@@ -3208,6 +3213,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
             result = numpy.ones(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             result[idxs, 0:3] = position[verts]
+            result[idxs, 0:1] *= 2*obj['3DMigoto:FlipMesh']-1
             if 'POSITION.w' in custom_attributes_float(mesh):
                 loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 loop_position_w[idxs] = custom_attributes_float(mesh)['POSITION.w'].data[verts].value
@@ -3405,7 +3411,11 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
                     ]for poly in mesh.polygons]
     ib = numpy.array(ib, dtype=numpy.uint32)
     ib = numpy.reshape(ib, (-1, 3))
-    if operator.flip_winding:
+
+    flip_winding = operator.flip_winding
+    if main_obj['3DMigoto:FlipWinding']:
+        flip_winding = not flip_winding
+    if flip_winding:
         ib = numpy.fliplr(ib)
     print(f"\t\tIB GEN: {time.time() - ibvb_timer:.5f}, {len(ib)},{len(mesh.loops)//3}")
 

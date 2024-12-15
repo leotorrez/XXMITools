@@ -54,6 +54,7 @@ class MIGOTO_PT_ImportFrameAnalysisMainPanel(MigotoImportOptionsPanelBase, bpy.t
         operator = context.space_data.active_operator
         self.layout.prop(operator, "flip_texcoord_v")
         self.layout.prop(operator, "flip_winding")
+        self.layout.prop(operator, "flip_mesh")
         self.layout.prop(operator, "flip_normal")
 
 class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
