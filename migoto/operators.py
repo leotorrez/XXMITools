@@ -447,31 +447,7 @@ class Export3DMigoto(bpy.types.Operator, ExportHelper):
             options={'HIDDEN'},
             )
 
-    flip_winding: BoolProperty(
-            name="Flip Winding Order",
-            description="Flip winding order during export (automatically set to match the import option)",
-            default=False,
-            )
-
-    flip_normal: BoolProperty(
-            name="Flip Normal",
-            description="Flip Normals during export (automatically set to match the import option)",
-            default=False,
-            )
-
-    flip_tangent: BoolProperty(
-            name="Flip Tangent",
-            description="Flip Tangents during export (automatically set to match the flip normals option)",
-            default=False,
-            )
-
     def invoke(self, context, event):
-        obj = context.object
-        obj_winding = obj.get('3DMigoto:FlipWinding', False)
-        if obj_winding:
-            self.flip_winding = not self.flip_winding
-        #self.flip_winding = obj.get('3DMigoto:FlipWinding', False)
-        self.flip_tangent = self.flip_normal = obj.get('3DMigoto:FlipNormal', False)
         return ExportHelper.invoke(self, context, event)
 
     def execute(self, context):
@@ -480,9 +456,11 @@ class Export3DMigoto(bpy.types.Operator, ExportHelper):
             ib_path = os.path.splitext(vb_path)[0] + '.ib'
             fmt_path = os.path.splitext(vb_path)[0] + '.fmt'
             ini_path = os.path.splitext(vb_path)[0] + '_generated.ini'
-
+            obj = context.object
+            self.flip_normal = obj.get("3DMigoto:FlipNormal", False)
+            self.flip_winding = obj.get("3DMigoto:FlipWinding", False)
+            self.flip_mesh = obj.get("3DMigoto:FlipMesh", False)
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
-
             export_3dmigoto(self, context, vb_path, ib_path, fmt_path, ini_path)
         except Fatal as e:
             self.report({'ERROR'}, str(e))
@@ -652,24 +630,6 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
             options={'HIDDEN'},
             )
 
-    flip_winding: BoolProperty(
-            name="Flip Winding Order",
-            description="Flip winding order during export (automatically set to match the import option)",
-            default=False,
-            )
-
-    flip_normal: BoolProperty(
-            name="Flip Normal",
-            description="Flip Normals during export (automatically set to match the import option)",
-            default=False,
-            )
-
-    flip_tangent: BoolProperty(
-            name="Flip Tangent",
-            description="Flip Tangents during export (automatically set to match the flip normals option)",
-            default=False,
-            )
-
     use_foldername : BoolProperty(
         name="Use foldername when exporting",
         description="Sets the export name equal to the foldername you are exporting to. Keep true unless you have changed the names",
@@ -790,8 +750,6 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         layout = self.layout
         col = layout.column(align=True)
         col.prop(self, 'game')
-        col.prop(self, 'flip_winding')
-        col.prop(self, 'flip_normal')
         col.prop(self, 'use_foldername')
         col.prop(self, 'ignore_hidden')
         col.prop(self, 'only_selected')
@@ -822,11 +780,9 @@ class Export3DMigotoXXMI(bpy.types.Operator, ExportHelper):
         obj = context.object
         if obj is None:
             try:
-                obj = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.visible_get() and obj.get('3DMigoto:FlipWinding')][0]
+                obj = [obj for obj in bpy.data.objects if obj.type == 'MESH' and obj.visible_get()][0]
             except IndexError:
                 return ExportHelper.invoke(self, context, event)
-        self.flip_winding = obj.get('3DMigoto:FlipWinding', False)
-        self.flip_tangent = self.flip_normal = obj.get('3DMigoto:FlipNormal', False)
         return ExportHelper.invoke(self, context, event)
 
     def execute(self, context):
@@ -856,18 +812,6 @@ class XXMIProperties(bpy.types.PropertyGroup):
     flip_winding: BoolProperty(
             name="Flip Winding Order",
             description="Flip winding order during export (automatically set to match the import option)",
-            default=False,
-            )
-
-    flip_normal: BoolProperty(
-            name="Flip Normal",
-            description="Flip Normals during export (automatically set to match the import option)",
-            default=False,
-            )
-
-    flip_tangent: BoolProperty(
-            name="Flip Tangent",
-            description="Flip Tangents during export (automatically set to match the flip normals option)",
             default=False,
             )
 
@@ -1050,9 +994,6 @@ class ExportAdvancedOperator(bpy.types.Operator):
         if xxmi.destination_path == xxmi.dump_path:
             self.report({'ERROR'}, "Destination path can not be the same as Dump path")
             return {'CANCELLED'}
-        self.flip_winding = xxmi.flip_winding
-        self.flip_normal = xxmi.flip_normal
-        self.flip_tangent = xxmi.flip_tangent
         self.apply_modifiers_and_shapekeys = xxmi.apply_modifiers_and_shapekeys
         self.join_meshes = xxmi.join_meshes
         self.normalize_weights = xxmi.normalize_weights
