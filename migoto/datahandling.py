@@ -2555,13 +2555,16 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
         relevant_objects = [x for x in relevant_objects if x]
         print(f'Objects to export: {relevant_objects}')
 
-        
         for i, obj in enumerate(relevant_objects):
             if i < len(base_classifications):
                 classification = base_classifications[i]
             else:
                 classification = extended_classifications[i-len(base_classifications)]
 
+            flip_properties = ["3DMigoto:FlipNormal", "3DMigoto:FlipWinding", "3DMigoto:FlipMesh"]
+            for prop in flip_properties:
+                if prop not in obj:
+                    obj[prop] = False
             # Handle Legacy 3DMigoto Custom Properties from old projects
             if '3DMigoto:VB0Stride' not in obj and '3DMigoto:VBStride' in obj:
                 obj['3DMigoto:VB0Stride'] = obj['3DMigoto:VBStride']
@@ -2594,7 +2597,6 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 raise Fatal('FIXME: Add capability to export without an index buffer')
             else:
                 ib = IndexBuffer(ib_format)
-
 
             # Blender's vertices have unique positions, but may have multiple
             # normals, tangents, UV coordinates, etc - these are stored in the
@@ -2760,7 +2762,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 print("\tBlend Stride:", blend_stride)
                 print("\tTexcoord Stride:", texcoord_stride)
                 print("\tStride:", stride)
-                assert(fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt")
+                assert fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
         curr_offsets = [v for k, v in offsets.items() if k.lower().startswith(current_name.lower())]
@@ -3306,7 +3308,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
             result = numpy.ones(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             result[idxs, 0:3] = position[verts]
-            result[idxs, 0:1] *= -(2 * main_obj.get("3DMigoto:FlipMesh") - 1)
+            result[idxs, 0:1] *= -(2 * main_obj.get("3DMigoto:FlipMesh", False) - 1)
             if 'POSITION.w' in custom_attributes_float(mesh):
                 loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 loop_position_w[idxs] = custom_attributes_float(mesh)['POSITION.w'].data[verts].value
