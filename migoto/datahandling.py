@@ -1407,10 +1407,19 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
     elif hasattr(mesh, 'calc_normals'): # Dropped in Blender 4.0
         mesh.calc_normals()
 
+    if flip_mesh:
+        normals = numpy.zeros((len(mesh.loops), 3),dtype=numpy.float16)
+        mesh.loops.foreach_get('normal', normals.ravel())
+        # Flips X only
+        normals[:,0] = -normals[:,0]
+        # Convert numpy.float32 to float
+        normals = normals.tolist()
+        mesh.normals_split_custom_set(normals)
+
     link_object_to_scene(context, obj)
     select_set(obj, True)
     set_active_object(context, obj)
-    
+
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
     if merge_verts:
