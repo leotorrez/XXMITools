@@ -57,6 +57,7 @@ class MIGOTO_PT_ImportFrameAnalysisMainPanel(MigotoImportOptionsPanelBase, bpy.t
         self.layout.prop(operator, "flip_texcoord_v")
         self.layout.prop(operator, "flip_winding")
         self.layout.prop(operator, "flip_normal")
+        self.layout.prop(operator, "flip_mesh")
 
 class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
     bl_label = ""
@@ -202,8 +203,6 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Pan
         box = self.layout.box()
         row = box.row()
         col = row.column(align=True)
-        col.prop(xxmi, 'flip_winding')
-        col.prop(xxmi, 'flip_normal')
         col.prop(xxmi, 'use_foldername')
         col.prop(xxmi, 'ignore_hidden')
         col.prop(xxmi, 'only_selected')

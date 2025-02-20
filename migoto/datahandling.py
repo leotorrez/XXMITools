@@ -1222,7 +1222,7 @@ def import_faces_from_vb_trianglestrip(mesh, vb, flip_winding):
     mesh.polygons.foreach_set('loop_start', [x*3 for x in range(num_faces)])
     mesh.polygons.foreach_set('loop_total', [3] * num_faces)
 
-def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_normal=False):
+def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_normal=False, flip_mesh=False):
     mesh.vertices.add(len(vb.vertices))
 
     blend_indices = {}
@@ -1267,7 +1267,7 @@ def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_norm
                     # store it in a vertex layer and warn the modder.
                     operator.report({'WARNING'}, 'Positions are 4D, storing W coordinate in POSITION.w vertex layer. Beware that some types of edits on this mesh may be problematic.')
                     vertex_layers['POSITION.w'] = [[x[3]] for x in data]
-            positions = [(x[0], x[1], x[2]) for x in data]
+            positions = [(-(2*flip_mesh-1)*x[0], x[1], x[2]) for x in data]
             mesh.vertices.foreach_set('co', unpack_list(positions))
         elif translated_elem_name.startswith('COLOR'):
             if len(data[0]) <= 3 or vertex_color_layer_channels == 4:
@@ -1334,7 +1334,7 @@ def assert_pointlist_ib_is_pointless(ib, vb):
     assert(len(vb) == len(ib)) # FIXME: Properly implement point list index buffers
     assert(all([(i,) == j for i,j in enumerate(ib.faces)])) # FIXME: Properly implement point list index buffers
 
-def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_winding=False, flip_normal=False, axis_forward='-Z', axis_up='Y', pose_cb_off=[0,0], pose_cb_step=1, merge_verts=False, tris_to_quads=False, clean_loose=False):
+def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_winding=False, flip_mesh=False, flip_normal=False, axis_forward='-Z', axis_up='Y', pose_cb_off=[0,0], pose_cb_step=1, merge_verts=False, tris_to_quads=False, clean_loose=False):
     vb, ib, name, pose_path = load_3dmigoto_mesh(operator, paths)
 
     mesh = bpy.data.meshes.new(name)
@@ -1360,6 +1360,9 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
     # a previously exported file can also set them by default?
     obj['3DMigoto:FlipWinding'] = flip_winding
     obj['3DMigoto:FlipNormal'] = flip_normal
+    obj['3DMigoto:FlipMesh'] = flip_mesh
+    if flip_mesh:
+        flip_winding = not flip_winding
 
     if ib is not None:
         if ib.topology in ('trianglelist', 'trianglestrip'):
@@ -1380,7 +1383,7 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
     if vb.topology == 'pointlist':
         operator.report({'WARNING'}, '{}: uses point list topology, which is highly experimental and may have issues with normals/tangents/lighting. This may not be the mesh you are looking for.'.format(mesh.name))
 
-    (blend_indices, blend_weights, texcoords, vertex_layers, use_normals, normals) = import_vertices(mesh, obj, vb, operator, semantic_translations, flip_normal)
+    (blend_indices, blend_weights, texcoords, vertex_layers, use_normals, normals) = import_vertices(mesh, obj, vb, operator, semantic_translations, flip_normal, flip_mesh)
 
     import_uv_layers(mesh, obj, texcoords, flip_texcoord_v)
     if not texcoords:
@@ -1404,10 +1407,19 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
     elif hasattr(mesh, 'calc_normals'): # Dropped in Blender 4.0
         mesh.calc_normals()
 
+    if flip_mesh:
+        normals = numpy.zeros((len(mesh.loops), 3),dtype=numpy.float16)
+        mesh.loops.foreach_get('normal', normals.ravel())
+        # Flips X only
+        normals[:,0] = -normals[:,0]
+        # Convert numpy.float32 to float
+        normals = normals.tolist()
+        mesh.normals_split_custom_set(normals)
+
     link_object_to_scene(context, obj)
     select_set(obj, True)
     set_active_object(context, obj)
-    
+
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
     if merge_verts:
@@ -1654,7 +1666,6 @@ def write_ini_file(f, vb, vb_path, ib, ib_path, strides, obj, topology):
 
 def export_3dmigoto(operator, context, vb_path, ib_path, fmt_path, ini_path):
     obj = context.object
-
     if obj is None:
         raise Fatal('No object selected')
 
@@ -2553,12 +2564,19 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
         relevant_objects = [x for x in relevant_objects if x]
         print(f'Objects to export: {relevant_objects}')
 
-        
         for i, obj in enumerate(relevant_objects):
             if i < len(base_classifications):
                 classification = base_classifications[i]
             else:
                 classification = extended_classifications[i-len(base_classifications)]
+
+            flip_properties = ["3DMigoto:FlipNormal", "3DMigoto:FlipWinding", "3DMigoto:FlipMesh"]
+            for prop in flip_properties:
+                if prop not in obj:
+                    obj[prop] = False
+            # Handle Legacy 3DMigoto Custom Properties from old projects
+            if '3DMigoto:VB0Stride' not in obj and '3DMigoto:VBStride' in obj:
+                obj['3DMigoto:VB0Stride'] = obj['3DMigoto:VBStride']
 
             vb_path  = os.path.join(os.path.dirname(vb_path), current_name + classification + ".vb0")
             ib_path  = os.path.join(os.path.dirname(ib_path), current_name + classification + ".ib")
@@ -2566,10 +2584,11 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             sko_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".sko")
             skb_path = os.path.join(os.path.dirname(fmt_path), current_name + classification + ".skb")
             layout = InputLayout(obj['3DMigoto:VBLayout'])
-            translate_normal = normal_export_translation(layout, 'NORMAL', operator.flip_normal)
-            translate_tangent = normal_export_translation(layout, 'TANGENT', operator.flip_tangent)
+            translate_normal = normal_export_translation(layout, 'NORMAL', obj.get('3DMigoto:FlipNormal', False))
+            translate_tangent = normal_export_translation(layout, 'TANGENT', obj.get('3DMigoto:FlipNormal', False))
             translate_normal = numpy.vectorize(translate_normal)
             translate_tangent = numpy.vectorize(translate_tangent)
+
             strides = {x[11:-6]: obj[x] for x in obj.keys() if x.startswith('3DMigoto:VB') and x.endswith('Stride')}
             topology = 'trianglelist'
             if '3DMigoto:Topology' in obj:
@@ -2595,7 +2614,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             # completely blow this out - we still want to reuse identical vertices
             # via the index buffer. There might be a convenience function in
             # Blender to do this, but it's easy enough to do this ourselves
-            
+
             # if vb.topology == 'trianglelist':
             # elif vb.topology == 'pointlist':
             #     for index, blender_vertex in enumerate(mesh.vertices):
@@ -2628,7 +2647,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 ib, vbarr = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
                 offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3,len(vbarr))]
             else:
-                raise Fatal('topology "%s" is not supported for export' % vb.topology)
+                raise Fatal('topology "%s" is not supported for export' % topology)
 
             # get all objects in collection of the same name as current mesh
             # convert them all to binary
@@ -2752,7 +2771,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 print("\tBlend Stride:", blend_stride)
                 print("\tTexcoord Stride:", texcoord_stride)
                 print("\tStride:", stride)
-                assert(fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt")
+                assert fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
         curr_offsets = [v for k, v in offsets.items() if k.lower().startswith(current_name.lower())]
@@ -3298,6 +3317,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             mesh.vertices.foreach_get("undeformed_co", position.ravel())
             result = numpy.ones(len(mesh.loops), dtype=(numpy.float32, elem.format_len))
             result[idxs, 0:3] = position[verts]
+            result[idxs, 0] *= -(2 * main_obj.get("3DMigoto:FlipMesh", False) - 1)
             if 'POSITION.w' in custom_attributes_float(mesh):
                 loop_position_w = numpy.ones(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 loop_position_w[idxs] = custom_attributes_float(mesh)['POSITION.w'].data[verts].value
@@ -3307,12 +3327,13 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             mesh.loops.foreach_get("normal", normal.ravel())
             result = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, elem.format_len))
             result[:, 0:3] = normal
+            result[idxs, 0] *= -(2 * main_obj.get("3DMigoto:FlipMesh", False) - 1)
             if 'NORMAL.w' in custom_attributes_float(mesh):
                 loop_normal_w = numpy.zeros(len(mesh.loops), dtype=(numpy.float16, (1,)))
                 for loop in mesh.loops:
                     loop_normal_w[loop.index] = custom_attributes_float(mesh)['NORMAL.w'].data[loop.vertex_index].value
                 result[:, 3] = loop_normal_w
-            if operator.flip_normal: #This flips and converts normals to UNORM if needed
+            if main_obj.get("3DMigoto:FlipNormal", False): #This flips and converts normals to UNORM if needed
                 result = -result
             if elem.Format.upper().endswith("_UNORM"):
                 result = result * 2 - 1
@@ -3328,7 +3349,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
                     temp_tangent[loop.index] = export_outline.get(loop.vertex_index, temp_tangent[loop.index])
             elif game == GameEnum.GenshinImpact:
                 mesh.loops.foreach_get("normal", temp_tangent.ravel())
-            if operator.flip_tangent: #This flips and converts tangent to UNORM if needed
+            if main_obj.get("3DMigoto:FlipNormal", False): #This flips and converts tangent to UNORM if needed
                 temp_tangent = -temp_tangent
             if elem.Format.upper().endswith("_UNORM"):
                 temp_tangent = temp_tangent * 2 - 1
@@ -3477,7 +3498,7 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
         raise Fatal ("ERROR: Unable to find UV map. Double check UV map exists and is called TEXCOORD.xy")
     start_timer = time.time()
     migoto_verts, dtype = blender_to_migoto_vertices(operator, mesh, obj, fmt_layout, game, translate_normal, translate_tangent, main_obj, outline_properties)
-    
+
     ibvb_timer = time.time()
     indexed_vertices = collections.OrderedDict()
     # ib = numpy.zeros(len(mesh.polygons), dtype=(numpy.uint32, 3))
@@ -3495,7 +3516,10 @@ def mesh_to_bin(context, operator, obj, fmt_layout:InputLayout, game:GameEnum, t
                     ]for poly in mesh.polygons]
     ib = numpy.array(ib, dtype=numpy.uint32)
     ib = numpy.reshape(ib, (-1, 3))
-    if operator.flip_winding:
+
+    # Bitwise XOR. We are assuming these values would always be boolean.
+    # It might need more sanity checks in the future.
+    if main_obj.get("3DMigoto:FlipMesh", False) ^ main_obj.get("3DMigoto:FlipWinding", False):
         ib = numpy.fliplr(ib)
     print(f"\t\tIB GEN: {time.time() - ibvb_timer:.5f}, {len(ib)},{len(mesh.loops)//3}")
 
