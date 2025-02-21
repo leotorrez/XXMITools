@@ -994,7 +994,7 @@ def normal_export_translation(layout, semantic, flip):
     else:
         return lambda x: x
 
-def import_normals_step1(mesh, data, vertex_layers, operator, translate_normal):
+def import_normals_step1(mesh, data, vertex_layers, operator, translate_normal,flip_mesh):
     # Ensure normals are 3-dimensional:
     # XXX: Assertion triggers in DOA6
     if len(data[0]) == 4:
@@ -1003,7 +1003,7 @@ def import_normals_step1(mesh, data, vertex_layers, operator, translate_normal):
             operator.report({'WARNING'}, 'Normals are 4D, storing W coordinate in NORMAL.w vertex layer. Beware that some types of edits on this mesh may be problematic.')
             vertex_layers['NORMAL.w'] = [[x[3]] for x in data]
     normals = [tuple(map(translate_normal, (x[0], x[1], x[2]))) for x in data]
-
+    normals = [(-(2*flip_mesh-1)*x[0], x[1], x[2]) for x in normals]
     # To make sure the normals don't get lost by Blender's edit mode,
     # or mesh.update() we need to set custom normals in the loops, not
     # vertices.
@@ -1023,10 +1023,11 @@ def import_normals_step1(mesh, data, vertex_layers, operator, translate_normal):
         l.normal[:] = normals[l.vertex_index]
     return []
 
-def import_normals_step2(mesh):
+def import_normals_step2(mesh, flip_mesh):
     # Taken from import_obj/import_fbx
     clnors = array('f', [0.0] * (len(mesh.loops) * 3))
     mesh.loops.foreach_get("normal", clnors)
+    clnors = [(-(2*flip_mesh-1)*x[0], x[1], x[2]) for x in clnors]
 
     # Not sure this is still required with use_auto_smooth, but the other
     # importers do it, and at the very least it shouldn't hurt...
@@ -1289,7 +1290,7 @@ def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_norm
         elif translated_elem_name == 'NORMAL':
             use_normals = True
             translate_normal = normal_import_translation(elem, flip_normal)
-            normals = import_normals_step1(mesh, data, vertex_layers, operator, translate_normal)
+            normals = import_normals_step1(mesh, data, vertex_layers, operator, translate_normal,flip_mesh)
         elif translated_elem_name in ('TANGENT', 'BINORMAL'):
         #    # XXX: loops.tangent is read only. Not positive how to handle
         #    # this, or if we should just calculate it when re-exporting.
@@ -1403,18 +1404,9 @@ def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_w
         if bpy.app.version >= (4, 1):
             mesh.normals_split_custom_set_from_vertices(normals)
         else:
-            import_normals_step2(mesh)
+            import_normals_step2(mesh, flip_mesh)
     elif hasattr(mesh, 'calc_normals'): # Dropped in Blender 4.0
         mesh.calc_normals()
-
-    if flip_mesh:
-        normals = numpy.zeros((len(mesh.loops), 3),dtype=numpy.float16)
-        mesh.loops.foreach_get('normal', normals.ravel())
-        # Flips X only
-        normals[:,0] = -normals[:,0]
-        # Convert numpy.float32 to float
-        normals = normals.tolist()
-        mesh.normals_split_custom_set(normals)
 
     link_object_to_scene(context, obj)
     select_set(obj, True)
