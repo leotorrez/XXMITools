@@ -2884,10 +2884,7 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\nvb1 = Resource{current_name}Blend\nhandling = skip\ndraw = {len(position) // position_stride},0 \n\n"
             vb_override_ini += f"[TextureOverride{current_name}Texcoord]\nhash = {component['texcoord_vb']}\nvb1 = Resource{current_name}Texcoord\n\n"
             vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n"
-            if game == GameEnum.ZenlessZoneZero:
-                vb_override_ini += f"override_vertex_count = {len(position) // position_stride}\noverride_byte_stride = {stride}\n\n"
-            else:
-                vb_override_ini += f"; override_vertex_count = {len(position) // position_stride}\n; override_byte_stride = {stride}\n\n"
+            vb_override_ini += f"override_vertex_count = {len(position) // position_stride}\noverride_byte_stride = {stride}\n\n"
 
             vb_res_ini += f"[Resource{current_name}Position]\ntype = Buffer\nstride = {position_stride}\nfilename = {current_name}Position.buf\n\n"
             vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
