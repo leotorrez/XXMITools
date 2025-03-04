@@ -2560,7 +2560,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             else:
                 classification = extended_classifications[i-len(base_classifications)]
 
-            flip_properties = ["3DMigoto:FlipNormal", "3DMigoto:FlipWinding", "3DMigoto:FlipMesh"]
+            flip_properties = ["3DMigoto:FlipNormal", "3DMigoto:FlipTangent", "3DMigoto:FlipWinding", "3DMigoto:FlipMesh"]
             for prop in flip_properties:
                 if prop not in obj:
                     obj[prop] = False

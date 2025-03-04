@@ -458,6 +458,7 @@ class Export3DMigoto(bpy.types.Operator, ExportHelper):
             ini_path = os.path.splitext(vb_path)[0] + '_generated.ini'
             obj = context.object
             self.flip_normal = obj.get("3DMigoto:FlipNormal", False)
+            self.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
             self.flip_winding = obj.get("3DMigoto:FlipWinding", False)
             self.flip_mesh = obj.get("3DMigoto:FlipMesh", False)
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
