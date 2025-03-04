@@ -1024,16 +1024,14 @@ def import_normals_step1(mesh, data, vertex_layers, operator, translate_normal,f
     return []
 
 def import_normals_step2(mesh, flip_mesh):
-    # Taken from import_obj/import_fbx
-    clnors = array('f', [0.0] * (len(mesh.loops) * 3))
+    clnors = numpy.zeros(len(mesh.loops)*3, dtype=numpy.float32)
     mesh.loops.foreach_get("normal", clnors)
-    clnors = [(-(2*flip_mesh-1)*x[0], x[1], x[2]) for x in clnors]
-
+    clnors = clnors.reshape((-1, 3))
+    clnors[:, 0] *= -(2 * flip_mesh - 1)
     # Not sure this is still required with use_auto_smooth, but the other
     # importers do it, and at the very least it shouldn't hurt...
     mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
-
-    mesh.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
+    mesh.normals_split_custom_set(clnors.tolist())
     mesh.use_auto_smooth = True # This has a double meaning, one of which is to use the custom normals
     # XXX CHECKME: show_edge_sharp moved in 2.80, but I can't actually
     # recall what it does and have a feeling it was unimportant:
