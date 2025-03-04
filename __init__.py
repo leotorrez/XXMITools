@@ -19,7 +19,7 @@ bl_info = {
     "description": "Imports meshes dumped with 3DMigoto's frame analysis and exports meshes suitable for re-injection.",
     "category": "Import-Export",
     "tracker_url": "https://github.com/leotorrez/XXMITools",
-    "version" : (1, 4, 2),
+    "version" : (1, 4, 3),
 }
 auto_load.init()
 
