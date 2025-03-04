@@ -273,7 +273,7 @@ class InputLayoutElement(object):
     def next_validate(f, field, line=None):
         if line is None:
             line = next(f).strip()
-        assert(line.startswith(field + ': '))
+        assert line.startswith(field + ': ')
         return line[len(field) + 2:]
 
     @staticmethod
@@ -300,7 +300,7 @@ class InputLayoutElement(object):
 
     def pad(self, data, val):
         padding = self.format_len - len(data)
-        assert(padding >= 0)
+        assert padding >= 0
         data.extend([val]*padding)
         return data
 
@@ -380,7 +380,7 @@ class InputLayout(object):
             data = elem.encode(data)
             buf[elem.AlignedByteOffset:elem.AlignedByteOffset + len(data)] = data
 
-        assert(len(buf) == stride)
+        assert len(buf) == stride
         return buf
 
     def decode(self, buf, vbuf_idx):
@@ -497,7 +497,7 @@ class IndividualVertexBuffer(object):
         # vertices. If the buffer has any per-vertex elements than we should
         # have the number of vertices declared in the header.
         if self.vertices:
-            assert(len(self.vertices) == self.vertex_count)
+            assert len(self.vertices) == self.vertex_count
 
     def parse_vb_bin(self, f, use_drawcall_range=False):
         f.seek(self.offset)
@@ -603,7 +603,7 @@ class VertexBufferGroup(object):
 
         if load_vertices:
             self.merge_vbs(self.vbs)
-            assert(len(self.vertices) == self.vertex_count)
+            assert len(self.vertices) == self.vertex_count
 
     def parse_vb_bin(self, files, use_drawcall_range=False):
         for (bin_f, fmt_f) in files:
@@ -627,7 +627,7 @@ class VertexBufferGroup(object):
         self.topology = self.vbs[0].topology
 
         self.merge_vbs(self.vbs)
-        assert(len(self.vertices) == self.vertex_count)
+        assert len(self.vertices) == self.vertex_count
 
     def append(self, vertex):
         self.vertices.append(vertex)
@@ -676,9 +676,9 @@ class VertexBufferGroup(object):
     def merge_vbs(self, vbs):
         self.vertices = self.vbs[0].vertices
         del self.vbs[0].vertices
-        assert(len(self.vertices) == self.vertex_count)
+        assert len(self.vertices) == self.vertex_count
         for vb in self.vbs[1:]:
-            assert(len(vb.vertices) == self.vertex_count)
+            assert len(vb.vertices) == self.vertex_count
             [ self.vertices[i].update(vertex) for i,vertex in enumerate(vb.vertices) ]
             del vb.vertices
 
@@ -691,7 +691,7 @@ class VertexBufferGroup(object):
             raise Fatal('Cannot merge multiple vertex buffers - please check for updates of the 3DMigoto import script, or import each buffer separately')
         self.vertices.extend(other.vertices[self.vertex_count:])
         self.vertex_count = max(self.vertex_count, other.vertex_count)
-        assert(len(self.vertices) == self.vertex_count)
+        assert len(self.vertices) == self.vertex_count
 
     def wipe_semantic_for_testing(self, semantic, val=0):
         print('WARNING: WIPING %s FOR TESTING PURPOSES!!!' % semantic)
@@ -770,7 +770,7 @@ class IndexBuffer(object):
         self.used_in_drawcall = None
 
         if isinstance(args[0], io.IOBase):
-            assert(len(args) == 1)
+            assert len(args) == 1
             self.parse_ib_txt(args[0], load_indices)
         else:
             self.format, = args
@@ -811,7 +811,7 @@ class IndexBuffer(object):
                     return
                 self.parse_index_data(f)
         if self.used_in_drawcall != False:
-            assert(len(self.faces) * self.indices_per_face + self.extra_indices == self.index_count)
+            assert len(self.faces) * self.indices_per_face + self.extra_indices == self.index_count
 
     def parse_ib_bin(self, f, use_drawcall_range=False):
         f.seek(self.offset)
@@ -832,11 +832,11 @@ class IndexBuffer(object):
             if len(face) == self.indices_per_face:
                 self.faces.append(tuple(face))
                 face = []
-        assert(len(face) == 0)
+        assert len(face) == 0, 'Index buffer has incomplete face at end of file'
         self.expand_strips()
 
         if use_drawcall_range:
-            assert(len(self.faces) * self.indices_per_face + self.extra_indices == self.index_count)
+            assert len(self.faces) * self.indices_per_face + self.extra_indices == self.index_count
         else:
             # We intentionally disregard the index count when loading from a
             # binary file, as we assume frame analysis might have only dumped a
@@ -849,7 +849,7 @@ class IndexBuffer(object):
     def parse_index_data(self, f):
         for line in map(str.strip, f):
             face = tuple(map(int, line.split()))
-            assert(len(face) == self.indices_per_face)
+            assert len(face) == self.indices_per_face
             self.faces.append(face)
         self.expand_strips()
 
@@ -1038,7 +1038,7 @@ def import_normals_step2(mesh, flip_mesh):
     #mesh.show_edge_sharp = True
 
 def import_vertex_groups(mesh, obj, blend_indices, blend_weights):
-    assert(len(blend_indices) == len(blend_weights))
+    assert len(blend_indices) == len(blend_weights), 'Mismatched blend indices and weights'
     if blend_indices:
         # We will need to make sure we re-export the same blend indices later -
         # that they haven't been renumbered. Not positive whether it is better
@@ -1294,7 +1294,7 @@ def import_vertices(mesh, obj, vb, operator, semantic_translations={}, flip_norm
         #    # this, or if we should just calculate it when re-exporting.
         #    for l in mesh.loops:
         #        FIXME: rescale range if elem.Format.endswith('_UNORM')
-        #        assert(data[l.vertex_index][3] in (1.0, -1.0))
+        #        assert data[l.vertex_index][3] in (1.0, -1.0)
         #        l.tangent[:] = data[l.vertex_index][0:3]
             operator.report({'INFO'}, 'Skipping import of %s in favour of recalculating on export' % elem.name)
         elif translated_elem_name.startswith('BLENDINDICES'):
@@ -1330,8 +1330,8 @@ def assert_pointlist_ib_is_pointless(ib, vb):
     # we do see this in One Piece Burning Blood. For now, just verify that the
     # index buffers are the trivial case that lists every vertex in order, and
     # just ignore them since we already loaded the vertex buffer in that order.
-    assert(len(vb) == len(ib)) # FIXME: Properly implement point list index buffers
-    assert(all([(i,) == j for i,j in enumerate(ib.faces)])) # FIXME: Properly implement point list index buffers
+    assert len(vb) == len(ib) # FIXME: Properly implement point list index buffers
+    assert all([(i,) == j for i,j in enumerate(ib.faces)]) # FIXME: Properly implement point list index buffers
 
 def import_3dmigoto_vb_ib(operator, context, paths, flip_texcoord_v=True, flip_winding=False, flip_mesh=False, flip_normal=False, axis_forward='-Z', axis_up='Y', pose_cb_off=[0,0], pose_cb_step=1, merge_verts=False, tris_to_quads=False, clean_loose=False):
     vb, ib, name, pose_path = load_3dmigoto_mesh(operator, paths)
@@ -3107,7 +3107,7 @@ class ConstantBuffer(object):
                     i += 1
                     if end_idx and i > end_idx:
                         break
-        assert(entry == [])
+        assert entry == []
 
     def as_3x4_matrices(self):
         return [ Matrix(self.entries[i:i+3]) for i in range(0, len(self.entries), 3) ]
