@@ -3345,6 +3345,7 @@ def blender_to_migoto_vertices(operator, mesh, obj, fmt_layout:InputLayout, game
             if game == GameEnum.ZenlessZoneZero:
                 result[:, 3] = -result[:, 3]
             result = result[:, 0:elem.format_len]
+            result[:, 0] *= -(2 * main_obj.get("3DMigoto:FlipMesh", False) - 1)
         elif translated_elem_name.startswith("BLENDWEIGHT"):
             if weights_np is None:
                 if weights is None:
