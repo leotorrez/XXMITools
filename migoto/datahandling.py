@@ -1,4 +1,5 @@
 import bpy
+from bpy.types import Operator
 import bmesh
 import os
 import re
@@ -1581,7 +1582,7 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
                 print("\tTexcoord Stride:", texcoord_stride)
                 print("\tStride:", total)
 
-                assert fmt_layout.stride == total, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
+                assert fmt_layout.stride == total, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {strides}, file: {current_name}{object_classifications[0]}.fmt"
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
         char_hash[num]["objects"] = []
@@ -1673,6 +1674,32 @@ def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delet
         f.write(ini_data)
     print("All operations completed, exiting")
 
+def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_hashes_written: dict, credit: str,
+                game:GameEnum, operator: Operator, user_paths: list[str] = None, template_name: str = "default.ini.j2"):
+    """Generates an ini file from a template file using Jinja2.
+    Trailing spaces are removed from the template file."""
+    addon_path = None
+    for mod in addon_utils.modules():
+        if mod.bl_info['name'] == 'XXMI_Tools':
+            addon_path = os.path.dirname(mod.__file__)
+            break
+    templates_paths = [os.path.join(addon_path, "templates")]
+    if user_paths:
+        templates_paths.extend(user_paths)
+    env = Environment(loader=FileSystemLoader(searchpath=templates_paths),
+                    trim_blocks=True, lstrip_blocks=True)
+    template = env.get_template(template_name)
+
+    return template.render(
+        version=bl_info['version'],
+        char_hash=char_hash,
+        offsets=offsets,
+        texture_hashes_written=texture_hashes_written,
+        credit=credit,
+        game=game,
+        character_name=character_name,
+        operator=operator
+        )
 
 def load_hashes(path, name, hashfile):
     parent_folder = os.path.join(path, "../")
@@ -2273,30 +2300,3 @@ def shapekey_generation(obj, mesh):
         shapekey_buff[offset:offset + len(sk_data)] = sk_data
         offset += len(sk_data)
     return offset_count, shapekey_buff
-
-def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_hashes_written: dict, credit: str,
-                game, operator, user_paths: list[str] = None, template_name: str = "default.ini"):
-    """Generates an ini file from a template file using Jinja2.
-    Trailing spaces are removed from the template file."""
-    addon_path = None
-    for mod in addon_utils.modules():
-        if mod.bl_info['name'] == 'XXMI_Tools':
-            addon_path = os.path.dirname(mod.__file__)
-            break
-    templates_paths = [os.path.join(addon_path, "templates")]
-    if user_paths:
-        templates_paths.extend(user_paths)
-    env = Environment(loader=FileSystemLoader(searchpath=templates_paths),
-                    trim_blocks=True, lstrip_blocks=True)
-    template = env.get_template(template_name)
-
-    return template.render(
-        version=bl_info['version'],
-        char_hash=char_hash,
-        offsets=offsets,
-        texture_hashes_written=texture_hashes_written,
-        credit=credit,
-        game=game,
-        character_name=character_name,
-        operator=operator
-        )
