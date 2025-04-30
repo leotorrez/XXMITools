@@ -1,50 +1,52 @@
-import bpy
-from bpy.types import Operator, Mesh, Context, Object, Collection
-from typing import Callable
-import bmesh
+import collections
+import itertools
+import json
 import os
 import re
-import itertools
-import struct
-import numpy
-import collections
-import json
-import textwrap
 import shutil
-from mathutils import Vector
-from bpy_extras.io_utils import unpack_list, axis_conversion
+import struct
+import textwrap
 import time
 from pathlib import Path
+from typing import Callable
+
+import addon_utils
+import bmesh
+import bpy
+import numpy
+from bpy.types import Collection, Context, Mesh, Object, Operator
+from bpy_extras.io_utils import axis_conversion, unpack_list
+from mathutils import Vector
+
+from .. import bl_info
+from ..libs.jinja2 import Environment, FileSystemLoader
 from .datastructures import (
-    VertexBufferGroup,
-    IndexBuffer,
-    Fatal,
-    InputLayout,
-    GameEnum,
     ConstantBuffer,
+    FALogFile,
+    Fatal,
+    GameEnum,
     HashableVertex,
     ImportPaths,
+    IndexBuffer,
+    InputLayout,
     VBSOMapEntry,
-    FALogFile,
-    keys_to_ints,
-    keys_to_strings,
-    vertex_color_layer_channels,
+    VertexBufferGroup,
     f16_pattern,
     f32_pattern,
-    u8_pattern,
-    u16_pattern,
-    u32_pattern,
+    keys_to_ints,
+    keys_to_strings,
     s8_pattern,
     s16_pattern,
     s32_pattern,
-    unorm8_pattern,
-    unorm16_pattern,
     snorm8_pattern,
     snorm16_pattern,
+    u8_pattern,
+    u16_pattern,
+    u32_pattern,
+    unorm8_pattern,
+    unorm16_pattern,
+    vertex_color_layer_channels,
 )
-import addon_utils
-from .. import bl_info
-from ..libs.jinja2 import Environment, FileSystemLoader
 
 
 def load_3dmigoto_mesh_bin(operator: Operator, vb_paths, ib_paths, pose_path):
@@ -152,7 +154,7 @@ def normal_export_translation(layout, semantic, flip):
 
 def import_normals_step1(
     mesh: Mesh,
-    data: Data,
+    data: list,
     vertex_layers,
     operator: Operator,
     translate_normal: Callable,
