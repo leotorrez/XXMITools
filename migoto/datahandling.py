@@ -13,6 +13,10 @@ from mathutils import Vector
 from bpy_extras.io_utils import unpack_list, axis_conversion
 import time
 from .datastructures import VertexBufferGroup, IndexBuffer, Fatal, InputLayout, GameEnum, vertex_color_layer_channels, ConstantBuffer, HashableVertex, keys_to_ints, keys_to_strings, ImportPaths, f16_pattern, f32_pattern, u16_pattern, u32_pattern, u8_pattern, s32_pattern, s16_pattern, s8_pattern, unorm16_pattern, snorm16_pattern, unorm8_pattern, snorm8_pattern, VBSOMapEntry, FALogFile
+import addon_utils
+from .. import bl_info
+from ..libs.jinja2 import Environment, FileSystemLoader
+
 
 def load_3dmigoto_mesh_bin(operator, vb_paths, ib_paths, pose_path):
 
@@ -1461,7 +1465,7 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 print(f"Exporting {current_name + classification}...")
                 print(f"Exporting {obj.name}:")
                 ib, vbarr = mesh_to_bin(context, operator, obj, layout, game, translate_normal, translate_tangent, obj, outline_properties)
-                offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3,len(vbarr))]
+                offsets[current_name + classification] = [("", 0, obj.name, len(ib)*3, len(vbarr), 0)]
             else:
                 raise Fatal('topology "%s" is not supported for export' % topology)
 
@@ -1475,15 +1479,17 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
                 objs_to_compile = [obj for obj in objs_to_compile if obj[-1].type == "MESH" and obj[-1].visible_get()]
                 print(f'Objects to export: {[obj[-1] for obj in objs_to_compile]}')
                 count = len(vbarr)
+                ib_offset = len(ib) * 3
                 for collection, depth, obj_c in objs_to_compile:
                     print(f"Exporting {obj_c.name}:")
                     obj_ib, obj_vbarr = mesh_to_bin(context, operator, obj_c, layout, game, translate_normal, translate_tangent, obj, outline_properties)
                     obj_ib += count
                     count += len(obj_vbarr)
+                    if operator.join_meshes is False:
+                        offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib) * 3, len(obj_vbarr), ib_offset))
+                    ib_offset += len(obj_ib) * 3
                     ib = numpy.append(ib, obj_ib)
                     vbarr = numpy.append(vbarr, obj_vbarr)
-                    if operator.join_meshes is False:
-                        offsets[current_name + classification].append((collection, depth, obj_c.name, len(obj_ib)*3, len(obj_vbarr)))
 
             # Must be done to all meshes and then compiled
             # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
@@ -1497,26 +1503,18 @@ def export_3dmigoto_xxmi(operator, context, object_name, vb_path, ib_path, fmt_p
             vb = VertexBufferGroup(layout=layout, topology=topology)
             write_fmt_file(open(fmt_path, 'w'), vb, ib, strides)
 
-    generate_mod_folder(os.path.dirname(vb_path), object_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
+    generate_mod_folder(operator, os.path.dirname(vb_path), object_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game, destination)
 
-def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
+def generate_mod_folder(operator, path, character_name, offsets, no_ramps, delete_intermediate, credit, copy_textures, game:GameEnum, destination=None):
     parent_folder = os.path.join(path, "../")
     char_hash = load_hashes(path, character_name, "hash.json")
     if not destination:
         destination = os.path.join(parent_folder, f"{character_name}Mod")
     create_mod_folder(destination)
 
-    vb_override_ini = ""
-    ib_override_ini = ""
-    vb_res_ini = ""
-    ib_res_ini = ""
-    tex_res_ini = ""
-    constant_ini = ""
-    command_ini = ""
-    other_res = ""
-    texture_hashes_written = []
+    texture_hashes_written = {}
 
-    for component in char_hash:
+    for num, component in enumerate(char_hash):
         # Support for custom names was added so we need this to retain backwards compatibility
         component_name = component["component_name"] if "component_name" in component else ""
         # Old version used "Extra" as the third object, but I've replaced it with dress - need this for backwards compatibility
@@ -1528,7 +1526,6 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
         if not component["draw_vb"]:
             # Components without draw vbs are texture overrides only
             # This is the path for components with only texture overrides (faces, wings, etc.)
-            ib_written = False
             for i in range(len(component["object_indexes"])):
                 current_object = f"{object_classifications[2]}{i - 1}" if i > 2 else object_classifications[i]
                 print(f"\nTexture override only on {current_object}")
@@ -1539,23 +1536,18 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                         break
                     if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
                         continue
-                    if game == GameEnum.ZenlessZoneZero and ib_written is False:
-                        ib_override_ini += f"[TextureOverride{current_name}{current_object}IB]\nhash = {component['ib']}\nrun = CommandListSkinTexture\n\n"
-                        ib_written = True
-                    ib_override_ini += f"[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\n"
                     if copy_textures:
                         shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
                             os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
-                    ib_override_ini += f"this = Resource{current_name}{current_object}{texture[0]}\n\n"
-                    tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                     if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
-                        texture_hashes_written.append(texture[2])
-                ib_override_ini += "\n"
+                        texture_hashes_written[texture[2]] = f"{current_name}{current_object}{texture[0]}{texture[1]}"
+            char_hash[num]["objects"] = []
+            char_hash[num]["strides"] = []
             continue
 
         with open(os.path.join(path, f"{current_name}{object_classifications[0]}.fmt"), "r") as f:
             if not component["blend_vb"]:
-                stride = int([x.split(": ")[1] for x in f.readlines() if "stride:" in x][0])
+                strides = [x.split(": ")[1] for x in f.readlines() if "stride:" in x]
             else:
                 # Parse the fmt using existing classes instead of hard coding element stride values
                 fmt_layout = InputLayout()
@@ -1582,19 +1574,17 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                         elif element.SemanticName in ["COLOR", "TEXCOORD"]:
                             texcoord_stride += element.size()
 
-                stride = position_stride + blend_stride + texcoord_stride
+                strides = [position_stride, blend_stride, texcoord_stride]
+                total = sum(strides)
                 print("\tPosition Stride:", position_stride)
                 print("\tBlend Stride:", blend_stride)
                 print("\tTexcoord Stride:", texcoord_stride)
-                print("\tStride:", stride)
-                assert fmt_layout.stride == stride, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
+                print("\tStride:", total)
+
+                assert fmt_layout.stride == total, f"ERROR: Stride mismatch between fmt and vb. fmt: {fmt_layout.stride}, vb: {stride}, file: {current_name}{object_classifications[0]}.fmt"
         offset = 0
         position, blend, texcoord = bytearray(), bytearray(), bytearray()
-        curr_offsets = [v for k, v in offsets.items() if k.lower().startswith(current_name.lower())]
-        if any(len(x) > 1 for x in curr_offsets):
-            ib_override_ini += f"[TextureOverride{current_name}IB]\nhash = {component['ib']}\nhandling = skip\n\n"
-        else:
-            ib_override_ini += f"[TextureOverride{current_name}IB]\nhash = {component['ib']}\nhandling = skip\ndrawindexed = auto\n\n"
+        char_hash[num]["objects"] = []
         for i in range(len(component["object_indexes"])):
             if i + 1 > len(object_classifications):
                 current_object = f"{object_classifications[-1]}{i + 2 - len(object_classifications)}"
@@ -1602,7 +1592,6 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 current_object = object_classifications[i]
 
             print(f"\nCollecting {current_object}")
-
             # This is the path for components which have blend data (characters, complex weapons, etc.)
             if component["blend_vb"]:
                 print("Splitting VB by buffer type, merging body parts")
@@ -1616,8 +1605,8 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             # This is the path for components without blend data (simple weapons, objects, etc.)
             # Simplest route since we do not need to split up the buffer into multiple components
             else:
-                position += collect_vb_single(path, current_name, current_object, stride)
-                position_stride = stride
+                position += collect_vb_single(path, current_name, current_object, int(strides[0]))
+                position_stride = int(strides[0])
 
             print("Collecting IB")
             print(f"{current_name}{current_object} offset: {offset}")
@@ -1625,15 +1614,6 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
 
             with open(os.path.join(destination, f"{current_name}{current_object}.ib"), "wb") as f:
                 f.write(ib)
-            if ib:
-                if game == GameEnum.ZenlessZoneZero:
-                    ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nrun = CommandListSkinTexture\nib = Resource{current_name}{current_object}IB\n"
-                else:
-                    ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = Resource{current_name}{current_object}IB\n"
-            else:
-                ib_override_ini += f"[TextureOverride{current_name}{current_object}]\nhash = {component['ib']}\nmatch_first_index = {component['object_indexes'][i]}\nib = null\n"
-            ib_res_ini += f"[Resource{current_name}{current_object}IB]\ntype = Buffer\nformat = DXGI_FORMAT_R32_UINT\nfilename = {current_name}{current_object}.ib\n\n"
-
             if delete_intermediate:
                 # FIXME: harcoded .vb0 extension. This should be a flexible for multiple buffer export
                 os.remove(os.path.join(path, f"{current_name}{current_object}.vb0"))
@@ -1643,44 +1623,25 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
             if len(position) % position_stride != 0:
                 print("ERROR: VB buffer length does not match stride")
 
-            offset = len(position) // position_stride
+            char_hash[num]["objects"].append({"fullname": f"{current_name}{current_object}", "offsets": offsets[current_name + current_object]})
+
+            offset += len(position) // position_stride
 
             # Older versions can only manage diffuse and lightmaps
             texture_hashes = component["texture_hashes"][i] if "texture_hashes" in component else [["Diffuse", ".dds", "_"], ["LightMap", ".dds", "_"]]
 
             print("Copying texture files")
-            texture_overrides = ""
             for j, texture in enumerate(texture_hashes):
                 if (no_ramps and texture[0] in ["ShadowRamp", "MetalMap", "DiffuseGuide"]) or texture[2] in texture_hashes_written:
                     continue
                 if copy_textures:
                     shutil.copy(os.path.join(path, f"{current_name}{current_object}{texture[0]}{texture[1]}"),
                         os.path.join(destination,f"{current_name}{current_object}{texture[0]}{texture[1]}"))
-                if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
-                    texture_overrides += f"\n[TextureOverride{current_name}{current_object}{texture[0]}]\nhash = {texture[2]}\nthis = Resource{current_name}{current_object}{texture[0]}\n"
-                elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
-                    texture_overrides += f"ps-t{j} = Resource{current_name}{current_object}{texture[0]}\n"
-                tex_res_ini += f"[Resource{current_name}{current_object}{texture[0]}]\nfilename = {current_name}{current_object}{texture[0]}{texture[1]}\n\n"
                 if  game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
-                    texture_hashes_written.append(texture[2])
-            collection_list = ""
-            if any(len(x) > 1 for x in curr_offsets):
-                last_count = 0
-                old_collection = ""
-                for collection, depth, name, icount, vcount in offsets[current_name + current_object]:
-                    if collection != old_collection:
-                        collection_list += "\t" * (depth-1) + f"; {collection}\n"
-                    if icount > 0:
-                        collection_list += "\t" * depth + f"; {name} ({vcount})\n"
-                        collection_list += "\t" * depth + f"drawindexed = {icount}, {last_count}, 0\n"
-                        last_count += icount
-                    old_collection = collection
-            # Correctly order the collections for the different style of texture
-            if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
-                ib_override_ini += collection_list + texture_overrides + "\n"
-            elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
-                ib_override_ini += texture_overrides + collection_list + "\n"
+                    texture_hashes_written[texture[2]] = f"{current_name}{current_object}{texture[0]}{texture[1]}"
 
+        char_hash[num]["total_verts"] = offset
+        char_hash[num]["strides"] = strides
         if component["blend_vb"]:
             print("Writing merged buffer files")
             with open(os.path.join(destination, f"{current_name}Position.buf"), "wb") as f, \
@@ -1689,72 +1650,29 @@ def generate_mod_folder(path, character_name, offsets, no_ramps, delete_intermed
                 f.write(position)
                 g.write(blend)
                 h.write(texcoord)
-
-            if game == GameEnum.HonkaiStarRail or game == GameEnum.ZenlessZoneZero:
-                vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\n"
-                vb_override_ini += (f"""handling = skip
-                                        vb2 = Resource{current_name}Blend
-                                        if DRAW_TYPE == 1
-                                        \tvb0 = Resource{current_name}Position
-                                        \tdraw = {len(position) // position_stride},0
-                                        endif\n""").replace("    ", "")
-            elif game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
-                vb_override_ini += f"[TextureOverride{current_name}Position]\nhash = {component['position_vb']}\n"
-                vb_override_ini += f"vb0 = Resource{current_name}Position\n"
-            if credit:
-                vb_override_ini += "$active = 1\n"
-            vb_override_ini += "\n"
-            if game == GameEnum.GenshinImpact or game == GameEnum.HonkaiImpact3rd or game == GameEnum.HonkaiImpactPart2:
-                vb_override_ini += f"[TextureOverride{current_name}Blend]\nhash = {component['blend_vb']}\nvb1 = Resource{current_name}Blend\nhandling = skip\ndraw = {len(position) // position_stride},0 \n\n"
-            vb_override_ini += f"[TextureOverride{current_name}Texcoord]\nhash = {component['texcoord_vb']}\nvb1 = Resource{current_name}Texcoord\n\n"
-            vb_override_ini += f"[TextureOverride{current_name}VertexLimitRaise]\nhash = {component['draw_vb']}\n"
-            vb_override_ini += f"override_vertex_count = {len(position) // position_stride}\noverride_byte_stride = {stride}\n\n"
-
-            vb_res_ini += f"[Resource{current_name}Position]\ntype = Buffer\nstride = {position_stride}\nfilename = {current_name}Position.buf\n\n"
-            vb_res_ini += f"[Resource{current_name}Blend]\ntype = Buffer\nstride = {blend_stride}\nfilename = {current_name}Blend.buf\n\n"
-            vb_res_ini += f"[Resource{current_name}Texcoord]\ntype = Buffer\nstride = {texcoord_stride}\nfilename = {current_name}Texcoord.buf\n\n"
         else:
             with open(os.path.join(destination, f"{current_name}.buf"), "wb") as f:
                 f.write(position)
-            vb_override_ini += f"[TextureOverride{current_name}]\nhash = {component['draw_vb']}\nvb0 = Resource{current_name}\n"
-            if credit:
-                vb_override_ini += "$active = 1\n"
-            vb_override_ini += "\n"
-            vb_res_ini += f"[Resource{current_name}]\ntype = Buffer\nstride = {stride}\nfilename = {current_name}.buf\n\n"
 
-    if credit:
-        constant_ini += textwrap.dedent('''
-                        [Constants]
-                        global $active = 0
-                        global $creditinfo = 0
-                        
-                        [Present]
-                        post $active = 0
-                        run = CommandListCreditInfo\n''')
-        command_ini += textwrap.dedent('''
-                        [CommandListCreditInfo]
-                        if $creditinfo == 0 && $active == 1
-                            pre Resource\\ShaderFixes\\help.ini\\Notification = ResourceCreditInfo
-                            pre run = CustomShader\\ShaderFixes\\help.ini\\FormatText
-                            pre $\\ShaderFixes\\help.ini\\notification_timeout = time + 5.0
-                            $creditinfo = 1
-                        endif\n''')
-        other_res += f'[ResourceCreditInfo]\ntype = Buffer\ndata = "Created by {credit}"'
+#    setup
+#    for each component:
+#        splitting buffers(main_buffer) -> total_vert_coints, split_buffers(pos,blend,tex)
+#        for object_classif:
+#            moving files into mod folder(hash_json)
+#            - filtered_textures
+#            - ib
+#            - split vbs
+#            - filtered_resources(each point to a file)
 
     print("Generating .ini file")
-    # texwarp doesnt like ; at the start of the lines so it fails to dedent here.
-    ini_data = f'''; {character_name}\n
-; Constants -------------------------\n{constant_ini}
-; Overrides -------------------------\n\n{vb_override_ini}{ib_override_ini[:-1]}
-; CommandList -----------------------\n{command_ini}
-; Resources -------------------------\n\n{vb_res_ini}{ib_res_ini}{tex_res_ini}{other_res}\n
-; .ini generated by XXMI (XX-Model-Importer)
-; If you have any issues or find any bugs, please open a ticket at https://github.com/leotorrez/XXMI-Tools/issues'''
-
-    with open(os.path.join(destination, f"{character_name}.ini"), "w") as f:
+    ini_data = generate_ini(character_name, char_hash, offsets, texture_hashes_written, credit, game, operator)
+    if not ini_data:
+        raise Fatal("ERROR: Could not generate ini file. Install dependencies from settings")
+    with open(os.path.join(destination, f"{character_name}.ini"), "w", encoding="UTF-8") as f:
         print("Writing ini file")
         f.write(ini_data)
     print("All operations completed, exiting")
+
 
 def load_hashes(path, name, hashfile):
     parent_folder = os.path.join(path, "../")
@@ -2355,3 +2273,30 @@ def shapekey_generation(obj, mesh):
         shapekey_buff[offset:offset + len(sk_data)] = sk_data
         offset += len(sk_data)
     return offset_count, shapekey_buff
+
+def generate_ini(character_name:str, char_hash: dict, offsets: list, texture_hashes_written: dict, credit: str,
+                game, operator, user_paths: list[str] = None, template_name: str = "default.ini"):
+    """Generates an ini file from a template file using Jinja2.
+    Trailing spaces are removed from the template file."""
+    addon_path = None
+    for mod in addon_utils.modules():
+        if mod.bl_info['name'] == 'XXMI_Tools':
+            addon_path = os.path.dirname(mod.__file__)
+            break
+    templates_paths = [os.path.join(addon_path, "templates")]
+    if user_paths:
+        templates_paths.extend(user_paths)
+    env = Environment(loader=FileSystemLoader(searchpath=templates_paths),
+                    trim_blocks=True, lstrip_blocks=True)
+    template = env.get_template(template_name)
+
+    return template.render(
+        version=bl_info['version'],
+        char_hash=char_hash,
+        offsets=offsets,
+        texture_hashes_written=texture_hashes_written,
+        credit=credit,
+        game=game,
+        character_name=character_name,
+        operator=operator
+        )
