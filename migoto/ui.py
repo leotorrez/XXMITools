@@ -1,17 +1,18 @@
 import bpy
+from bpy.types import Panel, UIList, Menu
 import addon_utils
 from bl_ui.generic_ui_list import draw_ui_list
 from .operators import ClearSemanticRemapList,PrefillSemanticRemapList, Import3DMigotoFrameAnalysis, Import3DMigotoRaw, Import3DMigotoPose, Export3DMigoto, ApplyVGMap, Export3DMigotoXXMI
 from .. import addon_updater_ops
 
-class MIGOTO_UL_semantic_remap_list(bpy.types.UIList):
+class MIGOTO_UL_semantic_remap_list(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
         if self.layout_type in {'DEFAULT', 'COMPACT'}:
             layout.prop(item, "semantic_from", text="", emboss=False, icon_value=icon)
             if item.InputSlotClass == 'per-instance':
                 layout.label(text="Instanced Data")
                 layout.enabled = False
-            elif item.valid == False:
+            elif item.valid is False:
                 layout.label(text="INVALID")
                 layout.enabled = False
             else:
@@ -23,7 +24,7 @@ class MIGOTO_UL_semantic_remap_list(bpy.types.UIList):
             layout.alignment = 'CENTER'
             layout.label(text="", icon_value=icon)
 
-class MIGOTO_MT_semantic_remap_menu(bpy.types.Menu):
+class MIGOTO_MT_semantic_remap_menu(Menu):
     bl_label = "Semantic Remap Options"
 
     def draw(self, context):
@@ -46,7 +47,7 @@ class MigotoImportOptionsPanelBase(object):
         self.layout.use_property_split = True
         self.layout.use_property_decorate = False
 
-class MIGOTO_PT_ImportFrameAnalysisMainPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
+class MIGOTO_PT_ImportFrameAnalysisMainPanel(MigotoImportOptionsPanelBase, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
     bl_order = 0
@@ -59,7 +60,7 @@ class MIGOTO_PT_ImportFrameAnalysisMainPanel(MigotoImportOptionsPanelBase, bpy.t
         self.layout.prop(operator, "flip_normal")
         self.layout.prop(operator, "flip_mesh")
 
-class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
+class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBase, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
     bl_order = 1
@@ -72,7 +73,7 @@ class MIGOTO_PT_ImportFrameAnalysisRelatedFilesPanel(MigotoImportOptionsPanelBas
         self.layout.prop(operator, "load_related_so_vb")
         self.layout.prop(operator, "merge_meshes")
 
-class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
+class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, Panel):
     bl_label = "Load .buf files instead"
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 2
@@ -87,7 +88,7 @@ class MIGOTO_PT_ImportFrameAnalysisBufFilesPanel(MigotoImportOptionsPanelBase, b
         self.layout.enabled = operator.load_buf
         self.layout.prop(operator, "load_buf_limit_range")
 
-class MIGOTO_PT_ImportFrameAnalysisBonePanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
+class MIGOTO_PT_ImportFrameAnalysisBonePanel(MigotoImportOptionsPanelBase, Panel):
     bl_label = ""
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 3
@@ -101,7 +102,7 @@ class MIGOTO_PT_ImportFrameAnalysisBonePanel(MigotoImportOptionsPanelBase, bpy.t
         operator = context.space_data.active_operator
         self.layout.prop(operator, "pose_cb_off")
         self.layout.prop(operator, "pose_cb_step")
-class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelBase, bpy.types.Panel):
+class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelBase, Panel):
     bl_label = "Semantic Remap"
     #bl_options = {'DEFAULT_CLOSED'}
     bl_order = 4
@@ -109,7 +110,6 @@ class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelB
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
-
         # TODO: Add layout.operator() to read selected file and fill in semantics
 
         if context.path_resolve is None:
@@ -125,7 +125,7 @@ class MIGOTO_PT_ImportFrameAnalysisRemapSemanticsPanel(MigotoImportOptionsPanelB
                 item_dyntip_propname='tooltip',
                 )
 
-class MIGOTO_PT_ImportFrameAnalysisManualOrientation(MigotoImportOptionsPanelBase, bpy.types.Panel):
+class MIGOTO_PT_ImportFrameAnalysisManualOrientation(MigotoImportOptionsPanelBase, Panel):
     bl_label = "Orientation"
     bl_order = 5
 
@@ -134,7 +134,7 @@ class MIGOTO_PT_ImportFrameAnalysisManualOrientation(MigotoImportOptionsPanelBas
         operator = context.space_data.active_operator
         self.layout.prop(operator, "axis_forward")
         self.layout.prop(operator, "axis_up")
-class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, bpy.types.Panel):
+class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, Panel):
     bl_label = "Clean Up mesh after import"
     bl_order = 6
 
@@ -144,7 +144,7 @@ class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, bpy.typ
         self.layout.prop(operator, "merge_verts")
         self.layout.prop(operator, "tris_to_quads")
         self.layout.prop(operator, "clean_loose")
-class XXMI_PT_Sidebar(bpy.types.Panel):
+class XXMI_PT_Sidebar(Panel):
     '''Main Panel'''
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -167,7 +167,6 @@ class XXMI_PT_Sidebar(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        scene = context.scene
         xxmi = context.scene.xxmi
         split = layout.split(factor=0.85)
         col_1 = split.column()
@@ -192,7 +191,7 @@ class XXMISidebarOptionsPanelBase(object):
     def draw(self, context):
         self.layout.use_property_split = False
         self.layout.use_property_decorate = False
-class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
     bl_label = "Export Settings"
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 0
@@ -214,7 +213,7 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, bpy.types.Pan
         col.prop(xxmi, 'normalize_weights')
         # col.prop(xxmi, 'export_shapekeys')
 
-class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
     bl_order = 2
@@ -225,7 +224,7 @@ class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, bpy.types.Panel
         col = self.layout.column(align=True)
         col.prop(xxmi, 'credit')
 
-class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
     bl_order = 99
@@ -240,7 +239,7 @@ class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, bpy.types.Panel)
         col1.prop(xxmi, 'batch_pattern')
         col2.operator("xxmi.exportadvancedbatched", text="Start Batch export")
 
-class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
     bl_order = 1
     bl_options = {'DEFAULT_CLOSED'}
@@ -265,7 +264,7 @@ class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, bpy.types.Panel):
         col.prop(xxmi, "overlapping_faces")
         col.prop(xxmi, "angle_weighted")
         col.prop(xxmi, "calculate_all_faces")
-class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
+class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
     bl_order = 98
@@ -276,7 +275,7 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, bpy.types.Panel):
         row = layout.row()
         row.operator("xxmi.exportadvanced", text="Export Mod")
 
-class UpdaterPanel(bpy.types.Panel):
+class UpdaterPanel(Panel):
     """Update Panel"""
     bl_label = "Updater"
     bl_idname = "XXMI_PT_UpdaterPanel"

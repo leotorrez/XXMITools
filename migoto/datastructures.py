@@ -1,12 +1,14 @@
+import collections
+import io
+import itertools
 import re
 import struct
 import textwrap
-import collections
-import itertools
-import numpy
-import bpy
-import io
 from enum import Enum
+
+import bpy
+import numpy
+from bpy.types import PropertyGroup
 from mathutils import Matrix
 
 vertex_color_layer_channels = 4
@@ -123,7 +125,7 @@ def silly_lookup(game: bpy.props.EnumProperty):
         return GameEnum.HonkaiImpactPart2
 
 
-class SemanticRemapItem(bpy.types.PropertyGroup):
+class SemanticRemapItem(PropertyGroup):
     semantic_from: bpy.props.StringProperty(name="From", default="ATTRIBUTE")
     semantic_to: bpy.props.EnumProperty(
         items=semantic_remap_enum, name="Change semantic interpretation"
@@ -146,7 +148,7 @@ class SemanticRemapItem(bpy.types.PropertyGroup):
         )
         if self.InputSlotClass == "per-instance":
             self.tooltip = ". This semantic holds per-instance data (such as per-object transformation matrices) which will not be used by the script"
-        elif self.valid == False:
+        elif self.valid is False:
             self.tooltip += ". This semantic is invalid - it may share the same location as another semantic or the vertex buffer it belongs to may be missing / too small"
 
 
@@ -958,7 +960,7 @@ class IndexBuffer(object):
                 if not load_indices:
                     return
                 self.parse_index_data(f)
-        if self.used_in_drawcall != False:
+        if self.used_in_drawcall is not False:
             assert (
                 len(self.faces) * self.indices_per_face + self.extra_indices
                 == self.index_count
@@ -1092,8 +1094,9 @@ class ConstantBuffer(object):
     def as_3x4_matrices(self):
         return [Matrix(self.entries[i : i + 3]) for i in range(0, len(self.entries), 3)]
 
+
 class FALogFile(object):
-    '''
+    """
     Class that is able to parse frame analysis log files, query bound resource
     state at the time of a given draw call, and search for resource usage.
 
@@ -1101,10 +1104,14 @@ class FALogFile(object):
     TODO: Track bound shaders
     TODO: Merge deferred context log files into main log file
     TODO: Track CopyResource / other ways resources can be updated
-    '''
-    ResourceUse = collections.namedtuple('ResourceUse', ['draw_call', 'slot_type', 'slot'])
+    """
+
+    ResourceUse = collections.namedtuple(
+        "ResourceUse", ["draw_call", "slot_type", "slot"]
+    )
+
     class SparseSlots(dict):
-        '''
+        """
         Allows the resources bound in each slot to be stored + queried by draw
         call. There can be gaps with draw calls that don't change any of the
         given slot type, in which case it will return the slots in the most
@@ -1112,75 +1119,97 @@ class FALogFile(object):
 
         Requesting a draw call higher than any seen so far will return a *copy*
         of the most recent slots, intended for modification during parsing.
-        '''
+        """
+
         def __init__(self):
             dict.__init__(self, {0: {}})
             self.last_draw_call = 0
+
         def prev_draw_call(self, draw_call):
-            return max([ i for i in self.keys() if i < draw_call ])
-        #def next_draw_call(self, draw_call):
+            return max([i for i in self.keys() if i < draw_call])
+
+        # def next_draw_call(self, draw_call):
         #    return min([ i for i in self.keys() if i > draw_call ])
         def subsequent_draw_calls(self, draw_call):
-            return [ i for i in sorted(self.keys()) if i >= draw_call ]
+            return [i for i in sorted(self.keys()) if i >= draw_call]
+
         def __getitem__(self, draw_call):
             if draw_call > self.last_draw_call:
-                dict.__setitem__(self, draw_call, dict.__getitem__(self, self.last_draw_call).copy())
+                dict.__setitem__(
+                    self, draw_call, dict.__getitem__(self, self.last_draw_call).copy()
+                )
                 self.last_draw_call = draw_call
             elif draw_call not in self.keys():
                 return dict.__getitem__(self, self.prev_draw_call(draw_call))
             return dict.__getitem__(self, draw_call)
 
     class FALogParser(object):
-        '''
+        """
         Base class implementing some common parsing functions
-        '''
+        """
+
         pattern = None
+
         def parse(self, line, q, state):
             match = self.pattern.match(line)
             if match:
-                remain = line[match.end():]
+                remain = line[match.end() :]
                 self.matched(match, remain, q, state)
             return match
+
         def matched(self, match, remain, q, state):
             raise NotImplementedError()
 
     class FALogParserDrawcall(FALogParser):
-        '''
+        """
         Parses a typical line in a frame analysis log file that begins with a
         draw call number. Additional parsers can be registered with this one to
         parse the remainder of such lines.
-        '''
-        pattern = re.compile(r'''^(?P<drawcall>\d+) ''')
+        """
+
+        pattern = re.compile(r"""^(?P<drawcall>\d+) """)
         next_parsers_classes = []
+
         @classmethod
         def register(cls, parser):
             cls.next_parsers_classes.append(parser)
+
         def __init__(self, state):
             self.next_parsers = []
             for parser in self.next_parsers_classes:
                 self.next_parsers.append(parser(state))
+
         def matched(self, match, remain, q, state):
-            drawcall = int(match.group('drawcall'))
+            drawcall = int(match.group("drawcall"))
             state.draw_call = drawcall
             for parser in self.next_parsers:
                 parser.parse(remain, q, state)
 
     class FALogParserBindResources(FALogParser):
-        '''
+        """
         Base class for any parsers that bind resources (and optionally views)
         to the pipeline. Will consume all following lines matching the resource
         pattern and update the log file state and resource lookup index for the
         current draw call.
-        '''
-        resource_pattern = re.compile(r'''^\s+(?P<slot>[0-9D]+): (?:view=(?P<view>0x[0-9A-F]+) )?resource=(?P<address>0x[0-9A-F]+) hash=(?P<hash>[0-9a-f]+)$''', re.MULTILINE)
-        FALogResourceBinding = collections.namedtuple('FALogResourceBinding', ['slot', 'view_address', 'resource_address', 'resource_hash'])
+        """
+
+        resource_pattern = re.compile(
+            r"""^\s+(?P<slot>[0-9D]+): (?:view=(?P<view>0x[0-9A-F]+) )?resource=(?P<address>0x[0-9A-F]+) hash=(?P<hash>[0-9a-f]+)$""",
+            re.MULTILINE,
+        )
+        FALogResourceBinding = collections.namedtuple(
+            "FALogResourceBinding",
+            ["slot", "view_address", "resource_address", "resource_hash"],
+        )
         slot_prefix = None
         bind_clears_all_slots = False
+
         def __init__(self, state):
             if self.slot_prefix is None:
                 raise NotImplementedError()
             self.sparse_slots = FALogFile.SparseSlots()
             state.slot_class[self.slot_prefix] = self.sparse_slots
+
         def matched(self, api_match, remain, q, state):
             if self.bind_clears_all_slots:
                 self.sparse_slots[state.draw_call].clear()
@@ -1193,29 +1222,41 @@ class FALogFile(object):
                 # FIXME: Inefficiently calling match twice. I hate that Python
                 # lacks a do/while and every workaround is ugly in some way.
                 resource_match = self.resource_pattern.match(q.popleft())
-                slot = resource_match.group('slot')
-                if slot.isnumeric(): slot = int(slot)
-                view = resource_match.group('view')
-                if view: view = int(view, 16)
-                address = int(resource_match.group('address'), 16)
-                resource_hash = int(resource_match.group('hash'), 16)
-                bindings[slot] = self.FALogResourceBinding(slot, view, address, resource_hash)
-                state.resource_index[address].add(FALogFile.ResourceUse(state.draw_call, self.slot_prefix, slot))
-            #print(sorted(bindings.items()))
+                slot = resource_match.group("slot")
+                if slot.isnumeric():
+                    slot = int(slot)
+                view = resource_match.group("view")
+                if view:
+                    view = int(view, 16)
+                address = int(resource_match.group("address"), 16)
+                resource_hash = int(resource_match.group("hash"), 16)
+                bindings[slot] = self.FALogResourceBinding(
+                    slot, view, address, resource_hash
+                )
+                state.resource_index[address].add(
+                    FALogFile.ResourceUse(state.draw_call, self.slot_prefix, slot)
+                )
+            # print(sorted(bindings.items()))
+
         def start_slot(self, match):
-            return int(match.group('StartSlot'))
+            return int(match.group("StartSlot"))
+
         def num_bindings(self, match):
-            return int(match.group('NumBindings'))
+            return int(match.group("NumBindings"))
 
     class FALogParserSOSetTargets(FALogParserBindResources):
-        pattern = re.compile(r'''SOSetTargets\(.*\)$''')
-        slot_prefix = 'so'
+        pattern = re.compile(r"""SOSetTargets\(.*\)$""")
+        slot_prefix = "so"
         bind_clears_all_slots = True
+
     FALogParserDrawcall.register(FALogParserSOSetTargets)
 
     class FALogParserIASetVertexBuffers(FALogParserBindResources):
-        pattern = re.compile(r'''IASetVertexBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$''')
-        slot_prefix = 'vb'
+        pattern = re.compile(
+            r"""IASetVertexBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$"""
+        )
+        slot_prefix = "vb"
+
     FALogParserDrawcall.register(FALogParserIASetVertexBuffers)
 
     # At the moment we don't need to track other pipeline slots, so to keep
@@ -1223,64 +1264,64 @@ class FALogFile(object):
     # need to know about. but if we wanted to the above makes it fairly trivial
     # to add additional slot classes, e.g. to track bound texture slots (SRVs)
     # for all shader types uncomment the following:
-    #class FALogParserVSSetShaderResources(FALogParserBindResources):
+    # class FALogParserVSSetShaderResources(FALogParserBindResources):
     #    pattern = re.compile(r'''VSSetShaderResources\(StartSlot:(?P<StartSlot>[0-9]+), NumViews:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'vs-t'
-    #class FALogParserDSSetShaderResources(FALogParserBindResources):
+    # class FALogParserDSSetShaderResources(FALogParserBindResources):
     #    pattern = re.compile(r'''DSSetShaderResources\(StartSlot:(?P<StartSlot>[0-9]+), NumViews:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'ds-t'
-    #class FALogParserHSSetShaderResources(FALogParserBindResources):
+    # class FALogParserHSSetShaderResources(FALogParserBindResources):
     #    pattern = re.compile(r'''HSSetShaderResources\(StartSlot:(?P<StartSlot>[0-9]+), NumViews:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'hs-t'
-    #class FALogParserGSSetShaderResources(FALogParserBindResources):
+    # class FALogParserGSSetShaderResources(FALogParserBindResources):
     #    pattern = re.compile(r'''GSSetShaderResources\(StartSlot:(?P<StartSlot>[0-9]+), NumViews:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'gs-t'
-    #class FALogParserPSSetShaderResources(FALogParserBindResources):
+    # class FALogParserPSSetShaderResources(FALogParserBindResources):
     #    pattern = re.compile(r'''PSSetShaderResources\(StartSlot:(?P<StartSlot>[0-9]+), NumViews:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'ps-t'
-    #class FALogParserCSSetShaderResources(FALogParserBindResources):
+    # class FALogParserCSSetShaderResources(FALogParserBindResources):
     #    pattern = re.compile(r'''CSSetShaderResources\(StartSlot:(?P<StartSlot>[0-9]+), NumViews:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'cs-t'
-    #FALogParserDrawcall.register(FALogParserVSSetShaderResources)
-    #FALogParserDrawcall.register(FALogParserDSSetShaderResources)
-    #FALogParserDrawcall.register(FALogParserHSSetShaderResources)
-    #FALogParserDrawcall.register(FALogParserGSSetShaderResources)
-    #FALogParserDrawcall.register(FALogParserPSSetShaderResources)
-    #FALogParserDrawcall.register(FALogParserCSSetShaderResources)
+    # FALogParserDrawcall.register(FALogParserVSSetShaderResources)
+    # FALogParserDrawcall.register(FALogParserDSSetShaderResources)
+    # FALogParserDrawcall.register(FALogParserHSSetShaderResources)
+    # FALogParserDrawcall.register(FALogParserGSSetShaderResources)
+    # FALogParserDrawcall.register(FALogParserPSSetShaderResources)
+    # FALogParserDrawcall.register(FALogParserCSSetShaderResources)
 
     # Uncomment these to track bound constant buffers:
-    #class FALogParserVSSetConstantBuffers(FALogParserBindResources):
+    # class FALogParserVSSetConstantBuffers(FALogParserBindResources):
     #    pattern = re.compile(r'''VSSetConstantBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'vs-cb'
-    #class FALogParserDSSetConstantBuffers(FALogParserBindResources):
+    # class FALogParserDSSetConstantBuffers(FALogParserBindResources):
     #    pattern = re.compile(r'''DSSetConstantBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'ds-cb'
-    #class FALogParserHSSetConstantBuffers(FALogParserBindResources):
+    # class FALogParserHSSetConstantBuffers(FALogParserBindResources):
     #    pattern = re.compile(r'''HSSetConstantBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'hs-cb'
-    #class FALogParserGSSetConstantBuffers(FALogParserBindResources):
+    # class FALogParserGSSetConstantBuffers(FALogParserBindResources):
     #    pattern = re.compile(r'''GSSetConstantBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'gs-cb'
-    #class FALogParserPSSetConstantBuffers(FALogParserBindResources):
+    # class FALogParserPSSetConstantBuffers(FALogParserBindResources):
     #    pattern = re.compile(r'''PSSetConstantBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'ps-cb'
-    #class FALogParserCSSetConstantBuffers(FALogParserBindResources):
+    # class FALogParserCSSetConstantBuffers(FALogParserBindResources):
     #    pattern = re.compile(r'''CSSetConstantBuffers\(StartSlot:(?P<StartSlot>[0-9]+), NumBuffers:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'cs-cb'
-    #FALogParserDrawcall.register(FALogParserVSSetConstantBuffers)
-    #FALogParserDrawcall.register(FALogParserDSSetConstantBuffers)
-    #FALogParserDrawcall.register(FALogParserHSSetConstantBuffers)
-    #FALogParserDrawcall.register(FALogParserGSSetConstantBuffers)
-    #FALogParserDrawcall.register(FALogParserPSSetConstantBuffers)
-    #FALogParserDrawcall.register(FALogParserCSSetConstantBuffers)
+    # FALogParserDrawcall.register(FALogParserVSSetConstantBuffers)
+    # FALogParserDrawcall.register(FALogParserDSSetConstantBuffers)
+    # FALogParserDrawcall.register(FALogParserHSSetConstantBuffers)
+    # FALogParserDrawcall.register(FALogParserGSSetConstantBuffers)
+    # FALogParserDrawcall.register(FALogParserPSSetConstantBuffers)
+    # FALogParserDrawcall.register(FALogParserCSSetConstantBuffers)
 
     # Uncomment to tracks render targets (note that this doesn't yet take into
     # account games using OMSetRenderTargetsAndUnorderedAccessViews)
-    #class FALogParserOMSetRenderTargets(FALogParserBindResources):
+    # class FALogParserOMSetRenderTargets(FALogParserBindResources):
     #    pattern = re.compile(r'''OMSetRenderTargets\(NumViews:(?P<NumBindings>[0-9]+),.*\)$''')
     #    slot_prefix = 'o'
     #    bind_clears_all_slots = True
-    #FALogParserDrawcall.register(FALogParserOMSetRenderTargets)
+    # FALogParserDrawcall.register(FALogParserOMSetRenderTargets)
 
     def __init__(self, f):
         self.draw_call = None
@@ -1292,16 +1333,16 @@ class FALogFile(object):
         q = collections.deque(f)
         q.append(None)
         for line in iter(q.popleft, None):
-            #print(line)
+            # print(line)
             if not draw_call_parser.parse(line, q, self):
-                #print(line)
+                # print(line)
                 pass
 
     def find_resource_uses(self, resource_address, slot_class=None):
-        '''
+        """
         Find draw calls + slots where this resource is used.
-        '''
-        #return [ x for x in sorted(self.resource_index[resource_address]) if x.slot_type == slot_class ]
+        """
+        # return [ x for x in sorted(self.resource_index[resource_address]) if x.slot_type == slot_class ]
         ret = set()
         for bound in sorted(self.resource_index[resource_address]):
             if slot_class is not None and bound.slot_type != slot_class:
@@ -1311,18 +1352,28 @@ class FALogFile(object):
             # return, so return a range of draw calls if appropriate:
             sparse_slots = self.slot_class[bound.slot_type]
             for sparse_draw_call in sparse_slots.subsequent_draw_calls(bound.draw_call):
-                if bound.slot not in sparse_slots[sparse_draw_call] \
-                or sparse_slots[sparse_draw_call][bound.slot].resource_address != resource_address:
-                    #print('x', sparse_draw_call, sparse_slots[sparse_draw_call][bound.slot])
+                if (
+                    bound.slot not in sparse_slots[sparse_draw_call]
+                    or sparse_slots[sparse_draw_call][bound.slot].resource_address
+                    != resource_address
+                ):
+                    # print('x', sparse_draw_call, sparse_slots[sparse_draw_call][bound.slot])
                     for draw_call in range(bound.draw_call, sparse_draw_call):
-                        ret.add(FALogFile.ResourceUse(draw_call, bound.slot_type, bound.slot))
+                        ret.add(
+                            FALogFile.ResourceUse(
+                                draw_call, bound.slot_type, bound.slot
+                            )
+                        )
                     break
-                #print('y', sparse_draw_call, sparse_slots[sparse_draw_call][bound.slot])
+                # print('y', sparse_draw_call, sparse_slots[sparse_draw_call][bound.slot])
             else:
                 # I love Python's for/else clause. Means we didn't hit the
                 # above break so the resource was still bound at end of frame
                 for draw_call in range(bound.draw_call, self.draw_call):
-                    ret.add(FALogFile.ResourceUse(draw_call, bound.slot_type, bound.slot))
+                    ret.add(
+                        FALogFile.ResourceUse(draw_call, bound.slot_type, bound.slot)
+                    )
         return ret
 
-VBSOMapEntry = collections.namedtuple('VBSOMapEntry', ['draw_call', 'slot'])
+
+VBSOMapEntry = collections.namedtuple("VBSOMapEntry", ["draw_call", "slot"])
