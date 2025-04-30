@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from .autoupdate import auto_load
+from . import auto_load
 
 # Original plugin by DarkStarSword (https://github.com/DarkStarSword/3d-fixes/blob/master/blender_3dmigoto.py)
 # Updated to support 3.0 by MicroKnightmare from the DOA modding discord

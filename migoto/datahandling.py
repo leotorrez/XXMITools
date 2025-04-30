@@ -12,7 +12,7 @@ import shutil
 from mathutils import Vector
 from bpy_extras.io_utils import unpack_list, axis_conversion
 import time
-from datastructures import VertexBufferGroup, IndexBuffer, Fatal, InputLayout, GameEnum, vertex_color_layer_channels, ConstantBuffer, HashableVertex, keys_to_ints, keys_to_strings, ImportPaths, f16_pattern, f32_pattern, u16_pattern, u32_pattern, u8_pattern, s32_pattern, s16_pattern, s8_pattern, unorm16_pattern, snorm16_pattern, unorm8_pattern, snorm8_pattern, VBSOMapEntry, FALogFile
+from .datastructures import VertexBufferGroup, IndexBuffer, Fatal, InputLayout, GameEnum, vertex_color_layer_channels, ConstantBuffer, HashableVertex, keys_to_ints, keys_to_strings, ImportPaths, f16_pattern, f32_pattern, u16_pattern, u32_pattern, u8_pattern, s32_pattern, s16_pattern, s8_pattern, unorm16_pattern, snorm16_pattern, unorm8_pattern, snorm8_pattern, VBSOMapEntry, FALogFile
 
 def load_3dmigoto_mesh_bin(operator, vb_paths, ib_paths, pose_path):
 

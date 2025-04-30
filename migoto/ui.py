@@ -2,7 +2,7 @@ import bpy
 import addon_utils
 from bl_ui.generic_ui_list import draw_ui_list
 from .operators import ClearSemanticRemapList,PrefillSemanticRemapList, Import3DMigotoFrameAnalysis, Import3DMigotoRaw, Import3DMigotoPose, Export3DMigoto, ApplyVGMap, Export3DMigotoXXMI
-from ..autoupdate import addon_updater_ops
+from .. import addon_updater_ops
 
 class MIGOTO_UL_semantic_remap_list(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):

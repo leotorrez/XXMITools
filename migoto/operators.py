@@ -1,4 +1,5 @@
 from glob import glob
+# TODO: Add escape_glob to folder inputs or move over to PathLib to avoid special characters in paths related issues
 import re
 import itertools
 import os
@@ -6,8 +7,9 @@ import time
 import bpy
 from bpy_extras.io_utils import  ImportHelper, ExportHelper, orientation_helper
 from bpy.props import BoolProperty, StringProperty, CollectionProperty, IntProperty
-from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, game_enums, export_3dmigoto_xxmi, SemanticRemapItem, silly_lookup
-from ..autoupdate import addon_updater_ops
+from .datahandling import load_3dmigoto_mesh, open_frame_analysis_log_file, find_stream_output_vertex_buffers, VBSOMapEntry, ImportPaths, Fatal, import_3dmigoto, import_3dmigoto_raw_buffers, import_pose, merge_armatures, apply_vgmap, update_vgmap, export_3dmigoto, export_3dmigoto_xxmi
+from .datastructures import SemanticRemapItem, silly_lookup, game_enums
+from .. import addon_updater_ops
 from .. import __name__ as package_name
 
 IOOBJOrientationHelper = type('DummyIOOBJOrientationHelper', (object,), {})
