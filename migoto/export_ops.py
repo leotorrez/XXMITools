@@ -1,58 +1,57 @@
-import bpy
-import os
-import time
-import json
-import numpy
 import collections
-import textwrap
-
+import json
+import os
+import shutil
 import struct
-import bmesh
+import textwrap
+import time
 from pathlib import Path
+from typing import Optional
+
+import addon_utils
+import bmesh
+import bpy
+import numpy
 from bpy.props import (
     BoolProperty,
-    StringProperty,
-    IntProperty,
-    FloatProperty,
     EnumProperty,
+    FloatProperty,
+    IntProperty,
     PointerProperty,
+    StringProperty,
 )
-from bpy.types import Operator, PropertyGroup
+from bpy.types import Collection, Context, Mesh, Object, Operator, PropertyGroup
 from bpy_extras.io_utils import ExportHelper
 
-
+from .. import bl_info
+from ..libs.jinja2 import Environment, FileSystemLoader
 from .datahandling import (
     Fatal,
     custom_attributes_float,
     custom_attributes_int,
-    mesh_triangulate,
     keys_to_ints,
+    mesh_triangulate,
 )
 from .datastructures import (
+    GameEnum,
+    HashableVertex,
+    IndexBuffer,
+    InputLayout,
+    VertexBufferGroup,
+    f16_pattern,
+    f32_pattern,
+    game_enum,
     s8_pattern,
     s16_pattern,
     s32_pattern,
+    snorm8_pattern,
+    snorm16_pattern,
     u8_pattern,
     u16_pattern,
     u32_pattern,
-    f16_pattern,
-    f32_pattern,
-    snorm8_pattern,
-    snorm16_pattern,
     unorm8_pattern,
     unorm16_pattern,
-    IndexBuffer,
-    VertexBufferGroup,
-    InputLayout,
-    HashableVertex,
-    GameEnum,
-    game_enum,
 )
-from .. import bl_info
-from ..libs.jinja2 import Environment, FileSystemLoader
-import addon_utils
-import shutil
-from bpy.types import Context, Object, Mesh, Collection
 
 
 def normal_export_translation(layout, semantic, flip):
@@ -83,7 +82,6 @@ def antiparallel_search(ConnectedFaceNormals) -> bool:
 
 
 def precision(x) -> int:
-    # FIXME: if its 0 it fails horribly
     return -int(numpy.floor(numpy.log10(x)))
 
 
@@ -370,7 +368,7 @@ def optimized_outline_generation(obj: Object, mesh: Mesh, outline_properties):
                                 closest_group.update(
                                     Pos_Close_Vertices.get(tuple([pos1, pos2, pos3]))
                                 )
-                            except:
+                            except (KeyError, TypeError):
                                 continue
 
                 if len(closest_group) != 1:
@@ -660,13 +658,13 @@ def apply_modifiers_and_shapekeys(context: Context, obj: Object):
     return mesh
 
 
-def create_mod_folder(destination: Path):
-    if not os.path.isdir(destination):
-        print(f"Creating {os.path.basename(destination)}")
+def create_mod_folder(destination: Path) -> None:
+    if not destination.exists():
+        print(f"Creating {destination.name} folder")
         os.mkdir(destination)
     else:
         print(
-            f"WARNING: Everything currently in the {os.path.basename(destination)} folder will be overwritten"
+            f"WARNING: Everything currently in the {destination.name} folder will be overwritten"
         )
 
 
@@ -676,9 +674,9 @@ def collect_vb(folder: Path, name: str, classification: str, strides: list[int])
     blend = bytearray()
     texcoord = bytearray()
     # FIXME: hardcoded .vb0 extension. This should be a flexible for multiple buffer export
-    if not os.path.exists(os.path.join(folder, f"{name}{classification}.vb0")):
+    if not (folder / f"{name}{classification}.vb0").exists():
         return position, blend, texcoord
-    with open(os.path.join(folder, f"{name}{classification}.vb0"), "rb") as f:
+    with open(folder / f"{name}{classification}.vb0", "rb") as f:
         data = f.read()
         data = bytearray(data)
         i = 0
@@ -696,9 +694,9 @@ def collect_vb(folder: Path, name: str, classification: str, strides: list[int])
 
 def collect_ib(folder: Path, name: str, classification: str, offset: int):
     ib = bytearray()
-    if not os.path.exists(os.path.join(folder, f"{name}{classification}.ib")):
+    if not (folder / f"{name}{classification}.ib").exists():
         return ib
-    with open(os.path.join(folder, f"{name}{classification}.ib"), "rb") as f:
+    with open(folder / f"{name}{classification}.ib", "rb") as f:
         data = f.read()
         data = bytearray(data)
         i = 0
@@ -711,9 +709,9 @@ def collect_ib(folder: Path, name: str, classification: str, offset: int):
 def collect_vb_single(folder: Path, name: str, classification: str, stride: int):
     result = bytearray()
     # FIXME: harcoded vb0. This should be flexible for multiple buffer export
-    if not os.path.exists(os.path.join(folder, f"{name}{classification}.vb0")):
+    if not (folder / f"{name}{classification}.vb0").exists():
         return result
-    with open(os.path.join(folder, f"{name}{classification}.vb0"), "rb") as f:
+    with open(folder / f"{name}{classification}.vb0", "rb") as f:
         data = f.read()
         data = bytearray(data)
         i = 0
@@ -750,42 +748,28 @@ def export_3dmigoto_xxmi(
         not [obj for obj in scene.objects if object_name.lower() in obj.name.lower()]
         or not [
             file
-            for file in os.listdir(os.path.dirname(vb_path))
+            for file in vb_path.parent.iterdir()
             if object_name.lower() in file.lower()
         ]
     ):
-        object_name = os.path.basename(os.path.dirname(vb_path))
+        object_name: str = vb_path.name.split(".")[0]
         if not [
             obj for obj in scene.objects if object_name.lower() in obj.name.lower()
         ] or not [
             file
-            for file in os.listdir(os.path.dirname(vb_path))
-            if object_name.lower() in file.lower()
+            for file in vb_path.parent.iterdir()
+            if object_name.lower() in file.name.lower()
         ]:
             raise Fatal(
                 "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
             )
-
-    if "hash.json" in os.listdir(os.path.dirname(vb_path)):
-        print("Hash data found in character folder")
-        with open(os.path.join(os.path.dirname(vb_path), "hash.json"), "r") as f:
-            hash_data = json.load(f)
-            all_base_classifications = [x["object_classifications"] for x in hash_data]
-            component_names = [x["component_name"] for x in hash_data]
-            extended_classifications = [
-                [f"{base_classifications[-1]}{i}" for i in range(2, 10)]
-                for base_classifications in all_base_classifications
-            ]
-
-    else:
-        print("Hash data not found in character folder, falling back to old behaviour")
-        all_base_classifications = [["Head", "Body", "Extra"]]
-        component_names = [""]
-
-        extended_classifications = [
-            [f"{base_classifications[-1]}{i}" for i in range(2, 10)]
-            for base_classifications in all_base_classifications
-        ]
+    hash_data = load_hashes(vb_path.parent,vb_path.stem)
+    all_base_classifications = [x["object_classifications"] for x in hash_data]
+    component_names = [x["component_name"] for x in hash_data]
+    extended_classifications = [
+        [f"{base_classifications[-1]}{i}" for i in range(2, 10)]
+        for base_classifications in all_base_classifications
+    ]
     offsets = {}
     for k in range(len(all_base_classifications)):
         base_classifications = all_base_classifications[k]
@@ -852,21 +836,11 @@ def export_3dmigoto_xxmi(
             if "3DMigoto:VB0Stride" not in obj and "3DMigoto:VBStride" in obj:
                 obj["3DMigoto:VB0Stride"] = obj["3DMigoto:VBStride"]
 
-            vb_path = os.path.join(
-                os.path.dirname(vb_path), current_name + classification + ".vb0"
-            )
-            ib_path = os.path.join(
-                os.path.dirname(ib_path), current_name + classification + ".ib"
-            )
-            fmt_path = os.path.join(
-                os.path.dirname(fmt_path), current_name + classification + ".fmt"
-            )
-            sko_path = os.path.join(
-                os.path.dirname(fmt_path), current_name + classification + ".sko"
-            )
-            skb_path = os.path.join(
-                os.path.dirname(fmt_path), current_name + classification + ".skb"
-            )
+            vb_path = vb_path.parent / (current_name + classification + ".vb0")
+            ib_path = ib_path.parent / (current_name + classification + ".ib")
+            fmt_path = fmt_path.parent / (current_name + classification + ".fmt")
+            # sko_path = fmt_path.parent / (current_name + classification + ".sko")
+            # skb_path = fmt_path.parent / (current_name + classification + ".skb")
             layout = InputLayout(obj["3DMigoto:VBLayout"])
             translate_normal = normal_export_translation(
                 layout, "NORMAL", obj.get("3DMigoto:FlipNormal", False)
@@ -1019,7 +993,7 @@ def export_3dmigoto_xxmi(
 
     generate_mod_folder(
         operator,
-        os.path.dirname(vb_path),
+        vb_path.parent,
         object_name,
         offsets,
         no_ramps,
@@ -1031,20 +1005,20 @@ def export_3dmigoto_xxmi(
     )
 
 
-def load_hashes(path: Path, name: str, hashfile: str):
-    parent_folder = os.path.join(path, "../")
-    if hashfile not in os.listdir(path):
+def load_hashes(path: Path, name: str, hashfile: str = "hash.json") -> list[dict]:
+    parent_folder = path.parent
+    if path / hashfile not in path.iterdir():
         print(
             "WARNING: Could not find hash.info in character directory. Falling back to hash_info.json"
         )
-        if "hash_info.json" not in os.listdir(parent_folder):
+        if (parent_folder / "hash_info.json") not in parent_folder.iterdir():
             raise Fatal("Cannot find hash information, check hash.json in folder")
         # Backwards compatibility with the old hash_info.json
-        with open(os.path.join(parent_folder, "hash_info.json"), "r") as f:
+        with open(parent_folder / "hash_info.json", "r") as f:
             hash_data = json.load(f)
             char_hashes = [hash_data[name]]
     else:
-        with open(os.path.join(path, hashfile), "r") as f:
+        with open(path / hashfile, "r") as f:
             char_hashes = json.load(f)
 
     return char_hashes
@@ -1060,12 +1034,11 @@ def generate_mod_folder(
     credit: str,
     copy_textures: bool,
     game: GameEnum,
-    destination=None,
+    destination:Optional[Path]=None,
 ):
-    parent_folder = os.path.join(path, "../")
-    char_hash = load_hashes(path, character_name, "hash.json")
+    char_hash = load_hashes(path, character_name)
     if not destination:
-        destination = os.path.join(parent_folder, f"{character_name}Mod")
+        destination = path / f"{character_name}Mod"
     create_mod_folder(destination)
 
     texture_hashes_written = {}
@@ -1115,14 +1088,10 @@ def generate_mod_folder(
                         continue
                     if copy_textures:
                         shutil.copy(
-                            os.path.join(
-                                path,
-                                f"{current_name}{current_object}{texture[0]}{texture[1]}",
-                            ),
-                            os.path.join(
-                                destination,
-                                f"{current_name}{current_object}{texture[0]}{texture[1]}",
-                            ),
+                            path
+                            / f"{current_name}{current_object}{texture[0]}{texture[1]}",
+                            destination
+                            / f"{current_name}{current_object}{texture[0]}{texture[1]}",
                         )
                     if game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                         texture_hashes_written[texture[2]] = (
@@ -1132,9 +1101,7 @@ def generate_mod_folder(
             char_hash[num]["strides"] = []
             continue
 
-        with open(
-            os.path.join(path, f"{current_name}{object_classifications[0]}.fmt"), "r"
-        ) as f:
+        with open(path / f"{current_name}{object_classifications[0]}.fmt", "r") as f:
             if not component["blend_vb"]:
                 strides = [x.split(": ")[1] for x in f.readlines() if "stride:" in x]
             else:
@@ -1208,7 +1175,7 @@ def generate_mod_folder(
                         current_object,
                         (position_stride, blend_stride, texcoord_stride),
                     )
-                except:
+                except FileNotFoundError:
                     raise Fatal(
                         f"ERROR: Unable to find {current_name}{current_object} when exporting. Double check the object exists and is named correctly"
                     )
@@ -1227,15 +1194,13 @@ def generate_mod_folder(
             print(f"{current_name}{current_object} offset: {offset}")
             ib = collect_ib(path, current_name, current_object, offset)
 
-            with open(
-                os.path.join(destination, f"{current_name}{current_object}.ib"), "wb"
-            ) as f:
+            with open(destination / f"{current_name}{current_object}.ib", "wb") as f:
                 f.write(ib)
             if delete_intermediate:
                 # FIXME: harcoded .vb0 extension. This should be a flexible for multiple buffer export
-                os.remove(os.path.join(path, f"{current_name}{current_object}.vb0"))
-                os.remove(os.path.join(path, f"{current_name}{current_object}.ib"))
-                os.remove(os.path.join(path, f"{current_name}{current_object}.fmt"))
+                os.remove(path / f"{current_name}{current_object}.vb0")
+                os.remove(path / f"{current_name}{current_object}.ib")
+                os.remove(path / f"{current_name}{current_object}.fmt")
 
             if len(position) % position_stride != 0:
                 print("ERROR: VB buffer length does not match stride")
@@ -1265,14 +1230,10 @@ def generate_mod_folder(
                     continue
                 if copy_textures:
                     shutil.copy(
-                        os.path.join(
-                            path,
-                            f"{current_name}{current_object}{texture[0]}{texture[1]}",
-                        ),
-                        os.path.join(
-                            destination,
-                            f"{current_name}{current_object}{texture[0]}{texture[1]}",
-                        ),
+                        path
+                        / f"{current_name}{current_object}{texture[0]}{texture[1]}",
+                        destination
+                        / f"{current_name}{current_object}{texture[0]}{texture[1]}",
                     )
                 if game in (GameEnum.ZenlessZoneZero, GameEnum.HonkaiStarRail):
                     texture_hashes_written[texture[2]] = (
@@ -1284,19 +1245,15 @@ def generate_mod_folder(
         if component["blend_vb"]:
             print("Writing merged buffer files")
             with (
-                open(
-                    os.path.join(destination, f"{current_name}Position.buf"), "wb"
-                ) as f,
-                open(os.path.join(destination, f"{current_name}Blend.buf"), "wb") as g,
-                open(
-                    os.path.join(destination, f"{current_name}Texcoord.buf"), "wb"
-                ) as h,
+                open(destination / f"{current_name}Position.buf", "wb") as f,
+                open(destination / f"{current_name}Blend.buf", "wb") as g,
+                open(destination / f"{current_name}Texcoord.buf", "wb") as h,
             ):
                 f.write(position)
                 g.write(blend)
                 h.write(texcoord)
         else:
-            with open(os.path.join(destination, f"{current_name}.buf"), "wb") as f:
+            with open(destination / f"{current_name}.buf", "wb") as f:
                 f.write(position)
 
     #    setup
@@ -1323,9 +1280,7 @@ def generate_mod_folder(
         raise Fatal(
             "ERROR: Could not generate ini file. Install dependencies from settings"
         )
-    with open(
-        os.path.join(destination, f"{character_name}.ini"), "w", encoding="UTF-8"
-    ) as f:
+    with open(destination / f"{character_name}.ini", "w", encoding="UTF-8") as f:
         print("Writing ini file")
         f.write(ini_data)
     print("All operations completed, exiting")
@@ -1347,9 +1302,9 @@ def generate_ini(
     addon_path = None
     for mod in addon_utils.modules():
         if mod.bl_info["name"] == "XXMI_Tools":
-            addon_path = os.path.dirname(mod.__file__)
+            addon_path = Path(mod.__file__).parent
             break
-    templates_paths = [os.path.join(addon_path, "templates")]
+    templates_paths = [addon_path / "templates"]
     if user_paths:
         templates_paths.extend(user_paths)
     env = Environment(
@@ -1865,10 +1820,11 @@ class Export3DMigoto(Operator, ExportHelper):
 
     def execute(self, context):
         try:
-            vb_path = os.path.splitext(self.filepath)[0] + ".vb"
-            ib_path = os.path.splitext(vb_path)[0] + ".ib"
-            fmt_path = os.path.splitext(vb_path)[0] + ".fmt"
-            ini_path = os.path.splitext(vb_path)[0] + "_generated.ini"
+            file_path = Path(self.filepath)
+            vb_path = file_path.parent / file_path.stem + ".vb"
+            ib_path = file_path.parent / file_path.stem + ".ib"
+            fmt_path = file_path.parent / file_path.stem + ".fmt"
+            ini_path = file_path.parent / file_path.stem + "_generated.ini"
             obj = context.object
             self.flip_normal = obj.get("3DMigoto:FlipNormal", False)
             self.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
@@ -1982,7 +1938,7 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         name="Distance:",
         description="Expand grouping for edge vertices within this radial distance to close holes in the edge outline. Requires rounding",
         default=0.001,
-        soft_min=0,
+        min=0.001,
     )
     game: EnumProperty(
         name="Game to mod",
@@ -2062,10 +2018,10 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
 
     def execute(self, context):
         try:
-            vb_path = self.filepath
-            ib_path = os.path.splitext(vb_path)[0] + ".ib"
-            fmt_path = os.path.splitext(vb_path)[0] + ".fmt"
-            object_name = os.path.splitext(os.path.basename(self.filepath))[0]
+            vb_path = Path(self.filepath)
+            ib_path = vb_path.parent / vb_path.stem + ".ib"
+            fmt_path = vb_path.parent / vb_path.stem + ".fmt"
+            object_name = vb_path.stem
 
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             outline_properties = (
@@ -2216,7 +2172,7 @@ class XXMIProperties(PropertyGroup):
         name="Distance:",
         description="Expand grouping for edge vertices within this radial distance to close holes in the edge outline. Requires rounding",
         default=0.001,
-        soft_min=0,
+        min=0.001,
     )
     game: EnumProperty(
         name="Game to mod",
@@ -2263,11 +2219,11 @@ class DestinationSelector(Operator, ExportHelper):
     )
 
     def execute(self, context):
-        userpath = self.properties.filepath
-        if not os.path.isdir(userpath):
-            userpath = os.path.dirname(userpath)
+        userpath = Path(self.properties.filepath)
+        if not userpath.is_dir():
+            userpath = userpath.parent.name
             self.properties.filepath = userpath
-            if not os.path.isdir(userpath):
+            if not userpath.is_dir():
                 msg = "Please select a directory not a file\n" + userpath
                 self.report({"ERROR"}, msg)
                 return {"CANCELLED"}
@@ -2289,15 +2245,9 @@ class DumpSelector(Operator, ExportHelper):
     )
 
     def execute(self, context):
-        userpath = self.properties.filepath
-        if not os.path.isdir(userpath):
-            userpath = os.path.dirname(userpath)
-            self.properties.filepath = userpath
-            if not os.path.isdir(userpath):
-                msg = "Please select a directory not a file\n" + userpath
-                self.report({"ERROR"}, msg)
-                return {"CANCELLED"}
-        context.scene.xxmi.dump_path = userpath
+        userpath = Path(self.properties.filepath)
+        self.properties.filepath = str(userpath.parent)
+        context.scene.xxmi.dump_path = str(userpath.parent)
         bpy.ops.ed.undo_push(message="XXMI Tools: dump path selected")
         return {"FINISHED"}
 
@@ -2328,10 +2278,11 @@ class ExportAdvancedOperator(Operator):
         self.normalize_weights = xxmi.normalize_weights
         self.export_shapekeys = xxmi.export_shapekeys
         try:
-            vb_path = os.path.join(xxmi.dump_path, ".vb0")
-            ib_path = os.path.splitext(vb_path)[0] + ".ib"
-            fmt_path = os.path.splitext(vb_path)[0] + ".fmt"
-            object_name = os.path.splitext(os.path.basename(xxmi.dump_path))[0]
+            base_path = Path(xxmi.dump_path + "/")
+            vb_path = base_path / (base_path.stem + ".vb")
+            ib_path = base_path / (base_path.stem + ".ib")
+            fmt_path = base_path / (base_path.stem + ".fmt")
+            object_name = base_path.name
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             outline_properties = (
                 xxmi.outline_optimization,
@@ -2361,7 +2312,7 @@ class ExportAdvancedOperator(Operator):
                 xxmi.copy_textures,
                 outline_properties,
                 game,
-                xxmi.destination_path,
+                Path(xxmi.destination_path),
             )
             print("Export took", time.time() - start, "seconds")
             self.report({"INFO"}, "Export completed")
@@ -2396,14 +2347,14 @@ class ExportAdvancedBatchedOperator(Operator):
         scene = bpy.context.scene
         xxmi = scene.xxmi
         start_time = time.time()
-        base_dir = xxmi.destination_path
+        base_dir = Path(xxmi.destination_path)
         wildcards = ("#####", "####", "###", "##", "#")
         try:
             for frame in range(scene.frame_start, scene.frame_end + 1):
                 context.scene.frame_set(frame)
                 for w in wildcards:
-                    frame_folder = xxmi.batch_pattern.replace(
-                        w, str(frame).zfill(len(w))
+                    frame_folder = Path(
+                        xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
                     )
                     if frame_folder != xxmi.batch_pattern:
                         break
@@ -2413,7 +2364,7 @@ class ExportAdvancedBatchedOperator(Operator):
                         "Batch pattern must contain any number of # wildcard characters for the frame number to be written into it. Example name_### -> name_001",
                     )
                     return False
-                xxmi.destination_path = os.path.join(base_dir, frame_folder)
+                xxmi.destination_path = base_dir / frame_folder
                 bpy.ops.xxmi.exportadvanced()
                 print(
                     f"Exported frame {frame + 1 - scene.frame_start}/{scene.frame_end + 1 - scene.frame_start}"
@@ -2468,7 +2419,7 @@ def write_ini_file(
             type = buffer
             format = {}
             filename = {}
-            """).format(ib.format, os.path.basename(ib_path))
+            """).format(ib.format, ib_path)
         if backup:
             resource_bak_section += "[ResourceBakIB]\n"
             backup_section += "ResourceBakIB = ref ib\n"
@@ -2481,7 +2432,7 @@ def write_ini_file(
             type = buffer
             stride = {}
             filename = {}
-            """).format(vbuf_idx, stride, os.path.basename(vb_path + vbuf_idx))
+            """).format(vbuf_idx, stride, vb_path + vbuf_idx)
         if backup:
             resource_bak_section += "[ResourceBakVB{0}]\n".format(vbuf_idx or 0)
             backup_section += "ResourceBakVB{0} = ref vb{0}\n".format(vbuf_idx or 0)
@@ -2866,12 +2817,11 @@ def export_3dmigoto(
     if "" not in vgmaps:
         vb.write(vb_path, strides, operator=operator)
 
-    base, ext = os.path.splitext(vb_path)
     for suffix, vgmap in vgmaps.items():
         ib_path = vb_path
         if suffix:
-            ib_path = "%s-%s%s" % (base, suffix, ext)
-        vgmap_path = os.path.splitext(ib_path)[0] + ".vgmap"
+            ib_path = f"{vb_path.parent / vb_path.stem}-{suffix}{vb_path.suffix}"
+        vgmap_path = (ib_path.parent / ib_path.stem) + ".vgmap"
         print("Exporting %s..." % ib_path)
         vb.remap_blendindices(obj, vgmap)
         vb.write(ib_path, strides, operator=operator)
