@@ -5,62 +5,16 @@ import re
 import struct
 import textwrap
 from enum import Enum
+from typing import Optional
 
 import bpy
 import numpy
-from bpy.types import PropertyGroup
+
 from mathutils import Matrix
 
-vertex_color_layer_channels = 4
+IOOBJOrientationHelper = type("DummyIOOBJOrientationHelper", (object,), {})
 
-semantic_remap_enum = [
-    (
-        "None",
-        "No change",
-        "Do not remap this semantic. If the semantic name is recognised the script will try to interpret it, otherwise it will preserve the existing data in a vertex layer",
-    ),
-    (
-        "POSITION",
-        "POSITION",
-        "This data will be used as the vertex positions. There should generally be exactly one POSITION semantic for hopefully obvious reasons",
-    ),
-    (
-        "NORMAL",
-        "NORMAL",
-        "This data will be used as split (custom) normals in Blender.",
-    ),
-    (
-        "TANGENT",
-        "TANGENT (CAUTION: Discards data!)",
-        "Data in the TANGENT semantics are discarded on import, and recalculated on export",
-    ),
-    # ('BINORMAL', 'BINORMAL', "Don't encourage anyone to choose this since the data will be entirely discarded"),
-    (
-        "BLENDINDICES",
-        "BLENDINDICES",
-        "This semantic holds the vertex group indices, and should be paired with a BLENDWEIGHT semantic that has the corresponding weights for these groups",
-    ),
-    (
-        "BLENDWEIGHT",
-        "BLENDWEIGHT",
-        "This semantic holds the vertex group weights, and should be paired with a BLENDINDICES semantic that has the corresponding vertex group indices that these weights apply to",
-    ),
-    (
-        "TEXCOORD",
-        "TEXCOORD",
-        "Typically holds UV coordinates, though can also be custom data. Choosing this will import the data as a UV layer (or two) in Blender",
-    ),
-    (
-        "COLOR",
-        "COLOR",
-        "Typically used for vertex colors, though can also be custom data. Choosing this option will import the data as a vertex color layer in Blender",
-    ),
-    (
-        "Preserve",
-        "Unknown / Preserve",
-        "Don't try to interpret the data. Choosing this option will simply store the data in a vertex layer in Blender so that it can later be exported unmodified",
-    ),
-]
+vertex_color_layer_channels = 4
 
 
 # FIXME: hardcoded values in a very weird way cause blender EnumProperties are odd-
@@ -111,7 +65,7 @@ game_enums = [
 ]
 
 
-def silly_lookup(game: bpy.props.EnumProperty):
+def silly_lookup(game: bpy.props.EnumProperty) -> Optional[GameEnum]:
     """Converts a EnumProperty to a GameEnum"""
     if game == game_enums[0][0]:
         return GameEnum.HonkaiImpact3rd
@@ -123,33 +77,7 @@ def silly_lookup(game: bpy.props.EnumProperty):
         return GameEnum.ZenlessZoneZero
     elif game == game_enums[4][0]:
         return GameEnum.HonkaiImpactPart2
-
-
-class SemanticRemapItem(PropertyGroup):
-    semantic_from: bpy.props.StringProperty(name="From", default="ATTRIBUTE")
-    semantic_to: bpy.props.EnumProperty(
-        items=semantic_remap_enum, name="Change semantic interpretation"
-    )
-    # Extra information when this is filled out automatically that might help guess the correct semantic:
-    Format: bpy.props.StringProperty(name="DXGI Format")
-    InputSlot: bpy.props.IntProperty(name="Vertex Buffer")
-    InputSlotClass: bpy.props.StringProperty(name="Input Slot Class")
-    AlignedByteOffset: bpy.props.IntProperty(name="Aligned Byte Offset")
-    valid: bpy.props.BoolProperty(default=True)
-    tooltip: bpy.props.StringProperty(
-        default="This is a manually added entry. It's recommended to pre-fill semantics from selected files via the menu to the right to avoid typos"
-    )
-
-    def update_tooltip(self):
-        if not self.Format:
-            return
-        self.tooltip = "vb{}+{} {}".format(
-            self.InputSlot, self.AlignedByteOffset, self.Format
-        )
-        if self.InputSlotClass == "per-instance":
-            self.tooltip = ". This semantic holds per-instance data (such as per-object transformation matrices) which will not be used by the script"
-        elif self.valid is False:
-            self.tooltip += ". This semantic is invalid - it may share the same location as another semantic or the vertex buffer it belongs to may be missing / too small"
+    return None
 
 
 supported_topologies = ("trianglelist", "pointlist", "trianglestrip")
