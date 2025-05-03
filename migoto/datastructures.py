@@ -4,81 +4,33 @@ import itertools
 import re
 import struct
 import textwrap
-from enum import Enum
-from typing import Optional
-
-import bpy
+from enum import StrEnum
 import numpy
-
 from mathutils import Matrix
 
 IOOBJOrientationHelper = type("DummyIOOBJOrientationHelper", (object,), {})
-
 vertex_color_layer_channels = 4
 
 
 # FIXME: hardcoded values in a very weird way cause blender EnumProperties are odd-
-class GameEnum(Enum):
-    HonkaiImpact3rd = 0
-    GenshinImpact = 1
-    HonkaiStarRail = 2
-    ZenlessZoneZero = 3
-    HonkaiImpactPart2 = 4
+class GameEnum(StrEnum):
+    Unknown = "Unknown"
+    HonkaiImpact3rd = "Honkai Impact 3rd"
+    GenshinImpact = "Genshin Impact"
+    HonkaiStarRail = "Honkai Star Rail"
+    ZenlessZoneZero = "Zenless Zone Zero"
+    HonkaiImpactPart2 = "Honkai Impact 3rd Part 2"
 
 
-game_enums = [
+game_enum = [
     (
-        GameEnum.HonkaiImpact3rd.name,
-        "Honkai Impact 3rd",
-        "Honkai Impact 3rd",
-        "",
-        GameEnum.HonkaiImpact3rd.value,
-    ),
-    (
-        GameEnum.GenshinImpact.name,
-        "Genshin Impact",
-        "Genshin Impact",
-        "",
-        GameEnum.GenshinImpact.value,
-    ),
-    (
-        GameEnum.HonkaiStarRail.name,
-        "Honkai Star Rail",
-        "Honkai Star Rail",
-        "",
-        GameEnum.HonkaiStarRail.value,
-    ),
-    (
-        GameEnum.ZenlessZoneZero.name,
-        "Zenless Zone Zero",
-        "Zenless Zone Zero",
-        "",
-        GameEnum.ZenlessZoneZero.value,
-    ),
-    (
-        GameEnum.HonkaiImpactPart2.name,
-        "Honkai Impact Part 2",
-        "Honkai Impact Part 2",
-        "",
-        GameEnum.HonkaiImpactPart2.value,
-    ),
+        game.name,
+        game.value,
+        game.value,
+    )
+    for game in GameEnum
+    if game != GameEnum.Unknown
 ]
-
-
-def silly_lookup(game: bpy.props.EnumProperty) -> Optional[GameEnum]:
-    """Converts a EnumProperty to a GameEnum"""
-    if game == game_enums[0][0]:
-        return GameEnum.HonkaiImpact3rd
-    elif game == game_enums[1][0]:
-        return GameEnum.GenshinImpact
-    elif game == game_enums[2][0]:
-        return GameEnum.HonkaiStarRail
-    elif game == game_enums[3][0]:
-        return GameEnum.ZenlessZoneZero
-    elif game == game_enums[4][0]:
-        return GameEnum.HonkaiImpactPart2
-    return None
-
 
 supported_topologies = ("trianglelist", "pointlist", "trianglestrip")
 

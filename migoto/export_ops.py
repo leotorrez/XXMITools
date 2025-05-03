@@ -9,7 +9,14 @@ import textwrap
 import struct
 import bmesh
 from pathlib import Path
-from bpy.props import BoolProperty, StringProperty
+from bpy.props import (
+    BoolProperty,
+    StringProperty,
+    IntProperty,
+    FloatProperty,
+    EnumProperty,
+    PointerProperty,
+)
 from bpy.types import Operator, PropertyGroup
 from bpy_extras.io_utils import ExportHelper
 
@@ -37,10 +44,9 @@ from .datastructures import (
     IndexBuffer,
     VertexBufferGroup,
     InputLayout,
-    game_enums,
-    silly_lookup,
-    GameEnum,
     HashableVertex,
+    GameEnum,
+    game_enum,
 )
 from .. import bl_info
 from ..libs.jinja2 import Environment, FileSystemLoader
@@ -1942,7 +1948,7 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         default=True,
     )
 
-    decimal_rounding_outline: bpy.props.IntProperty(
+    decimal_rounding_outline: IntProperty(
         name="Decimals:",
         description="Rounding of vertex positions to specify which are the overlapping vertices",
         default=3,
@@ -1972,33 +1978,33 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         default=False,
     )
 
-    nearest_edge_distance: bpy.props.FloatProperty(
+    nearest_edge_distance: FloatProperty(
         name="Distance:",
         description="Expand grouping for edge vertices within this radial distance to close holes in the edge outline. Requires rounding",
         default=0.001,
         soft_min=0,
     )
-    game: bpy.props.EnumProperty(
+    game: EnumProperty(
         name="Game to mod",
         description="Select the game you are modding to optimize the mod for that game",
-        items=game_enums,
+        items=game_enum,
     )
-    apply_modifiers_and_shapekeys: bpy.props.BoolProperty(
+    apply_modifiers_and_shapekeys: BoolProperty(
         name="Apply modifiers and shapekeys",
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
-    join_meshes: bpy.props.BoolProperty(
+    join_meshes: BoolProperty(
         name="Join meshes",
         description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
         default=False,
     )
-    normalize_weights: bpy.props.BoolProperty(
+    normalize_weights: BoolProperty(
         name="Normalize weights to format",
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
-    export_shapekeys: bpy.props.BoolProperty(
+    export_shapekeys: BoolProperty(
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
         default=False,
@@ -2072,7 +2078,7 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
                 self.calculate_all_faces,
                 self.nearest_edge_distance,
             )
-            game = silly_lookup(self.game)
+            game = GameEnum[self.game]
             export_3dmigoto_xxmi(
                 self,
                 context,
@@ -2099,13 +2105,13 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
 class XXMIProperties(PropertyGroup):
     """Properties for XXMITools"""
 
-    destination_path: bpy.props.StringProperty(
+    destination_path: StringProperty(
         name="Output Folder",
         description="Output Folder:",
         default="",
         maxlen=1024,
     )
-    dump_path: bpy.props.StringProperty(
+    dump_path: StringProperty(
         name="Dump Folder",
         description="Dump Folder:",
         default="",
@@ -2176,7 +2182,7 @@ class XXMIProperties(PropertyGroup):
         default=True,
     )
 
-    decimal_rounding_outline: bpy.props.IntProperty(
+    decimal_rounding_outline: IntProperty(
         name="Decimals:",
         description="Rounding of vertex positions to specify which are the overlapping vertices",
         default=3,
@@ -2206,38 +2212,38 @@ class XXMIProperties(PropertyGroup):
         default=False,
     )
 
-    nearest_edge_distance: bpy.props.FloatProperty(
+    nearest_edge_distance: FloatProperty(
         name="Distance:",
         description="Expand grouping for edge vertices within this radial distance to close holes in the edge outline. Requires rounding",
         default=0.001,
         soft_min=0,
     )
-    game: bpy.props.EnumProperty(
+    game: EnumProperty(
         name="Game to mod",
         description="Select the game you are modding to optimize the mod for that game",
-        items=game_enums,
+        items=game_enum,
     )
-    apply_modifiers_and_shapekeys: bpy.props.BoolProperty(
+    apply_modifiers_and_shapekeys: BoolProperty(
         name="Apply modifiers and shapekeys",
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
-    join_meshes: bpy.props.BoolProperty(
+    join_meshes: BoolProperty(
         name="Join meshes",
         description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
         default=False,
     )
-    normalize_weights: bpy.props.BoolProperty(
+    normalize_weights: BoolProperty(
         name="Normalize weights to format",
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
-    export_shapekeys: bpy.props.BoolProperty(
+    export_shapekeys: BoolProperty(
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
         default=False,
     )
-    batch_pattern: bpy.props.StringProperty(
+    batch_pattern: StringProperty(
         name="Batch pattern",
         description="Pattern to name export folders. Example: name_###",
         default="",
@@ -2251,7 +2257,7 @@ class DestinationSelector(Operator, ExportHelper):
     bl_label = "Destination"
     filename_ext = "."
     use_filter_folder = True
-    filter_glob: bpy.props.StringProperty(
+    filter_glob: StringProperty(
         default=".",
         options={"HIDDEN"},
     )
@@ -2277,7 +2283,7 @@ class DumpSelector(Operator, ExportHelper):
     bl_label = "Dump folder selector"
     filename_ext = "."
     use_filter_folder = True
-    filter_glob: bpy.props.StringProperty(
+    filter_glob: StringProperty(
         default=".",
         options={"HIDDEN"},
     )
@@ -2337,7 +2343,7 @@ class ExportAdvancedOperator(Operator):
                 xxmi.calculate_all_faces,
                 xxmi.nearest_edge_distance,
             )
-            game = silly_lookup(xxmi.game)
+            game = GameEnum[xxmi.game]
             start = time.time()
             export_3dmigoto_xxmi(
                 self,
@@ -2888,7 +2894,7 @@ def export_3dmigoto(
 
 def register():
     """Register all classes"""
-    bpy.types.Scene.xxmi = bpy.props.PointerProperty(type=XXMIProperties)
+    bpy.types.Scene.xxmi = PointerProperty(type=XXMIProperties)
 
 
 def unregister():
