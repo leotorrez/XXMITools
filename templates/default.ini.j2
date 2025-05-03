@@ -1,14 +1,14 @@
 {%  if game.value == 0 %}
-    {% include "GI.ini.j2" %}
+    {% include "HI3.ini.j2" %}
 {%  elif game.value == 1 %}
     {% include "GI.ini.j2" %}
 {%  elif game.value == 2 %}
-    {% include "ZZZ.ini.j2" %}
+    {% include "HSR.ini.j2" %}
 {%  elif game.value == 3 %}
     {% include "ZZZ.ini.j2" %}
 {%  elif game.value == 4 %}
     {% include "HI3P2.ini.j2" %}
 {%  else %}
-    Invalid game
+    Unsuported game
     {{game.value}}
 {% endif %}

@@ -1,4 +1,4 @@
-{% extends "base.ini.j2" %}
+{% extends "base.ini" %}
 
 {% block constantscredit -%}
 {% if credit != "" -%}
@@ -35,16 +35,18 @@ data = "Created by {{ credit }}"
 {% block overridesbuffers -%}
     {% for component in char_hash if component["draw_vb"] != "" and component["blend_vb"] != "" -%}
         {% set comp_name = character_name ~ component.component_name -%}
-[TextureOverride{{ comp_name }}Blend]
-hash = {{ component.blend_vb }}
-vb2 = Resource{{ comp_name }}Blend
-if DRAW_TYPE == 1
-    vb0 = Resource{{ comp_name }}Position
-    draw = {{ component.total_verts }}, 0
-endif
+[TextureOverride{{ comp_name }}Position]
+hash = {{ component.position_vb }}
+vb0 = Resource{{ comp_name }}Position
 {% if credit != "" %}
 $active = 1
 {% endif %}
+
+[TextureOverride{{ comp_name }}Blend]
+hash = {{ component.blend_vb }}
+handling = skip
+vb1 = Resource{{ comp_name }}Blend
+draw = {{ component.total_verts }}, 0
 
 [TextureOverride{{ comp_name }}Texcoord]
 hash = {{ component.texcoord_vb }}
@@ -70,7 +72,6 @@ $active = 1
 
 {% block overridesibs -%}
      {% for component in char_hash if component["draw_vb"] != "" -%}
-            {% set tabs = "    " -%}
 [TextureOverride{{component.component_name}}IB]
 hash = {{ component.ib }}
 handling = skip
@@ -82,7 +83,6 @@ drawindexed = auto
 [TextureOverride{{ object.fullname }}]
 hash = {{ component.ib }}
 match_first_index = {{ component.object_indexes[loop.index0] }}
-run = CommandlistSkinTexture
 {% if object.offsets|rejectattr("3","lt",1)|list|length > 0 %}
 ib = Resource{{ object.fullname }}IB
 {% else %}
@@ -90,6 +90,7 @@ ib = null
 {% endif %}
                 {% if operator.join_meshes == False %}
                     {% for off in object.offsets if off[3] > 0 -%}
+                        {% set tabs = "    " %}
                         {% if loop.previtem and loop.previtem[0] != off[0] -%}
 {{ tabs * off[1] }}; {{ off[0] }}
                         {% endif %}
@@ -97,15 +98,8 @@ ib = null
 {{ tabs * off[1] }}drawindexed = {{ off[3]}}, {{ off[5] }}, 0
                     {% endfor %}
                 {% endif %}
+
             {% endfor %}
-
-    {% endfor %}
-    {% for component in char_hash if component["draw_vb"] == "" -%}
-            {% set tabs = "    " -%}
-[TextureOverride{{component.component_name}}IB]
-hash = {{ component.ib }}
-run = CommandlistSkinTexture
-
     {% endfor %}
 {% endblock  %}
 
@@ -183,9 +177,9 @@ filename = {{ main_name }}{{ tex[0] }}.dds
 {% endblock %}
 
 {% block overrides %}
-    {{- self.overridesbuffers() -}}
-    {{- self.overridesibs() -}}
-    {{- self.overridestextures() -}}
+    {{ self.overridesbuffers() -}}
+    {{ self.overridesibs() -}}
+    {{ self.overridestextures() -}}
 {% endblock %}
 
 {% block commandlists %}
