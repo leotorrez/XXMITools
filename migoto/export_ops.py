@@ -1,14 +1,11 @@
 import collections
 import json
 import os
-import shutil
 import struct
-import textwrap
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
-import addon_utils
 import bmesh
 import bpy
 import numpy
@@ -23,8 +20,6 @@ from bpy.props import (
 from bpy.types import Collection, Context, Mesh, Object, Operator, PropertyGroup
 from bpy_extras.io_utils import ExportHelper
 
-from .. import bl_info
-from ..libs.jinja2 import Environment, FileSystemLoader
 from .datahandling import (
     Fatal,
     custom_attributes_float,
@@ -52,23 +47,37 @@ from .datastructures import (
     unorm8_pattern,
     unorm16_pattern,
 )
+from .data.byte_buffer import (
+    BufferLayout,
+    Semantic,
+    AbstractSemantic,
+    MigotoFmt,
+    NumpyBuffer,
+)
+from .data.dxgi_format import DXGIType
+from .exporter import ModExporter
 
 
-def normal_export_translation(layout, semantic, flip):
-    try:
-        unorm = layout.untranslate_semantic(semantic).Format.endswith("_UNORM")
-    except KeyError:
-        unorm = False
+def normal_export_translation(
+    layouts: list[BufferLayout], semantic: Semantic, flip: bool
+) -> Callable:
+    unorm = False
+    for layout in layouts:
+        try:
+            unorm = layout.get_element(AbstractSemantic(semantic)).format.dxgi_type in [
+                DXGIType.UNORM8,
+                DXGIType.UNORM16,
+            ]
+        except ValueError:
+            continue
     if unorm:
         # Scale normal range -1:+1 to UNORM range 0:+1
         if flip:
             return lambda x: -x / 2.0 + 0.5
-        else:
-            return lambda x: x / 2.0 + 0.5
+        return lambda x: x / 2.0 + 0.5
     if flip:
         return lambda x: -x
-    else:
-        return lambda x: x
+    return lambda x: x
 
 
 def unit_vector(vector):
@@ -475,17 +484,17 @@ def optimized_outline_generation(obj: Object, mesh: Mesh, outline_properties):
     return export_outline
 
 
-def appendto(collection: Collection, destination: list[Object], depth=1):
+def recursive_append_to(collection: Collection, destination: list[Object], depth=1):
     """Append all meshes in a collection to a list"""
     objs = [obj for obj in collection.objects if obj.type == "MESH"]
     sorted_objs = sorted(objs, key=lambda x: x.name)
     for obj in sorted_objs:
         destination.append((collection.name, depth, obj))
     for a_collection in collection.children:
-        appendto(a_collection, destination, depth + 1)
+        recursive_append_to(a_collection, destination, depth + 1)
 
 
-def apply_modifiers_and_shapekeys(context: Context, obj: Object):
+def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     """Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform"""
     start_timer = time.time()
     deform_SKs = []
@@ -737,10 +746,11 @@ def export_3dmigoto_xxmi(
     copy_textures: bool,
     outline_properties,
     game: GameEnum,
-    destination: Path = None,
-):
+    destination: Optional[Path] = None,
+) -> None:
     scene = bpy.context.scene
-
+    if not destination:
+        destination = vb_path.parent / f"{object_name}Mod"
     # Quick sanity check
     # If we cannot find any objects in the scene with or any files in the folder with the given name, default to using
     #   the folder name
@@ -749,10 +759,10 @@ def export_3dmigoto_xxmi(
         or not [
             file
             for file in vb_path.parent.iterdir()
-            if object_name.lower() in file.lower()
+            if object_name.lower() in str(file).lower()
         ]
     ):
-        object_name: str = vb_path.name.split(".")[0]
+        object_name = vb_path.stem
         if not [
             obj for obj in scene.objects if object_name.lower() in obj.name.lower()
         ] or not [
@@ -763,246 +773,24 @@ def export_3dmigoto_xxmi(
             raise Fatal(
                 "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
             )
-    hash_data = load_hashes(vb_path.parent,vb_path.stem)
-    all_base_classifications = [x["object_classifications"] for x in hash_data]
-    component_names = [x["component_name"] for x in hash_data]
-    extended_classifications = [
-        [f"{base_classifications[-1]}{i}" for i in range(2, 10)]
-        for base_classifications in all_base_classifications
-    ]
-    offsets = {}
-    for k in range(len(all_base_classifications)):
-        base_classifications = all_base_classifications[k]
-        current_name = f"{object_name}{component_names[k]}"
-
-        # Doing it this way has the benefit of sorting the objects into the correct ordering by default
-        relevant_objects = ["" for i in range(len(base_classifications) + 8)]
-        # Surprisingly annoying to extend this to n objects thanks to the choice of using Extra2, Extra3, etc.
-        # Iterate through scene objects, looking for ones that match the specified character name and object type
-
-        if only_selected:
-            selected_objects = [obj for obj in bpy.context.selected_objects]
-        else:
-            selected_objects = scene.objects
-
-        for obj in selected_objects:
-            # Ignore all hidden meshes while searching if ignore_hidden flag is set
-            if ignore_hidden and not obj.visible_get():
-                continue
-            for i, c in enumerate(base_classifications):
-                if f"{current_name}{c}".lower() in obj.name.lower():
-                    # Even though we have found an object, since the final classification can be extended need to check
-                    found_extended = False
-                    for j, d in enumerate(extended_classifications):
-                        if f"{current_name}{d}".lower() in obj.name.lower():
-                            location = j + len(base_classifications)
-                            if relevant_objects[location] != "":
-                                raise Fatal(
-                                    f"Too many matches for {current_name}{d}".lower()
-                                )
-                            else:
-                                relevant_objects[location] = obj
-                                found_extended = True
-                                break
-                    if not found_extended:
-                        if relevant_objects[i] != "":
-                            raise Fatal(
-                                f"Too many matches for {current_name}{c}".lower()
-                            )
-                        else:
-                            relevant_objects[i] = obj
-                            break
-
-        # Delete empty spots
-        relevant_objects = [x for x in relevant_objects if x]
-        print(f"Objects to export: {relevant_objects}")
-
-        for i, obj in enumerate(relevant_objects):
-            if i < len(base_classifications):
-                classification = base_classifications[i]
-            else:
-                classification = extended_classifications[i - len(base_classifications)]
-
-            flip_properties = [
-                "3DMigoto:FlipNormal",
-                "3DMigoto:FlipTangent",
-                "3DMigoto:FlipWinding",
-                "3DMigoto:FlipMesh",
-            ]
-            for prop in flip_properties:
-                if prop not in obj:
-                    obj[prop] = False
-            # Handle Legacy 3DMigoto Custom Properties from old projects
-            if "3DMigoto:VB0Stride" not in obj and "3DMigoto:VBStride" in obj:
-                obj["3DMigoto:VB0Stride"] = obj["3DMigoto:VBStride"]
-
-            vb_path = vb_path.parent / (current_name + classification + ".vb0")
-            ib_path = ib_path.parent / (current_name + classification + ".ib")
-            fmt_path = fmt_path.parent / (current_name + classification + ".fmt")
-            # sko_path = fmt_path.parent / (current_name + classification + ".sko")
-            # skb_path = fmt_path.parent / (current_name + classification + ".skb")
-            layout = InputLayout(obj["3DMigoto:VBLayout"])
-            translate_normal = normal_export_translation(
-                layout, "NORMAL", obj.get("3DMigoto:FlipNormal", False)
-            )
-            translate_tangent = normal_export_translation(
-                layout, "TANGENT", obj.get("3DMigoto:FlipNormal", False)
-            )
-            translate_normal = numpy.vectorize(translate_normal)
-            translate_tangent = numpy.vectorize(translate_tangent)
-
-            strides = {
-                x[11:-6]: obj[x]
-                for x in obj.keys()
-                if x.startswith("3DMigoto:VB") and x.endswith("Stride")
-            }
-            topology = "trianglelist"
-            if "3DMigoto:Topology" in obj:
-                topology = obj["3DMigoto:Topology"]
-                if topology == "trianglestrip":
-                    operator.report(
-                        {"WARNING"},
-                        "trianglestrip topology not supported for export, and has been converted to trianglelist. Override draw call topology using a [CustomShader] section with topology=triangle_list",
-                    )
-                    topology = "trianglelist"
-            try:
-                if obj["3DMigoto:IBFormat"] == "DXGI_FORMAT_R16_UINT":
-                    ib_format = "DXGI_FORMAT_R32_UINT"
-                else:
-                    ib_format = obj["3DMigoto:IBFormat"]
-            except KeyError:
-                ib = None
-                raise Fatal("FIXME: Add capability to export without an index buffer")
-            else:
-                ib = IndexBuffer(ib_format)
-
-            # Blender's vertices have unique positions, but may have multiple
-            # normals, tangents, UV coordinates, etc - these are stored in the
-            # loops. To export back to DX we need these combined together such that
-            # a vertex is a unique set of all attributes, but we don't want to
-            # completely blow this out - we still want to reuse identical vertices
-            # via the index buffer. There might be a convenience function in
-            # Blender to do this, but it's easy enough to do this ourselves
-
-            # if vb.topology == 'trianglelist':
-            # elif vb.topology == 'pointlist':
-            #     for index, blender_vertex in enumerate(mesh.vertices):
-            #         vb.append(blender_vertex_to_3dmigoto_vertex(mesh, obj, None, layout, texcoord_layers, blender_vertex, translate_normal, translate_tangent, export_outline))
-            #         if ib is not None:
-            #             ib.append((index,))
-            # else:
-            #     raise Fatal('topology "%s" is not supported for export' % vb.topology)
-
-            # vgmaps = {k[15:]:keys_to_ints(v) for k,v in obj.items() if k.startswith('3DMigoto:VGMap:')}
-
-            # if '' not in vgmaps:
-            #     vb.write(vb_path, strides, operator=operator)
-
-            # base, ext = os.path.splitext(vb_path)
-            # for (suffix, vgmap) in vgmaps.items():
-            #     ib_path = vb_path
-            #     if suffix:
-            #         ib_path = '%s-%s%s' % (base, suffix, ext)
-            #     vgmap_path = os.path.splitext(ib_path)[0] + '.vgmap'
-            #     print('Exporting %s...' % ib_path)
-            #     vb.remap_blendindices(obj, vgmap)
-            #     vb.write(ib_path, strides, operator=operator)
-            #     vb.revert_blendindices_remap()
-            #     sorted_vgmap = collections.OrderedDict(sorted(vgmap.items(), key=lambda x:x[1]))
-            #     json.dump(sorted_vgmap, open(vgmap_path, 'w'), indent=2)
-            if topology == "trianglelist":
-                print(f"Exporting {current_name + classification}...")
-                print(f"Exporting {obj.name}:")
-                ib, vbarr = mesh_to_bin(
-                    context,
-                    operator,
-                    obj,
-                    layout,
-                    game,
-                    translate_normal,
-                    translate_tangent,
-                    obj,
-                    outline_properties,
-                )
-                offsets[current_name + classification] = [
-                    ("", 0, obj.name, len(ib) * 3, len(vbarr), 0)
-                ]
-            else:
-                raise Fatal('topology "%s" is not supported for export' % topology)
-
-            # get all objects in collection of the same name as current mesh
-            # convert them all to binary
-            # write them all to the same buffers keeping count of offsets
-            collection_name = [
-                c
-                for c in bpy.data.collections
-                if c.name.lower().startswith((current_name + classification).lower())
-            ]
-            if collection_name:
-                objs_to_compile = []
-                appendto(bpy.data.collections[collection_name[0].name], objs_to_compile)
-                objs_to_compile = [
-                    obj
-                    for obj in objs_to_compile
-                    if obj[-1].type == "MESH" and obj[-1].visible_get()
-                ]
-                print(f"Objects to export: {[obj[-1] for obj in objs_to_compile]}")
-                count = len(vbarr)
-                ib_offset = len(ib) * 3
-                for collection, depth, obj_c in objs_to_compile:
-                    print(f"Exporting {obj_c.name}:")
-                    obj_ib, obj_vbarr = mesh_to_bin(
-                        context,
-                        operator,
-                        obj_c,
-                        layout,
-                        game,
-                        translate_normal,
-                        translate_tangent,
-                        obj,
-                        outline_properties,
-                    )
-                    obj_ib += count
-                    count += len(obj_vbarr)
-                    if operator.join_meshes is False:
-                        offsets[current_name + classification].append(
-                            (
-                                collection,
-                                depth,
-                                obj_c.name,
-                                len(obj_ib) * 3,
-                                len(obj_vbarr),
-                                ib_offset,
-                            )
-                        )
-                    ib_offset += len(obj_ib) * 3
-                    ib = numpy.append(ib, obj_ib)
-                    vbarr = numpy.append(vbarr, obj_vbarr)
-
-            # Must be done to all meshes and then compiled
-            # if operator.export_shapekeys and mesh.shape_keys is not None and len(mesh.shape_keys.key_blocks) > 1:
-            #     sk_offsets, sk_buf = shapekey_generation(obj, mesh)
-            #     json.dump(sk_offsets, open(sko_path, 'w'), indent=2)
-            #     sk_buf.tofile(skb_path, format='bytes')
-
-            vbarr.tofile(vb_path, format="bytes")
-            ib.tofile(ib_path, format="bytes")
-            ib = IndexBuffer(ib_format)
-            vb = VertexBufferGroup(layout=layout, topology=topology)
-            write_fmt_file(open(fmt_path, "w"), vb, ib, strides)
-
-    generate_mod_folder(
-        operator,
-        vb_path.parent,
+    hash_data = load_hashes(vb_path.parent, vb_path.stem)
+    mod_exporter:ModExporter = ModExporter(
+        context,
         object_name,
-        offsets,
-        no_ramps,
-        delete_intermediate,
-        credit,
+        hash_data,
+        ignore_hidden,
+        True,
+        operator.apply_modifiers_and_shapekeys,
+        only_selected,
         copy_textures,
-        game,
+        operator.join_meshes,
+        vb_path.parent,
         destination,
+        credit=credit,
+        game=game,
     )
+    mod_exporter.export()
+    print(f"Exported {object_name} to {destination}")
 
 
 def load_hashes(path: Path, name: str, hashfile: str = "hash.json") -> list[dict]:
@@ -1020,7 +808,7 @@ def load_hashes(path: Path, name: str, hashfile: str = "hash.json") -> list[dict
     else:
         with open(path / hashfile, "r") as f:
             char_hashes = json.load(f)
-
+    # TODO: Check for hash.json integrity
     return char_hashes
 
 
@@ -1034,7 +822,7 @@ def generate_mod_folder(
     credit: str,
     copy_textures: bool,
     game: GameEnum,
-    destination:Optional[Path]=None,
+    destination: Optional[Path] = None,
 ):
     char_hash = load_hashes(path, character_name)
     if not destination:
@@ -1284,46 +1072,6 @@ def generate_mod_folder(
         print("Writing ini file")
         f.write(ini_data)
     print("All operations completed, exiting")
-
-
-def generate_ini(
-    character_name: str,
-    char_hash: dict,
-    offsets: list,
-    texture_hashes_written: dict,
-    credit: str,
-    game: GameEnum,
-    operator: Operator,
-    user_paths: list[str] = None,
-    template_name: str = "default.ini.j2",
-):
-    """Generates an ini file from a template file using Jinja2.
-    Trailing spaces are removed from the template file."""
-    addon_path = None
-    for mod in addon_utils.modules():
-        if mod.bl_info["name"] == "XXMI_Tools":
-            addon_path = Path(mod.__file__).parent
-            break
-    templates_paths = [addon_path / "templates"]
-    if user_paths:
-        templates_paths.extend(user_paths)
-    env = Environment(
-        loader=FileSystemLoader(searchpath=templates_paths),
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
-    template = env.get_template(template_name)
-
-    return template.render(
-        version=bl_info["version"],
-        char_hash=char_hash,
-        offsets=offsets,
-        texture_hashes_written=texture_hashes_written,
-        credit=credit,
-        game=game,
-        character_name=character_name,
-        operator=operator,
-    )
 
 
 def blender_to_migoto_vertices(
@@ -1647,40 +1395,21 @@ def mesh_to_bin(
     context: Context,
     operator: Operator,
     obj: Object,
-    fmt_layout: InputLayout,
+    migoto_format: MigotoFmt,
     game: GameEnum,
-    translate_normal: bool,
-    translate_tangent: bool,
+    translate_normal: numpy.vectorize,
+    translate_tangent: numpy.vectorize,
     main_obj: Object,
     outline_properties,
-):
-    vb = VertexBufferGroup(layout=fmt_layout, topology="trianglelist")
-    vb.flag_invalid_semantics()
+) -> tuple[NumpyBuffer, NumpyBuffer]:
+    vb: NumpyBuffer = NumpyBuffer(migoto_format.vb_layout)
+    ib: NumpyBuffer = NumpyBuffer(migoto_format.ib_layout)
     if len(obj.data.polygons) == 0:
-        mesh = obj.to_mesh()
-        start_timer = time.time()
-        migoto_verts, dtype = blender_to_migoto_vertices(
-            operator,
-            mesh,
-            obj,
-            fmt_layout,
-            game,
-            translate_normal,
-            translate_tangent,
-            main_obj,
-            outline_properties,
-        )
-        ib = numpy.array([], dtype=(numpy.uint32, 3))
-        vb = numpy.array([], dtype=dtype)
-        print(
-            f"\tMesh to bin generated {len(vb)} vertex in {(time.time() - start_timer):.5f} seconds"
-        )
-        obj.to_mesh_clear()
-        obj.data.update()
+        print("\tMesh has no polygons, skipping")
         return ib, vb
 
     # Calculates tangents and makes loop normals valid (still with our custom normal data from import time):
-    mesh = (
+    mesh: Mesh = (
         apply_modifiers_and_shapekeys(context, obj)
         if operator.apply_modifiers_and_shapekeys
         else obj.to_mesh()
@@ -1704,7 +1433,7 @@ def mesh_to_bin(
         operator,
         mesh,
         obj,
-        fmt_layout,
+        migoto_format,
         game,
         translate_normal,
         translate_tangent,
@@ -1714,46 +1443,30 @@ def mesh_to_bin(
 
     ibvb_timer = time.time()
     indexed_vertices = collections.OrderedDict()
-    # ib = numpy.zeros(len(mesh.polygons), dtype=(numpy.uint32, 3))
-    # for i, poly in enumerate(mesh.polygons):
-    #     face = []
-    #     for blender_lvertex in mesh.loops[poly.loop_start:poly.loop_start + poly.loop_total]:
-    #         vertex = migoto_verts[blender_lvertex.index]
-    #         face.append(indexed_vertices.setdefault(HashableVertexBytes(vertex.tobytes()), len(indexed_vertices)))
-    #     if operator.flip_winding:
-    #         face = face.reverse()
-    #     ib[i] = face
-    # This is a more optimized way to do the same thing as above. Leave prior comment for better readability
-    ib = [
-        [
-            indexed_vertices.setdefault(
-                migoto_verts[blender_lvertex.index].tobytes(), len(indexed_vertices)
-            )
-            for blender_lvertex in mesh.loops[
-                poly.loop_start : poly.loop_start + poly.loop_total
-            ]
-        ]
-        for poly in mesh.polygons
+    ib_list = [
+        indexed_vertices.setdefault(
+            migoto_verts[l.vertex_index].tobytes(), len(indexed_vertices)
+        )
+        for l in mesh.loops
     ]
-    ib = numpy.array(ib, dtype=numpy.uint32)
-    ib = numpy.reshape(ib, (-1, 3))
+    ib.fromlist(ib_list)
 
     # Bitwise XOR. We are assuming these values would always be boolean.
     # It might need more sanity checks in the future.
     if main_obj.get("3DMigoto:FlipMesh", False) ^ main_obj.get(
         "3DMigoto:FlipWinding", False
     ):
-        ib = numpy.fliplr(ib)
+        ib.data = numpy.fliplr(ib.data)
     print(
         f"\t\tIB GEN: {time.time() - ibvb_timer:.5f}, {len(ib)},{len(mesh.loops) // 3}"
     )
 
     ibvb_timer = time.time()
-    vb = bytearray()
+    vb_bytes = bytearray()
     for vertex in indexed_vertices:
-        vb += bytes(vertex)
+        vb_bytes += bytes(vertex)
 
-    vb = numpy.frombuffer(vb, dtype=dtype)
+    vb.data = numpy.frombuffer(vb_bytes, dtype=vb.get_numpy_type())
 
     print(f"\t\tVB GEN: {time.time() - ibvb_timer:.5f}")
     print(
@@ -2019,8 +1732,8 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
     def execute(self, context):
         try:
             vb_path = Path(self.filepath)
-            ib_path = vb_path.parent / vb_path.stem + ".ib"
-            fmt_path = vb_path.parent / vb_path.stem + ".fmt"
+            ib_path = vb_path.parent / (vb_path.stem + ".ib")
+            fmt_path = vb_path.parent / (vb_path.stem + ".fmt")
             object_name = vb_path.stem
 
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
@@ -2738,9 +2451,11 @@ def export_3dmigoto(
             texcoords[loop.index] = uv
         texcoord_layers[uv_layer.name] = texcoords
 
-    translate_normal = normal_export_translation(layout, "NORMAL", operator.flip_normal)
+    translate_normal = normal_export_translation(
+        layout, Semantic.Normal, operator.flip_normal
+    )
     translate_tangent = normal_export_translation(
-        layout, "TANGENT", operator.flip_tangent
+        layout, Semantic.Tangent, operator.flip_tangent
     )
 
     # Blender's vertices have unique positions, but may have multiple

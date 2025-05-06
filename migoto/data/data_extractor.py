@@ -1,0 +1,432 @@
+import collections
+import copy
+import numpy
+from numpy.typing import NDArray, DTypeLike
+import time
+from bpy.types import Mesh, Object
+
+from typing import Optional, Callable
+from operator import attrgetter
+
+from .byte_buffer import (
+    AbstractSemantic,
+    Semantic,
+    BufferSemantic,
+    NumpyBuffer,
+    BufferLayout,
+)
+from .dxgi_format import DXGIFormat, DXGIType
+
+
+class BlenderDataExtractor:
+    blender_data_formats: dict[Semantic, DXGIFormat]
+    blender_loop_semantics: list[Semantic] = [
+        Semantic.Index,
+        Semantic.VertexId,
+        Semantic.Normal,
+        Semantic.Tangent,
+        Semantic.BitangentSign,
+        Semantic.Color,
+        Semantic.TexCoord,
+    ]
+    blender_vertex_semantics: list[Semantic] = [
+        Semantic.Position,
+        Semantic.Blendindices,
+        Semantic.Blendweight,
+    ]
+    format_converters: dict[AbstractSemantic, list[Callable]] = {}
+    semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
+
+    def get_data(
+        self,
+        mesh: Mesh,
+        layout: BufferLayout,
+        blender_data_formats: dict[Semantic, DXGIFormat],
+        semantic_converters: dict[AbstractSemantic, list[Callable]],
+        format_converters: dict[AbstractSemantic, list[Callable]],
+        vertex_ids_cache: Optional[NDArray] = None,
+        flip_winding=False,
+    ) -> tuple[NDArray, NumpyBuffer]:
+        self.blender_data_formats = blender_data_formats
+
+        layout.add_element(
+            BufferSemantic(
+                AbstractSemantic(Semantic.VertexId, 0),
+                self.blender_data_formats[Semantic.VertexId],
+            )
+        )
+        proxy_layout = self.make_proxy_layout(layout)
+
+        if vertex_ids_cache is None:
+            # Extract requested data from blender loop vertices
+            loop_data, index_data = self.get_loop_data(
+                mesh, proxy_layout, flip_winding=flip_winding, dedupe=True
+            )
+            vertex_ids = loop_data.get_field(
+                AbstractSemantic(Semantic.VertexId).get_name()
+            )
+        else:
+            loop_data, index_data = None, None
+            vertex_ids = vertex_ids_cache
+            print("Skipped loop data fetching!")
+
+        # Extract requested data from blender vertices
+        vertex_data = self.get_vertex_data(mesh, proxy_layout)
+
+        if vertex_data is not None:
+            # Output vb is based on actual faces we're going to draw, so we need to make vertex_data match the loop_data
+            # Multiple vertices from loop_data may refer the same one from vertex_data
+            # Also, some vertices from vertex_data may end up not being required at all (when no faces use them)
+            # Luckily, it can be done easily with numpy, and we can use vertex ids from loop_data as index for vertex_data
+            vertex_data.set_data(vertex_data.get_data(vertex_ids))
+
+        # Initialize vertex buffer with requested layout
+        vertex_buffer = NumpyBuffer(layout, size=len(vertex_ids))
+
+        # Convert received data and import it to output vertex buffer
+        for semantic, converter in self.semantic_converters.items():
+            if semantic not in semantic_converters:
+                semantic_converters[semantic] = converter
+        for semantic, converter in self.format_converters.items():
+            if semantic not in format_converters:
+                format_converters[semantic] = converter
+
+        if loop_data is not None:
+            vertex_buffer.import_data(loop_data, semantic_converters, format_converters)
+        if vertex_data is not None:
+            vertex_buffer.import_data(
+                vertex_data, semantic_converters, format_converters
+            )
+        if index_data is not None:
+            for index_converter in semantic_converters.get(
+                AbstractSemantic(Semantic.Index), []
+            ):
+                index_data = index_converter(index_data)
+            for index_converter in format_converters.get(
+                AbstractSemantic(Semantic.Index), []
+            ):
+                index_data = index_converter(index_data)
+
+        return index_data, vertex_buffer
+
+    def make_proxy_layout(self, export_layout: BufferLayout) -> BufferLayout:
+        # VertexId is required for export process, we should ensure its availability
+        proxy_layout = BufferLayout([])
+        # Some formats cannot be converted at foreach_get -> numpy request level and require special care
+        for export_semantic in export_layout.semantics:
+            blender_format = self.blender_data_formats[export_semantic.abstract.enum]
+            export_format = export_semantic.format
+
+            proxy_semantic = copy.deepcopy(export_semantic)
+
+            if export_semantic.extract_format is not None:
+                # Export format has specified extraction format, lets hope they know what they're doing
+                proxy_semantic.format = export_semantic.extract_format
+                proxy_semantic.stride = export_semantic.extract_format.byte_width
+            elif export_format.dxgi_type in [
+                DXGIType.UNORM16,
+                DXGIType.UNORM8,
+                DXGIType.SNORM16,
+                DXGIType.SNORM8,
+            ]:
+                # Formats UNORM16, UNORM8, SNORM16 and SNORM8 cannot be directly exported and require conversion
+                proxy_semantic.format = blender_format
+                proxy_semantic.stride = blender_format.byte_width
+            elif export_semantic.abstract.enum not in [
+                Semantic.Blendindices,
+                Semantic.Blendweight,
+                Semantic.Tangent,
+            ]:
+                # Only blends can be directly exported with any bitness and padding, because they aren't extracted with foreach_get
+                # Other semantics may require conversion:
+                if export_format.num_values != export_format.num_values:
+                    # Export formats with different number of values per row and cannot be filled by foreach_get directly
+                    proxy_semantic.format = blender_format
+                    proxy_semantic.stride = blender_format.byte_width
+                elif export_format.value_byte_width > blender_format.value_byte_width:
+                    # Export formats with more bits than blender storage and may corrupt data if used directly
+                    proxy_semantic.format = blender_format
+                    proxy_semantic.stride = blender_format.byte_width
+                elif export_semantic.stride != blender_format.value_byte_width:
+                    # Export format stride differs from the blender storage and cannot be filled by foreach_get directly
+                    proxy_semantic.format = blender_format
+                    proxy_semantic.stride = blender_format.byte_width
+
+            proxy_layout.add_element(proxy_semantic)
+
+        return proxy_layout
+
+    def fetch_data(
+        self, data_source, data_name: str, data_type: DTypeLike, size: int = 0
+    ) -> NDArray:
+        if size == 0:
+            size = len(data_source)
+        result = numpy.empty(size, dtype=data_type)
+        data_source.foreach_get(data_name, result.ravel())
+        return result
+
+    def get_loop_data(
+        self,
+        mesh: Mesh,
+        proxy_layout: BufferLayout,
+        flip_winding=False,
+        dedupe=False,
+    ) -> tuple[NumpyBuffer, NDArray]:
+        start_time = time.time()
+
+        # Make loop data layout
+        layout = BufferLayout([])
+        for buffer_semantic in proxy_layout.semantics:
+            if buffer_semantic.abstract.enum == Semantic.Index:
+                continue
+            if buffer_semantic.abstract.enum in self.blender_loop_semantics:
+                layout.add_element(buffer_semantic)
+
+        # Calculate data for Semantic.Tangent
+        mesh.calc_tangents()
+
+        # Initialize loop data storage
+        size = len(mesh.loops)
+        loop_data = NumpyBuffer(layout, size=size)
+
+        # Fetch data for requested semantics
+        for buffer_semantic in proxy_layout.semantics:
+            semantic = buffer_semantic.abstract.enum
+            semantic_name = buffer_semantic.get_name()
+            numpy_type = buffer_semantic.get_numpy_type()
+            if semantic == Semantic.VertexId:
+                data = self.fetch_data(mesh.loops, "vertex_index", numpy_type, size)
+            elif semantic == Semantic.Normal:
+                data = self.fetch_data(mesh.loops, "normal", numpy_type, size)
+            elif semantic == Semantic.Tangent:
+                if buffer_semantic.format.num_values > 3:
+                    tangent = self.fetch_data(
+                        mesh.loops, "tangent", (numpy_type[0], 3), size
+                    )
+                    bitangent = self.fetch_data(
+                        mesh.loops, "bitangent_sign", numpy_type[0], size
+                    )
+                    data = numpy.empty((size, numpy_type[1]), dtype=numpy_type[0])
+                    data[:, :3] = tangent
+                    data[:, 3] = bitangent
+                else:
+                    data = self.fetch_data(mesh.loops, "tangent", numpy_type, size)
+            elif semantic == Semantic.BitangentSign:
+                data = self.fetch_data(mesh.loops, "bitangent_sign", numpy_type, size)
+            elif semantic == Semantic.Color:
+                data = self.fetch_data(
+                    mesh.vertex_colors[semantic_name].data, "color", numpy_type, size
+                )
+            elif semantic == Semantic.TexCoord:
+                data = self.fetch_data(
+                    mesh.uv_layers[semantic_name].data, "uv", numpy_type, size
+                )
+            else:
+                continue
+            loop_data.set_field(semantic_name, data)
+
+        # Swap every first with every third vertex for every face aka polygon
+        if flip_winding:
+            # Create array from 0 to len, it's >10x faster than quering it from Blender via
+            # `indices = self.fetch_data(mesh.loops, 'index', (numpy.uint32, 3), int(size/3))`
+            # Creates [0, 1, 2, 3, 4, 5] for len=6
+            indices = numpy.arange(len(loop_data.data))
+            # Convert flat array to 2-dim array of index triads
+            # [0, 1, 2, 3, 4, 5] -> [[0, 1, 2], [3, 4, 5]]
+            indices = indices.reshape(-1, 3)
+            # Swap every first with every third element of index triads
+            # [[0, 1, 2], [3, 4, 5]] -> [[2, 1, 0], [5, 4, 3]]
+            indices[:, [0, 2]] = indices[:, [2, 0]]
+            # Destroy first dimension so we could use the array as index for loop data array
+            # [[2, 1, 0], [5, 4, 3]] -> [2, 1, 0, 5, 4, 3]
+            indices = indices.flatten()
+            # Swap every first with every third element of loop data array
+            loop_data.data = loop_data.data[indices]
+
+        # Build IB
+        index_data = None
+        index_semantic = proxy_layout.get_element(AbstractSemantic(Semantic.Index))
+        if index_semantic is not None:
+            indexed_vertices = collections.OrderedDict()
+            # Note: foreach_get provides loop data in the same order as iteration over polygons
+            index_data = [
+                indexed_vertices.setdefault(data.tobytes(), len(indexed_vertices))
+                for data in loop_data.data
+            ]
+            index_data = numpy.array(index_data, dtype=index_semantic.get_numpy_type())
+
+        # Remove vertices with the exactly same attributes
+        if dedupe:
+            loop_data.remove_duplicates()
+
+        print(
+            f"Loop data fetch time: {time.time() - start_time:.3f}s ({len(loop_data.get_data())} vertices, {len(index_data)} indices)"
+        )
+
+        return loop_data, index_data
+
+    def get_vertex_data(self, mesh: Mesh, proxy_layout: BufferLayout) -> NumpyBuffer:
+        start_time = time.time()
+
+        # Make vertex data layout
+        layout = BufferLayout([])
+        for buffer_semantic in proxy_layout.semantics:
+            if buffer_semantic.abstract.enum in self.blender_vertex_semantics:
+                layout.add_element(buffer_semantic)
+
+        if len(layout.semantics) == 0:
+            print("Skipped vertex data fetching!")
+            return None
+
+        # Initialize vertex data storage
+        size = len(mesh.vertices)
+        vertex_data = NumpyBuffer(layout, size=size)
+        vertex_groups = []
+        for buffer_semantic in proxy_layout.semantics:
+            if buffer_semantic.abstract.enum in [
+                Semantic.Blendindices,
+                Semantic.Blendweight,
+            ]:
+                vertex_groups = [
+                    sorted(vertex.groups, key=attrgetter("weight"), reverse=True)
+                    for vertex in mesh.vertices
+                ]
+                break
+
+        # Fetch data for requested semantics
+        for buffer_semantic in proxy_layout.semantics:
+            semantic = buffer_semantic.abstract.enum
+            numpy_type = buffer_semantic.get_numpy_type()
+
+            if semantic == Semantic.Position:
+                data = self.fetch_data(mesh.vertices, "undeformed_co", numpy_type, size)
+            elif semantic == Semantic.Blendindices:
+                num_values = buffer_semantic.format.num_values
+                data = numpy.array(
+                    [
+                        [vg.group for vg in groups][:num_values]
+                        + [0] * (num_values - len(groups))
+                        for groups in vertex_groups
+                    ],
+                    dtype=numpy_type[0],
+                )
+            elif semantic == Semantic.Blendweight:
+                num_values = buffer_semantic.format.num_values
+                # TODO: Try to load data into the empty numpy instead of inline padding, it may be faster
+                if buffer_semantic.format.value_byte_width > 1:
+                    data = numpy.array(
+                        [
+                            [vg.weight for vg in groups][:num_values]
+                            + [0] * (num_values - len(groups))
+                            for groups in vertex_groups
+                        ],
+                        dtype=numpy_type[0],
+                    )
+                else:
+                    stride = buffer_semantic.stride
+                    data = numpy.array(
+                        [
+                            self.normalize_8bit_weights(
+                                [vg.weight for vg in groups][:stride]
+                            )
+                            + [0] * (stride - len(groups))
+                            for groups in vertex_groups
+                        ],
+                        dtype=numpy_type[0],
+                    )
+
+            else:
+                continue
+
+            vertex_data.set_field(buffer_semantic.get_name(), data)
+
+        print(
+            f"Vertex data fetch time: {time.time() - start_time:.3f}s ({len(vertex_data.get_data())} vertices)"
+        )
+
+        return vertex_data
+
+    def get_shapekey_data(
+        self,
+        obj: Object,
+        names_filter: Optional[list[str]] = None,
+        deduct_basis=False,
+    ) -> dict[str, numpy.ndarray]:
+        start_time = time.time()
+
+        numpy_type = self.blender_data_formats[Semantic.ShapeKey].get_numpy_type()
+
+        base_data = None
+        if deduct_basis:
+            base_data = self.fetch_data(
+                obj.data.shape_keys.key_blocks["Basis"].data, "co", numpy_type
+            )
+
+        result = {}
+
+        for shapekey in obj.data.shape_keys.key_blocks:
+            if names_filter is not None:
+                if shapekey.name not in names_filter:
+                    continue
+            elif deduct_basis and shapekey.name == "Basis":
+                continue
+
+            data = self.fetch_data(shapekey.data, "co", numpy_type)
+
+            if deduct_basis:
+                data -= base_data
+
+            result[shapekey.name] = data
+
+        print(
+            f"Shape Keys fetch time: {time.time() - start_time:.3f}s ({len(result)} shapekeys)"
+        )
+
+        return result
+
+    @staticmethod
+    def normalize_8bit_weights(weights: list[float]) -> list[int]:
+        """
+        Noramlizes provided list of float weights in a 8-bit friendly way
+        Returns list of 8-bit integers (0-255) with sum of 255
+        """
+        total = sum(weights)
+
+        if total == 0:
+            return weights
+
+        precision_error = 255
+
+        tickets = [0] * len(weights)
+
+        for idx, weight in enumerate(weights):
+            # Ignore zero weight
+            if weight == 0:
+                continue
+            weight = weight / total * 255
+            # Ignore weight below minimal precision (1/255)
+            if weight < 1:
+                weights[idx] = 0
+                continue
+            # Strip float part from the weight
+            int_weight = int(weight)
+            weights[idx] = int_weight
+            # Reduce precision_error by the integer weight value
+            precision_error -= int_weight
+            # Calculate weight 'significance' index to prioritize lower weights with float loss
+            tickets[idx] = 255 / weight * (weight - int_weight)
+
+        while precision_error > 0:
+            ticket = max(tickets)
+            if ticket > 0:
+                # Route `1` from precision_error to weights with non-zero ticket value first
+                i = tickets.index(ticket)
+                tickets[i] = 0
+            else:
+                # Route remaining precision_error to highest weight to reduce its impact
+                i = weights.index(max(weights))
+            # Distribute `1` from precision_error
+            weights[i] += 1
+            precision_error -= 1
+
+        return weights

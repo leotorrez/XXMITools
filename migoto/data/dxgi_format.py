@@ -26,7 +26,6 @@ class Topology(StrEnum):
 
 class DXGIType(Enum):
     # dxgi_type.value = (numpy_type, list_encoder, list_decoder, type_encoder, type_decoder)
-    UNKNOWN = (numpy.float32, None, None, None, None)
     FLOAT32 = (numpy.float32, None, None, None, None)
     FLOAT16 = (numpy.float16, None, None, None, None)
     UINT32 = (numpy.uint32, None, None, None, None)
@@ -66,6 +65,15 @@ class DXGIType(Enum):
 
 
 class DXGIFormat(Enum):
+    @classmethod
+    def _missing_(cls, value: str):
+        if value.startswith("DXGI_FORMAT_"):
+            value = value[12:]
+        for member in cls:
+            if member.value == value:
+                return member
+        return None
+
     def __new__(cls, fmt, dxgi_type):
         (numpy_type, list_encoder, list_decoder, type_encoder, type_decoder) = (
             dxgi_type.value
@@ -110,8 +118,7 @@ class DXGIFormat(Enum):
                 obj.value_byte_width = value_byte_width
                 break
 
-        if obj.byte_width < 0:
-            # if obj.byte_width <= 0:
+        if obj.byte_width <= 0:
             raise ValueError(f"Invalid byte width {obj.byte_width} for {obj.format}!")
 
         return obj
@@ -149,7 +156,6 @@ class DXGIFormat(Enum):
         else:
             return (self.numpy_base_type, num_values)
 
-    UNKNOWN = "R32_TYPELESS", DXGIType.UNKNOWN
     # Float 32
     R32G32B32A32_FLOAT = "R32G32B32A32_FLOAT", DXGIType.FLOAT32
     R32G32B32_FLOAT = "R32G32B32_FLOAT", DXGIType.FLOAT32

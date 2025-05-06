@@ -8,6 +8,8 @@ from enum import StrEnum
 import numpy
 from mathutils import Matrix
 
+from dataclasses import dataclass
+
 IOOBJOrientationHelper = type("DummyIOOBJOrientationHelper", (object,), {})
 vertex_color_layer_channels = 4
 

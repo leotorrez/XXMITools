@@ -33,36 +33,34 @@ data = "Created by {{ credit }}"
 {% endblock -%}
 
 {%- block overridesbuffers -%}
-    {%- for component in char_hash if component["draw_vb"] != "" and component["blend_vb"] != "" -%}
-        {%- set comp_name = character_name ~ component.component_name -%}
-[TextureOverride{{ comp_name }}Position]
+    {%- for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" -%}
+[TextureOverride{{ component.fullname }}Position]
 hash = {{ component.position_vb }}
-vb0 = Resource{{ comp_name }}Position
+vb0 = Resource{{ component.fullname }}Position
 {% if credit != "" %}
 $active = 1
 {% endif %}
 
-[TextureOverride{{ comp_name }}Blend]
+[TextureOverride{{ component.fullname }}Blend]
 hash = {{ component.blend_vb }}
 handling = skip
-vb1 = Resource{{ comp_name }}Blend
-draw = {{ component.total_verts }}, 0
+vb1 = Resource{{ component.fullname }}Blend
+draw = {{ component.vertex_count }}, 0
 
-[TextureOverride{{ comp_name }}Texcoord]
+[TextureOverride{{ component.fullname }}Texcoord]
 hash = {{ component.texcoord_vb }}
-vb1 = Resource{{ comp_name }}Texcoord
+vb1 = Resource{{ component.fullname }}Texcoord
 
-[TextureOverride{{ comp_name }}VertexLimitRaise]
+[TextureOverride{{ component.fullname }}VertexLimitRaise]
 hash = {{ component.draw_vb }}
-override_vertex_count = {{ component.total_verts }}
-override_byte_stride = {{ component.strides|sum }}
+override_vertex_count = {{ component.vertex_count }}
+override_byte_stride = {{ component.strides.position }}
 
     {% endfor -%}
-    {% for component in char_hash if component["draw_vb"] != "" and component["blend_vb"] == "" -%}
-        {% set comp_name = character_name ~ component.component_name -%}
-[TextureOverride{{ comp_name }}]
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" -%}
+[TextureOverride{{ component.fullname }}]
 hash = {{ component.position_vb }}
-vb0 = Resource{{ comp_name }}
+vb0 = Resource{{ component.fullname }}
 {% if credit != "" %}
 $active = 1
 {% endif %}
@@ -71,47 +69,46 @@ $active = 1
 {% endblock -%}
 
 {% block overridesibs -%}
-     {% for component in char_hash if component["draw_vb"] != "" -%}
-[TextureOverride{{component.component_name}}IB]
+     {% for component in mod_file.components if component.draw_vb != "" -%}
+[TextureOverride{{component.fullname}}IB]
 hash = {{ component.ib }}
 handling = skip
-{% if operator.join_meshes: -%}
+{% if join_meshes: -%}
 drawindexed = auto
 {% endif %}
 
-            {% for object in component.objects -%}
-[TextureOverride{{ object.fullname }}]
+            {% for part in component.parts -%}
+[TextureOverride{{ part.fullname }}]
 hash = {{ component.ib }}
-match_first_index = {{ component.object_indexes[loop.index0] }}
-{% if object.offsets|rejectattr("3","lt",1)|list|length > 0 %}
-ib = Resource{{ object.fullname }}IB
+match_first_index = {{ part.first_index }}
+{% if part.objects|length > 0 %}
+ib = Resource{{ part.fullname }}IB
 {% else %}
 ib = null
 {% endif %}
-{% for texture in component.texture_hashes[loop.index0] %}
+{% for texture in part.textures %}
 {% set tex_index = loop.index0 %}
-ps-t{{ tex_index }} = Resource{{ object.fullname }}{{ texture[0] }}
+ps-t{{ tex_index }} = Resource{{ part.fullname }}{{ texture.name }}
 {% endfor %}
-                {% if operator.join_meshes == False %}
-                    {% for off in object.offsets if off[3] > 0 -%}
+                {% if join_meshes == False %}
+                    {% for entry in part.objects if entry.vertex_count > 0 -%}
                         {% set tabs = "    " %}
-                        {% if loop.previtem and loop.previtem[0] != off[0] -%}
-{{ tabs * off[1] }}; {{ off[0] }}
+                        {% if loop.previtem and loop.previtem.collection_name != entry.collection_name -%}
+{{ tabs * entry.depth }}; {{ entry.collection_name }}
                         {% endif %}
-{{ tabs * off[1] }}; {{ off[2] }}
-{{ tabs * off[1] }}drawindexed = {{ off[3]}}, {{ off[5] }}, 0
+{{ tabs * entry.depth }}; {{ entry.name }} ({{ entry.vertex_count }})
+{{ tabs * entry.depth }}drawindexed = {{ entry.index_count}}, {{ entry.index_offset }}, 0
                     {% endfor %}
                 {% endif %}
 
             {% endfor %}
     {% endfor %}
-    {% for component in char_hash if component["draw_vb"] == "" -%}
-        {% for object in component.object_classifications %}
-            {% for texture in component.texture_hashes[loop.index0] %}
-            {% set fullname = character_name ~ component.component_name ~ object %}
-[TextureOverride{{fullname}}{{ texture[0] }}]
-hash = {{ texture[2] }}
-this = Resource{{fullname}}{{ texture[0] }}
+    {% for component in mod_file.components if component.draw_vb == "" -%}
+        {% for part in component.parts %}
+            {% for texture in part.textures %}
+[TextureOverride{{part.fullname}}{{ texture.name }}]
+hash = {{ texture.hash }}
+this = Resource{{part.fullname}}{{ texture.name }}
 
             {% endfor %}
         {% endfor %}
@@ -119,61 +116,56 @@ this = Resource{{fullname}}{{ texture[0] }}
 {% endblock  %}
 
 {% block resourcebuffers -%}
-    {% for component in char_hash if component["draw_vb"] != "" and component["blend_vb"] != "" -%}
-        {% set comp_name = character_name ~ component.component_name %}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" -%}
         {% if component.strides %}
-[Resource{{ comp_name }}Position]
+[Resource{{ component.fullname }}Position]
 type = Buffer
-stride = {{ component.strides.0 }}
-filename = {{ comp_name }}Position.buf
+stride = {{ component.strides.position }}
+filename = {{ component.fullname }}Position.buf
 
-[Resource{{ comp_name }}Blend]
+[Resource{{ component.fullname }}Blend]
 type = Buffer
-stride = {{ component.strides.1 }}
-filename = {{ comp_name }}Blend.buf
+stride = {{ component.strides.blend }}
+filename = {{ component.fullname }}Blend.buf
 
-[Resource{{ comp_name }}Texcoord]
+[Resource{{ component.fullname }}Texcoord]
 type = Buffer
-stride = {{ component.strides.2 }}
-filename = {{ comp_name }}Texcoord.buf
+stride = {{ component.strides.texcoord }}
+filename = {{ component.fullname }}Texcoord.buf
         {% endif %}
         
-        {% for object in component.objects -%}
-[Resource{{ object.fullname }}IB]
+        {% for part in component.parts -%}
+[Resource{{ part.fullname }}IB]
 type = Buffer
 format = DXGI_FORMAT_R32_UINT
-filename = {{ object.fullname }}.ib
+filename = {{ part.fullname }}.ib
 
         {% endfor %}
     {% endfor %}
-    {% for component in char_hash if component["draw_vb"] != "" and component["blend_vb"] == "" -%}
-        {% set comp_name = character_name ~ component.component_name %}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" -%}
         {% if component.strides %}
-[Resource{{ comp_name }}]
+[Resource{{ component.fullname }}]
 type = Buffer
 stride = {{ component.strides.0 }}
-filename = {{ comp_name }}.buf
+filename = {{ component.fullname }}.buf
         {% endif %}
         
-        {% for object in component.objects -%}
-[Resource{{ object.fullname }}IB]
+        {% for part in component.parts -%}
+[Resource{{ part.fullname }}IB]
 type = Buffer
 format = DXGI_FORMAT_R32_UINT
-filename = {{ object.fullname }}.ib
+filename = {{ part.fullname }}.ib
 
         {% endfor %}
     {% endfor %}
 {% endblock %}
 
 {% block resourcetextures -%}
-    {% for component in char_hash -%}
-        {% set comp_name = character_name ~ component.component_name %}
-        {% for object in component.texture_hashes -%}
-            {% set auxidx = loop.index0 %}
-            {% for tex in object -%}
-                {% set main_name = comp_name ~ component.object_classifications[auxidx] %}
-[Resource{{ main_name }}{{ tex[0] }}]
-filename = {{ main_name }}{{ tex[0] }}.dds
+    {% for component in mod_file.components -%}
+        {% for part in component.parts -%}
+            {% for texture in part.textures -%}
+[Resource{{ part.fullname }}{{ texture.name }}]
+filename = {{ part.fullname }}{{ texture.name }}{{ texture.extension }}
 
             {% endfor %}
         {% endfor %}
