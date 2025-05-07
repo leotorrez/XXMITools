@@ -135,11 +135,10 @@ class BlenderDataExtractor:
             elif export_semantic.abstract.enum not in [
                 Semantic.Blendindices,
                 Semantic.Blendweight,
-                Semantic.Tangent,
             ]:
                 # Only blends can be directly exported with any bitness and padding, because they aren't extracted with foreach_get
                 # Other semantics may require conversion:
-                if export_format.num_values != export_format.num_values:
+                if export_format.num_values != blender_format.num_values:
                     # Export formats with different number of values per row and cannot be filled by foreach_get directly
                     proxy_semantic.format = blender_format
                     proxy_semantic.stride = blender_format.byte_width
@@ -199,18 +198,7 @@ class BlenderDataExtractor:
             elif semantic == Semantic.Normal:
                 data = self.fetch_data(mesh.loops, "normal", numpy_type, size)
             elif semantic == Semantic.Tangent:
-                if buffer_semantic.format.num_values > 3:
-                    tangent = self.fetch_data(
-                        mesh.loops, "tangent", (numpy_type[0], 3), size
-                    )
-                    bitangent = self.fetch_data(
-                        mesh.loops, "bitangent_sign", numpy_type[0], size
-                    )
-                    data = numpy.empty((size, numpy_type[1]), dtype=numpy_type[0])
-                    data[:, :3] = tangent
-                    data[:, 3] = bitangent
-                else:
-                    data = self.fetch_data(mesh.loops, "tangent", numpy_type, size)
+                data = self.fetch_data(mesh.loops, "tangent", numpy_type, size)
             elif semantic == Semantic.BitangentSign:
                 data = self.fetch_data(mesh.loops, "bitangent_sign", numpy_type, size)
             elif semantic == Semantic.Color:

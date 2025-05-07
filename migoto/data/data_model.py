@@ -425,24 +425,9 @@ class DataModel(object):
 
 class DataModelXXMI(DataModel):
     game: GameEnum
+    mirror_mesh: bool = False
+    flip_texcoords_vertical: dict[str, bool] = {}
     buffers_format: Dict[str, BufferLayout] = {}
-
-    def __init__(
-        self,
-        flip_winding: bool = False,
-        flip_bitangent_sign: bool = False,
-        flip_texcoord_v: bool = False,
-        flip_normal: bool = False,
-        flip_tangent: bool = False,
-    ) -> None:
-        self.flip_winding = flip_winding
-        self.flip_bitangent_sign = flip_bitangent_sign
-        self.flip_texcoord_v = flip_texcoord_v
-        self.flip_normal = flip_normal
-        self.flip_tangent = flip_tangent
-
-        self.semantic_converters = {}
-        self.format_converters = {}
 
     @classmethod
     def from_obj(cls, obj: Object, game: GameEnum) -> "DataModelXXMI":
@@ -460,6 +445,11 @@ class DataModelXXMI(DataModel):
         cls.flip_normal = obj.get("3DMigoto:FlipNormal")
         cls.flip_tangent = obj.get("3DMigoto:FlipTangent")
         cls.flip_bitangent_sign = obj.get("3DMigoto:Tangent")
+        cls.mirror_mesh = obj.get("3DMigoto:FlipMesh")
+        for uv_layer in obj.data.uv_layers:
+            cls.flip_texcoords_vertical[uv_layer.name] = obj[
+                "3DMigoto:" + uv_layer.name
+            ]["flip_v"]
         if (ib_f := obj.get("3DMigoto:IBFormat")) is None:
             raise Fatal("Export doesn't support meshes without index buffer")
         n = ib_f.replace("DXGI_FORMAT_R", "").replace("_UINT", "").replace("16", "32")
@@ -558,3 +548,118 @@ class DataModelXXMI(DataModel):
     #     mirror_mesh: bool = False,
     # ) -> Dict[str, NumpyBuffer]:
     #     return {}
+
+    def get_mesh_data(
+        self,
+        context: Context,
+        collection: Collection,
+        mesh: Mesh,
+        export_layout: BufferLayout,
+        fetch_loop_data: bool,
+        mirror_mesh: bool = False,
+    ) -> tuple[NDArray, NumpyBuffer]:
+        vertex_ids_cache, cache_vertex_ids = None, False
+
+        flip_winding = (
+            self.flip_winding if not self.mirror_mesh else not self.flip_winding
+        )
+        flip_bitangent_sign = (
+            self.flip_bitangent_sign
+            if not self.mirror_mesh
+            else not self.flip_bitangent_sign
+        )
+
+        # if not fetch_loop_data:
+        #     if (
+        #         collection
+        #         != context.scene.wwmi_tools_settings.vertex_ids_cached_collection
+        #     ):
+        #         # Cache contains data for different object and must be cleared
+        #         context.scene.wwmi_tools_settings.vertex_ids_cache = ""
+        #         fetch_loop_data = True
+        #         cache_vertex_ids = True
+        #     else:
+        #         # Partial export is enabled
+        #         if context.scene.wwmi_tools_settings.vertex_ids_cache:
+        #             # Valid vertex ids cache exists, lets load it
+        #             vertex_ids_cache = numpy.array(
+        #                 json.loads(context.scene.wwmi_tools_settings.vertex_ids_cache)
+        #             )
+        #         else:
+        #             # Cache is clear, we'll have to fetch loop data once
+        #             fetch_loop_data = True
+        #             cache_vertex_ids = True
+        # elif context.scene.wwmi_tools_settings.vertex_ids_cache:
+        #     # We're going to fetch loop data, cache must be cleared
+        #     context.scene.wwmi_tools_settings.vertex_ids_cache = ""
+
+        # Copy default converters
+        semantic_converters, format_converters = {}, {}
+        semantic_converters.update(self.semantic_converters)
+        format_converters.update(self.format_converters)
+
+        # Add generic converters
+        for semantic in export_layout.semantics:
+            # Flip normals
+            if self.flip_normal and semantic.abstract.enum == Semantic.Normal:
+                self._insert_converter(
+                    semantic_converters, semantic.abstract, self.converter_flip_vector
+                )
+            # Flip tangents
+            if self.flip_tangent and semantic.abstract.enum == Semantic.Tangent:
+                self._insert_converter(
+                    semantic_converters, semantic.abstract, self.converter_flip_vector
+                )
+            # Flip bitangent sign
+            if flip_bitangent_sign and semantic.abstract.enum == Semantic.BitangentSign:
+                self._insert_converter(
+                    semantic_converters, semantic.abstract, self.converter_flip_vector
+                )
+            # Invert X coord of every vector in arrays required to mirror mesh
+            if self.mirror_mesh and semantic.abstract.enum in [
+                Semantic.Position,
+                Semantic.Normal,
+                Semantic.Tangent,
+            ]:
+                self._insert_converter(
+                    semantic_converters, semantic.abstract, self.converter_mirror_vector
+                )
+            # Flip V component of UV maps
+            if self.flip_texcoord_v and semantic.abstract.enum == Semantic.TexCoord:
+                self._insert_converter(
+                    semantic_converters,
+                    semantic.abstract,
+                    self.converter_flip_texcoord_v,
+                )
+            if (
+                self.flip_texcoords_vertical.get(semantic.get_name())
+                and semantic.abstract.enum == Semantic.TexCoord
+            ):
+                self._insert_converter(
+                    semantic_converters,
+                    semantic.abstract,
+                    self.converter_flip_texcoord_v,
+                )
+
+        # If vertex_ids_cache is *not* None, get_data method will skip loop data fetching
+        index_buffer, vertex_buffer = self.data_extractor.get_data(
+            mesh,
+            export_layout,
+            self.blender_data_formats,
+            semantic_converters,
+            format_converters,
+            vertex_ids_cache,
+            flip_winding=flip_winding,
+        )
+
+        # if cache_vertex_ids:
+        #     # As vertex_ids_cache is None, get_data fetched loop data for us and we can cache vertex ids
+        #     vertex_ids = vertex_buffer.get_field(
+        #         AbstractSemantic(Semantic.VertexId).get_name()
+        #     )
+        #     context.scene.wwmi_tools_settings.vertex_ids_cache = json.dumps(
+        #         vertex_ids.tolist()
+        #     )
+        #     context.scene.wwmi_tools_settings.vertex_ids_cached_collection = collection
+
+        return index_buffer, vertex_buffer

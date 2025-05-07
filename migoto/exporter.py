@@ -1,12 +1,12 @@
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Union
+from typing import Union, Optional
 
 import addon_utils
 import bpy
 import numpy
-from bpy.types import Collection, Context, Mesh, Object
+from bpy.types import Collection, Context, Mesh, Object, Depsgraph
 from numpy.typing import NDArray
 
 from .. import bl_info
@@ -14,6 +14,8 @@ from ..libs.jinja2 import Environment, FileSystemLoader
 from .data.data_model import DataModelXXMI
 from .datastructures import GameEnum
 from .operators import Fatal
+from .export_ops import mesh_triangulate
+from .data.byte_buffer import Semantic
 
 
 @dataclass
@@ -90,11 +92,9 @@ class ModExporter:
 
     def __post_init__(self) -> None:
         self.initialize_data()
-        self.count_vertex()
 
     def initialize_data(self) -> None:
         print("Initializing data for export...")
-        desgraph = bpy.context.evaluated_depsgraph_get()
         if not self.hash_data:
             raise ValueError("Hash data is empty!")
 
@@ -125,6 +125,7 @@ class ModExporter:
                 ib=component["ib"],
                 strides={},
             )
+            component_vertex_count = 0
             for j, part in enumerate(component["object_classifications"]):
                 if component["draw_vb"] == "":
                     continue
@@ -150,16 +151,16 @@ class ModExporter:
                 for entry in component["texture_hashes"][j]:
                     textures.append(TextureData(*entry))
 
-                objects = [
-                    SubObj(
-                        "",
-                        0,
-                        name=obj.name,
-                        obj=obj,
-                        mesh=obj.evaluated_get(desgraph).to_mesh(),
-                    )
-                ]
-                self.obj_from_col(obj, collection_name[0], objects)
+                objects: list[SubObj] = []
+                if len(collection_name) == 0:
+                    self.obj_from_col(obj, None, objects)
+                else:
+                    self.obj_from_col(obj, collection_name[0], objects)
+                offset = 0
+                for entry in objects:
+                    entry.index_count = len(entry.mesh.polygons) * 3
+                    entry.index_offset = offset
+                    offset += entry.index_count
                 component_entry.parts.append(
                     Part(
                         fullname=part_name,
@@ -173,51 +174,40 @@ class ModExporter:
     def obj_from_col(
         self,
         main_obj: Object,
-        collection: Collection,
+        collection: Optional[Collection],
         destination: list[SubObj],
-        depth: int = 1,
+        depth: int = 0,
     ) -> None:
         """Recursively get all objects from a collection and its sub-collections."""
-        desgraph = bpy.context.evaluated_depsgraph_get()
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        if destination == []:
+            final_mesh: Mesh = self.process_mesh(main_obj, main_obj, depsgraph)
+            destination.append(SubObj("", depth, main_obj.name, main_obj, final_mesh))
+        if collection is None:
+            return
+
         objs = [obj for obj in collection.objects if obj.type == "MESH"]
         sorted_objs = sorted(objs, key=lambda x: x.name)
         for obj in sorted_objs:
-            final_mesh = self.process_mesh(main_obj, obj, desgraph)
+            final_mesh = self.process_mesh(main_obj, obj, depsgraph)
             destination.append(
-                SubObj(
-                    collection.name,
-                    depth,
-                    obj.name,
-                    obj,
-                    mesh=final_mesh,
-                )
+                SubObj(collection.name, depth, obj.name, obj, final_mesh)
             )
         for child in collection.children:
             self.obj_from_col(main_obj, child, destination, depth + 1)
 
-    def process_mesh(self, main_obj: Object, obj: Object, desgraph: Context) -> Mesh:
+    def process_mesh(self, main_obj: Object, obj: Object, depsgraph: Depsgraph) -> Mesh:
         """Process the mesh of the object."""
-        final_mesh: Mesh = obj.evaluated_get(desgraph).to_mesh()
+        # TODO: Add moddifier application for SK'd meshes here
+        final_mesh: Mesh = obj.evaluated_get(depsgraph).to_mesh()
         if main_obj != obj:
             # Matrix world seems to be the summatory of all transforms parents included
             # Might need to test for more edge cases and to confirm these suspicious,
             # other available options: matrix_local, matrix_basis, matrix_parent_inverse
             final_mesh.transform(obj.matrix_world)
             final_mesh.transform(main_obj.matrix_world.inverted())
-
+        mesh_triangulate(final_mesh)
         return final_mesh
-
-    def count_vertex(self) -> None:
-        """Count the number of vertices and indices in the objects."""
-        for component in self.mod_file.components:
-            offset = 0
-            for part in component.parts:
-                for sub_obj in part.objects:
-                    sub_obj.vertex_count = len(sub_obj.mesh.vertices)
-                    sub_obj.index_count = len(sub_obj.mesh.loops)
-                    sub_obj.index_offset = offset
-                    offset += sub_obj.index_count
-                    component.vertex_count += sub_obj.vertex_count
 
     def generate_buffers(self) -> None:
         """Generate buffers for the objects."""
@@ -225,10 +215,13 @@ class ModExporter:
         self.files_to_copy = {}
         repeated_textures = {}
         for component in self.mod_file.components:
-            pos, blend, tex = [], [], []
+            pos_buffer: Optional[NDArray] = None
+            blend_buffer: Optional[NDArray] = None
+            tex_buffer: Optional[NDArray] = None
+            total_v_count: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname}...")
-                ib = []
+                ib_buffer = None
                 offset = 0
                 data_model: DataModelXXMI = DataModelXXMI.from_obj(
                     part.objects[0].obj, self.game
@@ -238,34 +231,27 @@ class ModExporter:
                     if len(entry.mesh.polygons) == 0:
                         print(f"Skipping empty mesh {entry.obj.name}")
                     buffers, v_count = data_model.get_data(
-                        bpy.context,
-                        None,
-                        entry.obj,
-                        entry.mesh,
-                        [],
+                        bpy.context, None, entry.obj, entry.mesh, []
                     )
-                    for key, buffer in buffers.items():
-                        if key == "Position":
-                            pos.append(buffer)
-                            component.strides.setdefault(
-                                key.lower(), buffer.data.itemsize
-                            )
-                        elif key == "Blend":
-                            blend.append(buffer)
-                            component.strides.setdefault(
-                                key.lower(), buffer.data.itemsize
-                            )
-                        elif key == "TexCoord":
-                            tex.append(buffer)
-                            component.strides.setdefault(
-                                key.lower(), buffer.data.itemsize
-                            )
-                        elif key == "IB":
-                            # buffer.data = buffer.data.flatten()
-                            buffer.data["INDEX"] += offset
-                            ib.append(buffer.data)
-                        else:
-                            print(f"Unknown buffer type: {key}")
+                    entry.vertex_count = v_count
+                    total_v_count += v_count
+                    for k, result in {
+                        "Position": pos_buffer,
+                        "Blend": blend_buffer,
+                        "TexCoord": tex_buffer,
+                    }.items():
+                        component.strides[k.lower()] = buffers[k].data.itemsize
+                        result = (
+                            buffers[k].data
+                            if result is None
+                            else numpy.concatenate((result, buffers[k].data))
+                        )
+                    buffers["IB"].data[Semantic.Index] += offset
+                    ib_buffer = (
+                        buffers["IB"].data
+                        if ib_buffer is None
+                        else numpy.concatenate((ib_buffer, buffers["IB"].data))
+                    )
                     offset += v_count
                 for t in part.textures:
                     if (
@@ -279,22 +265,25 @@ class ModExporter:
                     self.files_to_copy[self.dump_path / tex_name] = (
                         self.destination / tex_name
                     )
-
+                if ib_buffer is None:
+                    print(f"Skipping {part.fullname}.ib due to no index data.")
+                    continue
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
-                    numpy.concatenate([i.data for i in ib])
+                    ib_buffer
                 )
-            if len(pos) == 0:
-                print(f"Skipping {component.fullname} due to no position data.")
+            component.vertex_count = total_v_count
+            if pos_buffer is None or blend_buffer is None or tex_buffer is None:
+                print(f"Skipping {component.fullname} buffers due to no position data.")
                 continue
             self.files_to_write[
                 self.destination / (component.fullname + "Position.buf")
-            ] = numpy.concatenate([i.data for i in pos])
+            ] = pos_buffer
             self.files_to_write[
                 self.destination / (component.fullname + "Blend.buf")
-            ] = numpy.concatenate([i.data for i in blend])
+            ] = blend_buffer
             self.files_to_write[
                 self.destination / (component.fullname + "TexCoord.buf")
-            ] = numpy.concatenate([i.data for i in tex])
+            ] = tex_buffer
 
     def generate_ini(
         self, template_name: str = "default.ini.j2", user_paths=None
@@ -322,7 +311,6 @@ class ModExporter:
                 game=self.game,
                 character_name=self.mod_name,
                 join_meshes=self.join_meshes,
-                char_hash=self.mod_file.hash_data,
             )
         )
 
