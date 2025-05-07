@@ -429,6 +429,18 @@ class DataModelXXMI(DataModel):
     flip_texcoords_vertical: dict[str, bool] = {}
     buffers_format: Dict[str, BufferLayout] = {}
 
+    def __init__(self) -> None:
+        self.semantic_converters = {
+            # AbstractSemantic(Semantic.Tangent, 0): [
+            #     lambda data: self.converter_resize_second_dim(data, 4, fill=1)
+            # ],
+        }
+        self.format_converters = {
+            AbstractSemantic(Semantic.Tangent, 0): [
+                lambda data: self.converter_resize_second_dim(data, 4, fill=1)
+            ],
+        }
+
     @classmethod
     def from_obj(cls, obj: Object, game: GameEnum) -> "DataModelXXMI":
         cls = super().__new__(cls)
@@ -507,6 +519,28 @@ class DataModelXXMI(DataModel):
                     ),
                 )
                 if new_semantic.abstract.enum in pos_semantics:
+                    if (
+                        new_semantic.abstract.enum == Semantic.Tangent
+                        and new_semantic.get_num_values() == 4
+                    ):
+                        # Tangent is 4D vector, we need to convert it to 3D, 1D BitangentSign
+                        tangent_semantic = BufferSemantic(
+                            AbstractSemantic(Semantic.Tangent),
+                            DXGIFormat.from_type(new_semantic.format.dxgi_type, 3),
+                            new_semantic.input_slot,
+                            new_semantic.data_step_rate,
+                            remapped_abstract=new_semantic.remapped_abstract,
+                        )
+                        bitangent_semantic = BufferSemantic(
+                            AbstractSemantic(Semantic.BitangentSign),
+                            DXGIFormat.from_type(new_semantic.format.dxgi_type, 1),
+                            new_semantic.input_slot,
+                            new_semantic.data_step_rate,
+                            remapped_abstract=new_semantic.remapped_abstract,
+                        )
+                        cls.buffers_format["Position"].add_element(tangent_semantic)
+                        cls.buffers_format["Position"].add_element(bitangent_semantic)
+                        continue
                     cls.buffers_format["Position"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in blend_semantics:
                     cls.buffers_format["Blend"].add_element(new_semantic)

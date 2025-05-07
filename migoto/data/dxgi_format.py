@@ -66,6 +66,15 @@ class DXGIType(Enum):
 
 class DXGIFormat(Enum):
     @classmethod
+    def from_type(cls, dxgi_type: DXGIType, dimensions) -> "DXGIFormat":
+        for member in cls:
+            if member.dxgi_type == dxgi_type and member.num_values == dimensions:
+                return member
+        raise ValueError(
+            f"DXGIFormat not found for {dxgi_type} and {dimensions} dimensions!"
+        )
+
+    @classmethod
     def _missing_(cls, value: str):
         if value.startswith("DXGI_FORMAT_"):
             value = value[12:]

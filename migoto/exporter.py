@@ -43,6 +43,7 @@ class Part:
     objects: list[SubObj]
     textures: list[TextureData]
     first_index: int
+    vertex_count: int = 0
 
 
 @dataclass
@@ -215,44 +216,49 @@ class ModExporter:
         self.files_to_copy = {}
         repeated_textures = {}
         for component in self.mod_file.components:
-            pos_buffer: Optional[NDArray] = None
-            blend_buffer: Optional[NDArray] = None
-            tex_buffer: Optional[NDArray] = None
-            total_v_count: int = 0
+            output_buffers: dict[str, Optional[NDArray]] = {
+                "Position": None,
+                "Blend": None,
+                "TexCoord": None,
+            }
+            ib_offset: int = 0
             for part in component.parts:
-                print(f"Processing {part.fullname}...")
+                print(f"Processing {part.fullname} " + "-" * 10)
                 ib_buffer = None
-                offset = 0
                 data_model: DataModelXXMI = DataModelXXMI.from_obj(
                     part.objects[0].obj, self.game
                 )
                 for entry in part.objects:
                     print(f"Processing {entry.name}...")
-                    if len(entry.mesh.polygons) == 0:
+                    if len(entry.obj.data.polygons) == 0:
                         print(f"Skipping empty mesh {entry.obj.name}")
-                    buffers, v_count = data_model.get_data(
-                        bpy.context, None, entry.obj, entry.mesh, []
+                        continue
+                    gen_buffers, v_count = data_model.get_data(
+                        bpy.context,
+                        None,
+                        entry.obj,
+                        entry.mesh,
+                        [],  # type: ignore
                     )
                     entry.vertex_count = v_count
-                    total_v_count += v_count
-                    for k, result in {
-                        "Position": pos_buffer,
-                        "Blend": blend_buffer,
-                        "TexCoord": tex_buffer,
-                    }.items():
-                        component.strides[k.lower()] = buffers[k].data.itemsize
-                        result = (
-                            buffers[k].data
-                            if result is None
-                            else numpy.concatenate((result, buffers[k].data))
+                    part.vertex_count += v_count
+                    component.vertex_count += v_count
+                    for k in output_buffers:
+                        component.strides[k.lower()] = gen_buffers[k].data.itemsize
+                        output_buffers[k] = (
+                            gen_buffers[k].data
+                            if output_buffers[k] is None
+                            else numpy.concatenate(
+                                (output_buffers[k], gen_buffers[k].data)  # type: ignore
+                            )
                         )
-                    buffers["IB"].data[Semantic.Index] += offset
+                    gen_buffers["IB"].data["INDEX"] += ib_offset
                     ib_buffer = (
-                        buffers["IB"].data
+                        gen_buffers["IB"].data
                         if ib_buffer is None
-                        else numpy.concatenate((ib_buffer, buffers["IB"].data))
+                        else numpy.concatenate((ib_buffer, gen_buffers["IB"].data))
                     )
-                    offset += v_count
+                    ib_offset += v_count
                 for t in part.textures:
                     if (
                         t.hash in repeated_textures
@@ -271,19 +277,22 @@ class ModExporter:
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     ib_buffer
                 )
-            component.vertex_count = total_v_count
-            if pos_buffer is None or blend_buffer is None or tex_buffer is None:
+            if (
+                output_buffers["Position"] is None
+                or output_buffers["Blend"] is None
+                or output_buffers["TexCoord"] is None
+            ):
                 print(f"Skipping {component.fullname} buffers due to no position data.")
                 continue
             self.files_to_write[
                 self.destination / (component.fullname + "Position.buf")
-            ] = pos_buffer
+            ] = output_buffers["Position"]
             self.files_to_write[
                 self.destination / (component.fullname + "Blend.buf")
-            ] = blend_buffer
+            ] = output_buffers["Blend"]
             self.files_to_write[
                 self.destination / (component.fullname + "TexCoord.buf")
-            ] = tex_buffer
+            ] = output_buffers["TexCoord"]
 
     def generate_ini(
         self, template_name: str = "default.ini.j2", user_paths=None
@@ -316,11 +325,11 @@ class ModExporter:
 
     def write_files(self) -> None:
         """Write the files to the destination."""
-        print("Writing files to destination...")
+        print("Writen files: ")
         self.destination.mkdir(parents=True, exist_ok=True)
         try:
             for file_path, content in self.files_to_write.items():
-                print(f"\t{file_path}")
+                print(f"{file_path.name}", end=", ")
                 if isinstance(content, str):
                     with open(file_path, "w", encoding="utf-8") as file:
                         file.write(content)
@@ -332,12 +341,13 @@ class ModExporter:
             return
         try:
             for src, dest in self.files_to_copy.items():
-                print(f"\t{dest}")
+                print(f"{dest.name}", end=", ")
                 if not dest.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src, dest)
         except (OSError, IOError) as e:
             raise Fatal(f"Error copying file {src} to {dest}: {e}")
+        print("")
 
     def export(self) -> None:
         """Export the mod file."""

@@ -33,7 +33,7 @@ data = "Created by {{ credit }}"
 {% endblock -%}
 
 {%- block overridesbuffers -%}
-    {%- for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" -%}
+    {%- for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 -%}
 [TextureOverride{{ component.fullname }}Position]
 hash = {{ component.position_vb }}
 vb0 = Resource{{ component.fullname }}Position
@@ -57,7 +57,7 @@ override_vertex_count = {{ component.vertex_count }}
 override_byte_stride = {{ component.strides.position }}
 
     {% endfor -%}
-    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" -%}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" and component.vertex_count > 0 -%}
 [TextureOverride{{ component.fullname }}]
 hash = {{ component.position_vb }}
 vb0 = Resource{{ component.fullname }}
@@ -69,7 +69,7 @@ $active = 1
 {% endblock -%}
 
 {% block overridesibs -%}
-     {% for component in mod_file.components if component.draw_vb != "" -%}
+     {% for component in mod_file.components if component.draw_vb != "" and component.vertex_count > 0 -%}
 [TextureOverride{{component.fullname}}IB]
 hash = {{ component.ib }}
 handling = skip
@@ -81,7 +81,7 @@ drawindexed = auto
 [TextureOverride{{ part.fullname }}]
 hash = {{ component.ib }}
 match_first_index = {{ part.first_index }}
-{% if part.objects|length > 0 %}
+{% if part.vertex_count > 0 %}
 ib = Resource{{ part.fullname }}IB
 {% else %}
 ib = null
@@ -90,6 +90,9 @@ ib = null
 {% set tex_index = loop.index0 %}
 ps-t{{ tex_index }} = Resource{{ part.fullname }}{{ texture.name }}
 {% endfor %}
+{% if part.textures[0].name|lower == "normalmap" %}
+run = CommandList\global\ORFix\ORFix
+{% endif %}
                 {% if join_meshes == False %}
                     {% for entry in part.objects if entry.vertex_count > 0 -%}
                         {% set tabs = "    " %}
@@ -116,7 +119,7 @@ this = Resource{{part.fullname}}{{ texture.name }}
 {% endblock  %}
 
 {% block resourcebuffers -%}
-    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" -%}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 -%}
         {% if component.strides %}
 [Resource{{ component.fullname }}Position]
 type = Buffer
@@ -142,11 +145,11 @@ filename = {{ part.fullname }}.ib
 
         {% endfor %}
     {% endfor %}
-    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" -%}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" and component.vertex_count > 0 -%}
         {% if component.strides %}
 [Resource{{ component.fullname }}]
 type = Buffer
-stride = {{ component.strides.0 }}
+stride = {{ component.strides.position }}
 filename = {{ component.fullname }}.buf
         {% endif %}
         

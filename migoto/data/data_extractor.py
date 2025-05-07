@@ -46,8 +46,16 @@ class BlenderDataExtractor:
         format_converters: dict[AbstractSemantic, list[Callable]],
         vertex_ids_cache: Optional[NDArray] = None,
         flip_winding=False,
-    ) -> tuple[NDArray, NumpyBuffer]:
+    ) -> tuple[Optional[NDArray], NumpyBuffer]:
         self.blender_data_formats = blender_data_formats
+
+        # Initialize converters
+        for semantic, converter in self.semantic_converters.items():
+            if semantic not in semantic_converters:
+                semantic_converters[semantic] = converter
+        for semantic, converter in self.format_converters.items():
+            if semantic not in format_converters:
+                format_converters[semantic] = converter
 
         layout.add_element(
             BufferSemantic(
@@ -55,7 +63,7 @@ class BlenderDataExtractor:
                 self.blender_data_formats[Semantic.VertexId],
             )
         )
-        proxy_layout = self.make_proxy_layout(layout)
+        proxy_layout = self.make_proxy_layout(layout, semantic_converters)
 
         if vertex_ids_cache is None:
             # Extract requested data from blender loop vertices
@@ -84,13 +92,6 @@ class BlenderDataExtractor:
         vertex_buffer = NumpyBuffer(layout, size=len(vertex_ids))
 
         # Convert received data and import it to output vertex buffer
-        for semantic, converter in self.semantic_converters.items():
-            if semantic not in semantic_converters:
-                semantic_converters[semantic] = converter
-        for semantic, converter in self.format_converters.items():
-            if semantic not in format_converters:
-                format_converters[semantic] = converter
-
         if loop_data is not None:
             vertex_buffer.import_data(loop_data, semantic_converters, format_converters)
         if vertex_data is not None:
@@ -109,7 +110,11 @@ class BlenderDataExtractor:
 
         return index_data, vertex_buffer
 
-    def make_proxy_layout(self, export_layout: BufferLayout) -> BufferLayout:
+    def make_proxy_layout(
+        self,
+        export_layout: BufferLayout,
+        semantic_converters: dict[AbstractSemantic, list[Callable]],
+    ) -> BufferLayout:
         # VertexId is required for export process, we should ensure its availability
         proxy_layout = BufferLayout([])
         # Some formats cannot be converted at foreach_get -> numpy request level and require special care
@@ -130,6 +135,11 @@ class BlenderDataExtractor:
                 DXGIType.SNORM8,
             ]:
                 # Formats UNORM16, UNORM8, SNORM16 and SNORM8 cannot be directly exported and require conversion
+                proxy_semantic.format = blender_format
+                proxy_semantic.stride = blender_format.byte_width
+            elif export_semantic.abstract in semantic_converters.keys():
+                # Semantic converter specified and it works with data values
+                # Lets extract data in original format to prevent possible precision loss
                 proxy_semantic.format = blender_format
                 proxy_semantic.stride = blender_format.byte_width
             elif export_semantic.abstract.enum not in [
