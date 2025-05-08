@@ -788,6 +788,7 @@ def export_3dmigoto_xxmi(
         destination,
         credit=credit,
         game=game,
+        outline_optimization=outline_properties[0]
     )
     mod_exporter.export()
     print(f"Exported {object_name} to {destination}")

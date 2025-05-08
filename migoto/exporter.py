@@ -1,21 +1,21 @@
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Union, Optional
+from typing import Optional, Union
 
 import addon_utils
 import bpy
 import numpy
-from bpy.types import Collection, Context, Mesh, Object, Depsgraph
+from bpy.types import Collection, Context, Depsgraph, Mesh, Object
 from numpy.typing import NDArray
 
 from .. import bl_info
 from ..libs.jinja2 import Environment, FileSystemLoader
 from .data.data_model import DataModelXXMI
+from .data.byte_buffer import BufferLayout, Semantic
 from .datastructures import GameEnum
-from .operators import Fatal
 from .export_ops import mesh_triangulate
-from .data.byte_buffer import Semantic
+from .operators import Fatal
 
 
 @dataclass
@@ -85,6 +85,7 @@ class ModExporter:
     destination: Path
     credit: str
     game: GameEnum
+    outline_optimization: bool = False
     # Output
     mod_file: ModFile = field(init=False)
     ini_content: str = field(init=False)
@@ -126,7 +127,6 @@ class ModExporter:
                 ib=component["ib"],
                 strides={},
             )
-            component_vertex_count = 0
             for j, part in enumerate(component["object_classifications"]):
                 if component["draw_vb"] == "":
                     continue
@@ -226,24 +226,34 @@ class ModExporter:
                 print(f"Processing {part.fullname} " + "-" * 10)
                 ib_buffer = None
                 data_model: DataModelXXMI = DataModelXXMI.from_obj(
-                    part.objects[0].obj, self.game
+                    part.objects[0].obj, self.game, self.outline_optimization
                 )
                 for entry in part.objects:
                     print(f"Processing {entry.name}...")
                     if len(entry.obj.data.polygons) == 0:
                         print(f"Skipping empty mesh {entry.obj.name}")
                         continue
+                    self.verify_mesh_requirements(
+                        part.objects[0].obj,
+                        entry.obj,
+                        entry.mesh,
+                        data_model.buffers_format,
+                        [],
+                    )
                     gen_buffers, v_count = data_model.get_data(
                         bpy.context,
                         None,
                         entry.obj,
                         entry.mesh,
-                        [],  # type: ignore
+                        [],
+                        data_model.mirror_mesh,
                     )
                     entry.vertex_count = v_count
                     part.vertex_count += v_count
                     component.vertex_count += v_count
                     for k in output_buffers:
+                        if k not in gen_buffers:
+                            continue
                         component.strides[k.lower()] = gen_buffers[k].data.itemsize
                         output_buffers[k] = (
                             gen_buffers[k].data
@@ -277,22 +287,67 @@ class ModExporter:
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     ib_buffer
                 )
-            if (
-                output_buffers["Position"] is None
-                or output_buffers["Blend"] is None
-                or output_buffers["TexCoord"] is None
-            ):
+            if output_buffers["Position"] is None:
                 print(f"Skipping {component.fullname} buffers due to no position data.")
                 continue
-            self.files_to_write[
-                self.destination / (component.fullname + "Position.buf")
-            ] = output_buffers["Position"]
-            self.files_to_write[
-                self.destination / (component.fullname + "Blend.buf")
-            ] = output_buffers["Blend"]
-            self.files_to_write[
-                self.destination / (component.fullname + "TexCoord.buf")
-            ] = output_buffers["TexCoord"]
+            self.optimize_outlines(output_buffers["Position"])
+            if output_buffers["Position"] is None or output_buffers["TexCoord"] is None:
+                print(f"Skipping {component.fullname} buffers due to no positional.")
+                continue
+            if component.blend_vb != "":
+                self.files_to_write[
+                    self.destination / (component.fullname + "Position.buf")
+                ] = output_buffers["Position"]
+                self.files_to_write[
+                    self.destination / (component.fullname + "Blend.buf")
+                ] = output_buffers["Blend"]
+                self.files_to_write[
+                    self.destination / (component.fullname + "TexCoord.buf")
+                ] = output_buffers["TexCoord"]
+                continue
+            merged_dtype = numpy.dtype(
+                list(output_buffers["Position"].dtype.descr)
+                + list(output_buffers["TexCoord"].dtype.descr)
+            )
+            merged_buffer = numpy.empty(
+                len(output_buffers["Position"]), dtype=merged_dtype
+            )
+            for name in output_buffers["Position"].dtype.names:
+                merged_buffer[name] = output_buffers["Position"][name]
+            for name in output_buffers["TexCoord"].dtype.names:
+                merged_buffer[name] = output_buffers["TexCoord"][name]
+            self.files_to_write[self.destination / (component.fullname + ".buf")] = (
+                merged_buffer
+            )
+            component.strides = {"position": merged_buffer.itemsize}
+
+    def verify_mesh_requirements(
+        self,
+        main_obj: Object,
+        obj: Object,
+        mesh: Mesh,
+        buffers_format: dict[str, BufferLayout],
+        excluded_buffers: list[str],
+    ) -> None:
+        """Checks for format requirements in specific layouts"""
+        for key, buffer_format in buffers_format.items():
+            if key in excluded_buffers:
+                continue
+            for semantic in buffer_format.semantics:
+                if (
+                    semantic.abstract.enum == Semantic.Color
+                    and mesh.vertex_colors.get(semantic.abstract.get_name()) is None
+                ):
+                    raise Fatal(
+                        f"Mesh({obj.name}) needs to have a color attribute called '{semantic.abstract.get_name()}'!"
+                    )
+                if (
+                    semantic.abstract.enum == Semantic.TexCoord
+                    and mesh.uv_layers.get(semantic.abstract.get_name()) is None
+                ):
+                    raise Fatal(
+                        f"Mesh({obj.name}) needs to have a uv attribute called '{semantic.abstract.get_name()}'!"
+                    )
 
     def generate_ini(
         self, template_name: str = "default.ini.j2", user_paths=None
@@ -322,6 +377,29 @@ class ModExporter:
                 join_meshes=self.join_meshes,
             )
         )
+
+    def optimize_outlines(self, position_buffer: NDArray) -> None:
+        """Optimize the outlines of the meshes with angle-weighted normal averaging."""
+        temp = position_buffer.copy()
+        temp["TANGENT"][...] = 1
+        temp["POSITION"] = numpy.round(temp["POSITION"], 3)
+        temp["NORMAL"] = numpy.round(temp["NORMAL"], 3)
+        u, u_inverse, counts = numpy.unique(
+            temp, return_counts=True, return_inverse=True
+        )
+        position_buffer["TANGENT"][:, 0:3] = position_buffer["NORMAL"][:, 0:3]
+        shared_indices = numpy.where(counts > 1)[0]
+        for i in shared_indices:
+            mask = u_inverse == i
+            vertex_normals = position_buffer["NORMAL"][mask, 0:3]
+            if numpy.all(numpy.isclose(vertex_normals, vertex_normals[0])):
+                continue
+            normal_magnitudes = numpy.linalg.norm(vertex_normals, axis=1)
+            weights = normal_magnitudes / numpy.sum(normal_magnitudes)
+            weighted_normals = vertex_normals * weights[:, numpy.newaxis]
+            avg_normal = numpy.sum(weighted_normals, axis=0)
+            normalized_avg = avg_normal / numpy.linalg.norm(avg_normal)
+            position_buffer["TANGENT"][mask, 0:3] = normalized_avg
 
     def write_files(self) -> None:
         """Write the files to the destination."""
