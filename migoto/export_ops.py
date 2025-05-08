@@ -774,7 +774,7 @@ def export_3dmigoto_xxmi(
                 "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
             )
     hash_data = load_hashes(vb_path.parent, vb_path.stem)
-    mod_exporter:ModExporter = ModExporter(
+    mod_exporter: ModExporter = ModExporter(
         context,
         object_name,
         hash_data,
@@ -788,7 +788,7 @@ def export_3dmigoto_xxmi(
         destination,
         credit=credit,
         game=game,
-        outline_optimization=outline_properties[0]
+        outline_optimization=outline_properties[0],
     )
     mod_exporter.export()
     print(f"Exported {object_name} to {destination}")
@@ -1935,13 +1935,8 @@ class DestinationSelector(Operator, ExportHelper):
     def execute(self, context):
         userpath = Path(self.properties.filepath)
         if not userpath.is_dir():
-            userpath = userpath.parent.name
-            self.properties.filepath = userpath
-            if not userpath.is_dir():
-                msg = "Please select a directory not a file\n" + userpath
-                self.report({"ERROR"}, msg)
-                return {"CANCELLED"}
-        context.scene.xxmi.destination_path = self.properties.filepath
+            userpath = userpath.parent
+        context.scene.xxmi.destination_path = str(userpath)
         bpy.ops.ed.undo_push(message="XXMI Tools: destination selected")
         return {"FINISHED"}
 
