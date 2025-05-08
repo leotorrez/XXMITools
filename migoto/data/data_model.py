@@ -1,7 +1,6 @@
 import time
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Optional, Union
 
-import bpy
 import numpy
 from bpy.types import Collection, Context, Mesh, Object
 from numpy.typing import NDArray
@@ -426,8 +425,9 @@ class DataModel(object):
 class DataModelXXMI(DataModel):
     game: GameEnum
     mirror_mesh: bool = False
+    outline_optimization: bool = False
     flip_texcoords_vertical: dict[str, bool] = {}
-    buffers_format: Dict[str, BufferLayout] = {}
+    buffers_format: dict[str, BufferLayout] = {}
 
     def __init__(self) -> None:
         self.semantic_converters = {
@@ -442,9 +442,12 @@ class DataModelXXMI(DataModel):
         }
 
     @classmethod
-    def from_obj(cls, obj: Object, game: GameEnum) -> "DataModelXXMI":
+    def from_obj(
+        cls, obj: Object, game: GameEnum, outline_optimization: bool = False
+    ) -> "DataModelXXMI":
         cls = super().__new__(cls)
         cls.game = game
+        cls.outline_optimization = outline_optimization
         for prop in [
             "3DMigoto:FlipNormal",
             "3DMigoto:FlipTangent",
@@ -520,12 +523,22 @@ class DataModelXXMI(DataModel):
                 )
                 if new_semantic.abstract.enum in pos_semantics:
                     if (
+                        new_semantic.abstract.enum
+                        in [Semantic.Normal, Semantic.Position]
+                        and new_semantic.get_num_values() == 4
+                    ):
+                        cls.semantic_converters[new_semantic.abstract] = [
+                            lambda data: cls.converter_resize_second_dim(
+                                data, 4, fill=1
+                            )
+                        ]
+                    if (
                         new_semantic.abstract.enum == Semantic.Tangent
                         and new_semantic.get_num_values() == 4
                     ):
                         # Tangent is 4D vector, we need to convert it to 3D, 1D BitangentSign
                         tangent_semantic = BufferSemantic(
-                            AbstractSemantic(Semantic.Tangent),
+                            new_semantic.abstract,
                             DXGIFormat.from_type(new_semantic.format.dxgi_type, 3),
                             new_semantic.input_slot,
                             new_semantic.data_step_rate,
@@ -551,37 +564,6 @@ class DataModelXXMI(DataModel):
                 "Object doesn't count with the custom properties required for export!"
             )
         return cls
-
-    # def get_data(
-    #     self,
-    #     context: bpy.types.Context,
-    #     collection: Optional[bpy.types.Collection],
-    #     obj: bpy.types.Object,
-    #     mesh: bpy.types.Mesh,
-    #     excluded_buffers: List[str],
-    #     mirror_mesh: bool = False,
-    # ) -> Tuple[Dict[str, NumpyBuffer], int]:
-    #     index_data, vertex_buffer = self.export_data(
-    #         context, collection, mesh, excluded_buffers, mirror_mesh
-    #     )
-    #     buffers = self.build_buffers(index_data, vertex_buffer, excluded_buffers)
-    #     vertex_ids = vertex_buffer.get_field(
-    #         AbstractSemantic(Semantic.VertexId).get_name()
-    #     )
-    #     shapekeys = self.export_shapekeys(
-    #         obj, vertex_ids, excluded_buffers, mirror_mesh
-    #     )
-    #     buffers.update(shapekeys)
-    #     return buffers, len(vertex_ids)
-
-    # def export_shapekeys(
-    #     self,
-    #     obj: bpy.types.Object,
-    #     vertex_ids: numpy.ndarray,
-    #     excluded_buffers: List[str],
-    #     mirror_mesh: bool = False,
-    # ) -> Dict[str, NumpyBuffer]:
-    #     return {}
 
     def get_mesh_data(
         self,
