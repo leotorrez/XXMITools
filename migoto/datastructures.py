@@ -4,18 +4,16 @@ import itertools
 import re
 import struct
 import textwrap
-from enum import StrEnum
+from enum import Enum
 import numpy
 from mathutils import Matrix
-
-from dataclasses import dataclass
 
 IOOBJOrientationHelper = type("DummyIOOBJOrientationHelper", (object,), {})
 vertex_color_layer_channels = 4
 
 
 # FIXME: hardcoded values in a very weird way cause blender EnumProperties are odd-
-class GameEnum(StrEnum):
+class GameEnum(str, Enum):
     Unknown = "Unknown"
     HonkaiImpact3rd = "Honkai Impact 3rd"
     GenshinImpact = "Genshin Impact"

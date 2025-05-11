@@ -1,11 +1,11 @@
 import numpy
-from enum import Enum, StrEnum
+from enum import Enum
 from typing import Callable
 
 from numpy.typing import DTypeLike
 
 
-class Topology(StrEnum):
+class Topology(str, Enum):
     # https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d11-primitive-topology
     UNSOPORTED = "unsoported"
     TRIANGLELIST = "trianglelist"

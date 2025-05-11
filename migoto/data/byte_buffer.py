@@ -2,7 +2,7 @@ import copy
 import textwrap
 from pathlib import Path
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Callable, Optional, Union
 
 
@@ -12,7 +12,7 @@ from numpy.typing import DTypeLike, NDArray
 from .dxgi_format import DXGIFormat
 
 
-class Semantic(StrEnum):
+class Semantic(str, Enum):
     VertexId = "VERTEXID"
     Index = "INDEX"
     Tangent = "TANGENT"
