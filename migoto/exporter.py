@@ -6,7 +6,7 @@ from typing import Optional, Union
 import addon_utils
 import bpy
 import numpy
-from bpy.types import Collection, Context, Depsgraph, Mesh, Object
+from bpy.types import Collection, Context, Depsgraph, Mesh, Object, Operator
 from numpy.typing import NDArray
 
 from .. import bl_info
@@ -85,6 +85,7 @@ class ModExporter:
     destination: Path
     credit: str
     game: GameEnum
+    operator: Operator
     outline_optimization: bool = False
     # Output
     mod_file: ModFile = field(init=False)
@@ -332,30 +333,50 @@ class ModExporter:
         excluded_buffers: list[str],
     ) -> None:
         """Checks for format requirements in specific layouts"""
-        # Maybe we can add checks to auto apply some of the missing data from the main object
-        for key, buffer_format in buffers_format.items():
-            if key in excluded_buffers:
-                continue
-            for semantic in buffer_format.semantics:
-                if (
-                    semantic.abstract.enum == Semantic.Color
-                    and mesh.vertex_colors.get(semantic.abstract.get_name()) is None
-                ):
-                    raise Fatal(
-                        f"Mesh({obj.name}) needs to have a color attribute called '{semantic.abstract.get_name()}'!"
+        semantics_to_check = [
+            semantic
+            for key, buffer_layout in buffers_format.items()
+            for semantic in buffer_layout.semantics
+            if key not in excluded_buffers
+        ]
+        for sem in semantics_to_check:
+            abs_enum = sem.abstract.enum
+            abs_name = sem.abstract.get_name()
+            if abs_enum == Semantic.Color and mesh.vertex_colors.get(abs_name) is None:
+                raise Fatal(
+                    f"Mesh({obj.name}) needs to have a color attribute called '{abs_name}'!"
+                )
+            if abs_enum == Semantic.TexCoord and mesh.uv_layers.get(abs_name) is None:
+                raise Fatal(
+                    f"Mesh({obj.name}) needs to have a uv attribute called '{abs_name}'!"
+                )
+            if abs_enum == Semantic.Blendweight:
+                if len(mesh.vertices) > 0 and len(obj.vertex_groups) == 0:
+                    self.operator.report(
+                        {"WARNING"},
+                        (
+                            f"Mesh({obj.name}) requires vertex groups to be posed. "
+                            "Please add vertex groups to the mesh if you intend for it to be rendered. "
+                        ),
                     )
-                if (
-                    semantic.abstract.enum == Semantic.TexCoord
-                    and mesh.uv_layers.get(semantic.abstract.get_name()) is None
-                ):
-                    raise Fatal(
-                        f"Mesh({obj.name}) needs to have a uv attribute called '{semantic.abstract.get_name()}'!"
-                    )
+                max_groups = sem.format.get_num_values()
+                for vertex in mesh.vertices:
+                    if len(vertex.groups) > max_groups:
+                        self.operator.report(
+                            {"WARNING"},
+                            (
+                                f"Mesh({obj.name}) has some vertex with more VGs than the amount supported by the buffer format ({max_groups}). "
+                                "Please remove the extra groups from the vertex or use to clean up the weights(limit total plus normalization). "
+                            ),
+                        )
+                        break
+
     def generate_ini(
         self, template_name: str = "default.ini.j2", user_paths=None
     ) -> None:
+        # Extensions handle modifiable paths differently. If we ever move to them we should make modifications in here
         print("Generating .ini file")
-        addon_path = None
+        addon_path: Path = Path(__file__).parent.parent
         for mod in addon_utils.modules():
             if mod.bl_info["name"] == "XXMI_Tools":
                 addon_path = Path(mod.__file__).parent
@@ -383,7 +404,7 @@ class ModExporter:
     def optimize_outlines(self, position_buffer: NDArray) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
         if not self.outline_optimization:
-                 return
+            return
         if len(position_buffer) == 0:
             return
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
