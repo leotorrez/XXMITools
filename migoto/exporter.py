@@ -101,13 +101,16 @@ class ModExporter:
         if not self.hash_data:
             raise ValueError("Hash data is empty!")
 
-        candidate_objects: list[Object] = (
+        candidate_objs: list[Object] = (
             [obj for obj in bpy.context.selected_objects]
             if self.only_selected
             else [obj for obj in self.context.scene.objects]
         )
         if self.ignore_hidden:
-            candidate_objects = [obj for obj in candidate_objects if obj.visible_get()]
+            candidate_objs = [obj for obj in candidate_objs if obj.visible_get()]
+        if self.only_selected:
+            selected_objs = [obj for obj in bpy.context.selected_objects]
+            candidate_objs = [obj for obj in candidate_objs if obj in selected_objs]
         self.mod_file = ModFile(
             name=self.mod_name,
             components=[],
@@ -133,7 +136,7 @@ class ModExporter:
                     continue
                 part_name: str = current_name + part
                 matching_objs = [
-                    obj for obj in candidate_objects if obj.name.startswith(part_name)
+                    obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
                 if not matching_objs:
                     raise Fatal(f"Cannot find object {part_name} in the scene.")
@@ -191,6 +194,9 @@ class ModExporter:
         objs = [obj for obj in collection.objects if obj.type == "MESH"]
         if self.ignore_hidden:
             objs = [obj for obj in objs if obj.visible_get()]
+        if self.only_selected:
+            selected_objs = [obj for obj in bpy.context.selected_objects]
+            objs = [obj for obj in objs if obj in selected_objs]
         sorted_objs = sorted(objs, key=lambda x: x.name)
         for obj in sorted_objs:
             final_mesh = self.process_mesh(main_obj, obj, depsgraph)
