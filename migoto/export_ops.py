@@ -733,46 +733,34 @@ def collect_vb_single(folder: Path, name: str, classification: str, stride: int)
 def export_3dmigoto_xxmi(
     operator: Operator,
     context: Context,
-    object_name: str,
     vb_path: Path,
     ib_path: Path,
     fmt_path: Path,
-    use_foldername: bool,
     ignore_hidden: bool,
     only_selected: bool,
     no_ramps: bool,
-    delete_intermediate: bool,
     credit: str,
     copy_textures: bool,
-    outline_properties,
+    outline_optimization: bool,
+    join_meshes: bool,
+    apply_modifiers_and_shapekeys: bool,
     game: GameEnum,
     destination: Optional[Path] = None,
 ) -> None:
     scene = bpy.context.scene
     if not destination:
         destination = vb_path.parent / f"{object_name}Mod"
-    # Quick sanity check
-    # If we cannot find any objects in the scene with or any files in the folder with the given name, default to using
-    #   the folder name
-    if use_foldername or (
-        not [obj for obj in scene.objects if object_name.lower() in obj.name.lower()]
-        or not [
-            file
-            for file in vb_path.parent.iterdir()
-            if object_name.lower() in str(file).lower()
-        ]
-    ):
-        object_name = vb_path.stem
-        if not [
-            obj for obj in scene.objects if object_name.lower() in obj.name.lower()
-        ] or not [
-            file
-            for file in vb_path.parent.iterdir()
-            if object_name.lower() in file.name.lower()
-        ]:
-            raise Fatal(
-                "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
-            )
+    object_name = vb_path.stem
+    if not [
+        obj for obj in scene.objects if object_name.lower() in obj.name.lower()
+    ] or not [
+        file
+        for file in vb_path.parent.iterdir()
+        if object_name.lower() in file.name.lower()
+    ]:
+        raise Fatal(
+            "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
+        )
     hash_data = load_hashes(vb_path.parent, vb_path.stem)
     mod_exporter: ModExporter = ModExporter(
         context,
@@ -780,16 +768,16 @@ def export_3dmigoto_xxmi(
         hash_data,
         ignore_hidden,
         True,
-        operator.apply_modifiers_and_shapekeys,
+        apply_modifiers_and_shapekeys,
         only_selected,
         copy_textures,
-        operator.join_meshes,
+        join_meshes,
         vb_path.parent,
         destination,
         credit=credit,
         game=game,
         operator=operator,
-        outline_optimization=outline_properties[0],
+        outline_optimization=outline_optimization,
     )
     mod_exporter.export()
     print(f"Exported {object_name} to {destination}")
@@ -1565,12 +1553,6 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         options={"HIDDEN"},
     )
 
-    use_foldername: BoolProperty(
-        name="Use foldername when exporting",
-        description="Sets the export name equal to the foldername you are exporting to. Keep true unless you have changed the names",
-        default=True,
-    )
-
     ignore_hidden: BoolProperty(
         name="Ignore hidden objects",
         description="Does not use objects in the Blender window that are hidden while exporting mods",
@@ -1589,12 +1571,6 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         default=True,
     )
 
-    delete_intermediate: BoolProperty(
-        name="Delete intermediate files",
-        description="Deletes the intermediate vb/ib files after a successful export to reduce clutter",
-        default=True,
-    )
-
     copy_textures: BoolProperty(
         name="Copy textures",
         description="Copies the texture files to the mod folder, useful for the initial export but might be redundant afterwards.",
@@ -1607,54 +1583,6 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         default="",
     )
 
-    outline_optimization: BoolProperty(
-        name="Outline Optimization",
-        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality. This option is tailored for Genshin Impact and may not work as well for other games. Use with caution.",
-        default=False,
-    )
-
-    toggle_rounding_outline: BoolProperty(
-        name="Round vertex positions",
-        description="Rounding of vertex positions to specify which are the overlapping vertices",
-        default=True,
-    )
-
-    decimal_rounding_outline: IntProperty(
-        name="Decimals:",
-        description="Rounding of vertex positions to specify which are the overlapping vertices",
-        default=3,
-    )
-
-    angle_weighted: BoolProperty(
-        name="Weight by angle",
-        description="Optional: calculate angles to improve accuracy of outlines. Slow",
-        default=False,
-    )
-
-    overlapping_faces: BoolProperty(
-        name="Ignore overlapping faces",
-        description="Detect and ignore overlapping/antiparallel faces to avoid buggy outlines",
-        default=False,
-    )
-
-    detect_edges: BoolProperty(
-        name="Calculate edges",
-        description="Calculate for disconnected edges when rounding, closing holes in the edge outline",
-        default=False,
-    )
-
-    calculate_all_faces: BoolProperty(
-        name="Calculate outline for all faces",
-        description="Calculate outline for all faces, which is especially useful if you have any flat shaded non-edge faces. Slow",
-        default=False,
-    )
-
-    nearest_edge_distance: FloatProperty(
-        name="Distance:",
-        description="Expand grouping for edge vertices within this radial distance to close holes in the edge outline. Requires rounding",
-        default=0.001,
-        min=0.001,
-    )
     game: EnumProperty(
         name="Game to mod",
         description="Select the game you are modding to optimize the mod for that game",
@@ -1675,6 +1603,21 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
+    outline_optimization: BoolProperty(
+        name="Outline Optimization",
+        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality. This option is tailored for Genshin Impact and may not work as well for other games. Use with caution.",
+        default=False,
+    )
+    apply_modifiers_and_shapekeys: BoolProperty(
+        name="Apply modifiers and shapekeys",
+        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
+        default=False,
+    )
+    join_meshes: BoolProperty(
+        name="Join meshes",
+        description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
+        default=False,
+    )
     export_shapekeys: BoolProperty(
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
@@ -1685,11 +1628,9 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         layout = self.layout
         col = layout.column(align=True)
         col.prop(self, "game")
-        col.prop(self, "use_foldername")
         col.prop(self, "ignore_hidden")
         col.prop(self, "only_selected")
         col.prop(self, "no_ramps")
-        col.prop(self, "delete_intermediate")
         col.prop(self, "copy_textures")
         col.prop(self, "apply_modifiers_and_shapekeys")
         col.prop(self, "join_meshes")
@@ -1736,36 +1677,22 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
             vb_path = Path(self.filepath)
             ib_path = vb_path.parent / (vb_path.stem + ".ib")
             fmt_path = vb_path.parent / (vb_path.stem + ".fmt")
-            object_name = vb_path.stem
-
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
-            outline_properties = (
-                self.outline_optimization,
-                self.toggle_rounding_outline,
-                self.decimal_rounding_outline,
-                self.angle_weighted,
-                self.overlapping_faces,
-                self.detect_edges,
-                self.calculate_all_faces,
-                self.nearest_edge_distance,
-            )
-            game = GameEnum[self.game]
             export_3dmigoto_xxmi(
                 self,
                 context,
-                object_name,
                 vb_path,
                 ib_path,
                 fmt_path,
-                self.use_foldername,
                 self.ignore_hidden,
                 self.only_selected,
                 self.no_ramps,
-                self.delete_intermediate,
                 self.credit,
                 self.copy_textures,
-                outline_properties,
-                game,
+                self.outline_optimization,
+                self.apply_modifiers_and_shapekeys,
+                self.join_meshes,
+                self.game,
             )
             self.report({"INFO"}, "Export completed")
         except Fatal as e:
@@ -1799,12 +1726,6 @@ class XXMIProperties(PropertyGroup):
         default=False,
     )
 
-    use_foldername: BoolProperty(
-        name="Use foldername when exporting",
-        description="Sets the export name equal to the foldername you are exporting to. Keep true unless you have changed the names",
-        default=True,
-    )
-
     ignore_hidden: BoolProperty(
         name="Ignore hidden objects",
         description="Does not use objects in the Blender window that are hidden while exporting mods",
@@ -1820,12 +1741,6 @@ class XXMIProperties(PropertyGroup):
     no_ramps: BoolProperty(
         name="Ignore shadow ramps/metal maps/diffuse guide",
         description="Skips exporting shadow ramps, metal maps and diffuse guides",
-        default=True,
-    )
-
-    delete_intermediate: BoolProperty(
-        name="Delete intermediate files",
-        description="Deletes the intermediate vb/ib files after a successful export to reduce clutter",
         default=True,
     )
 
@@ -1983,44 +1898,28 @@ class ExportAdvancedOperator(Operator):
         if xxmi.destination_path == xxmi.dump_path:
             self.report({"ERROR"}, "Destination path can not be the same as Dump path")
             return {"CANCELLED"}
-        self.apply_modifiers_and_shapekeys = xxmi.apply_modifiers_and_shapekeys
-        self.join_meshes = xxmi.join_meshes
-        self.normalize_weights = xxmi.normalize_weights
-        self.export_shapekeys = xxmi.export_shapekeys
         try:
             base_path = Path(xxmi.dump_path + "/")
             vb_path = base_path / (base_path.stem + ".vb")
             ib_path = base_path / (base_path.stem + ".ib")
             fmt_path = base_path / (base_path.stem + ".fmt")
-            object_name = base_path.name
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
-            outline_properties = (
-                xxmi.outline_optimization,
-                xxmi.toggle_rounding_outline,
-                xxmi.decimal_rounding_outline,
-                xxmi.angle_weighted,
-                xxmi.overlapping_faces,
-                xxmi.detect_edges,
-                xxmi.calculate_all_faces,
-                xxmi.nearest_edge_distance,
-            )
             game = GameEnum[xxmi.game]
             start = time.time()
             export_3dmigoto_xxmi(
                 self,
                 context,
-                object_name,
                 vb_path,
                 ib_path,
                 fmt_path,
-                xxmi.use_foldername,
                 xxmi.ignore_hidden,
                 xxmi.only_selected,
                 xxmi.no_ramps,
-                xxmi.delete_intermediate,
                 xxmi.credit,
                 xxmi.copy_textures,
-                outline_properties,
+                xxmi.outline_optimization,
+                xxmi.apply_modifiers_and_shapekeys,
+                xxmi.join_meshes,
                 game,
                 Path(xxmi.destination_path),
             )

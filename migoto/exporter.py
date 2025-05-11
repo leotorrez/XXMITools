@@ -74,7 +74,7 @@ class ModExporter:
     # Input
     context: Context
     mod_name: str
-    hash_data: dict
+    hash_data: list[dict]
     ignore_hidden: bool
     ignore_muted_shape_keys: bool
     apply_modifiers: bool

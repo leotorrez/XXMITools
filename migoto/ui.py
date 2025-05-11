@@ -244,15 +244,14 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
         box = self.layout.box()
         row = box.row()
         col = row.column(align=True)
-        col.prop(xxmi, "use_foldername")
         col.prop(xxmi, "ignore_hidden")
         col.prop(xxmi, "only_selected")
         col.prop(xxmi, "no_ramps")
-        col.prop(xxmi, "delete_intermediate")
         col.prop(xxmi, "copy_textures")
         col.prop(xxmi, "apply_modifiers_and_shapekeys")
         col.prop(xxmi, "join_meshes")
         col.prop(xxmi, "normalize_weights")
+        col.prop(xxmi, "outline_optimization")
         # col.prop(xxmi, 'export_shapekeys')
 
 
