@@ -1,7 +1,7 @@
 {% extends "base.ini.j2" %}
 
-{% block constantscredit -%}
-{% if credit != "" -%}
+{% block constantscredit %}
+{% if credit != "" %}
 [Constants]
 global $active = 0
 global $creditinfo = 0
@@ -9,11 +9,11 @@ global $creditinfo = 0
 [Present]
 post $active = 0
 run = CommandListCreditInfo
-{% endif -%}
+{% endif %}
 {% endblock %}
 
 {% block commandlistscredit %}
-    {% if credit != "" -%}
+    {% if credit != "" %}
 [CommandListCreditInfo]
 if $creditinfo == 0 && $active > 0
     pre Resource\ShaderFixes\help.ini\Notification = ResourceCreditInfo
@@ -21,19 +21,19 @@ if $creditinfo == 0 && $active > 0
     pre $\ShaderFixes\help.ini\notification_timeout = time + 5.0
     $creditinfo = 1
 endif
-    {% endif -%}
-{% endblock -%}
+    {% endif %}
+{% endblock %}
 
-{% block resourcecredit -%}
-    {% if credit != "" -%}
+{% block resourcecredit %}
+    {% if credit != "" %}
 [ResourceCreditInfo]
 type = Buffer
 data = "Created by {{ credit }}"
-    {% endif -%}
-{% endblock -%}
+    {% endif %}
+{% endblock %}
 
-{%- block overridesbuffers -%}
-    {%- for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 -%}
+{%- block overridesbuffers %}
+    {%- for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 %}
 [TextureOverride{{ component.fullname }}Position]
 hash = {{ component.position_vb }}
 vb0 = Resource{{ component.fullname }}Position
@@ -56,8 +56,8 @@ hash = {{ component.draw_vb }}
 override_vertex_count = {{ component.vertex_count }}
 override_byte_stride = {{ component.strides.position }}
 
-    {% endfor -%}
-    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" and component.vertex_count > 0 -%}
+    {% endfor %}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" %}
 [TextureOverride{{ component.fullname }}]
 hash = {{ component.position_vb }}
 vb0 = Resource{{ component.fullname }}
@@ -65,23 +65,22 @@ vb0 = Resource{{ component.fullname }}
 $active = 1
 {% endif %}
 
-    {% endfor -%}
-{% endblock -%}
+    {% endfor %}
+{% endblock %}
 
-{% block overridesibs -%}
-     {% for component in mod_file.components if component.draw_vb != "" and component.vertex_count > 0 -%}
+{% block overridesibs %}
+     {% for component in mod_file.components if component.draw_vb != "" %}
 [TextureOverride{{component.fullname}}IB]
 hash = {{ component.ib }}
 handling = skip
-{% if join_meshes: -%}
+{% if join_meshes and component.vertex_count > 0: %}
 drawindexed = auto
 {% endif %}
 
-            {% for part in component.parts -%}
+            {% for part in component.parts %}
 [TextureOverride{{ part.fullname }}]
 hash = {{ component.ib }}
 match_first_index = {{ part.first_index }}
-{% if part.vertex_count > 0 %}
 ib = Resource{{ part.fullname }}IB
 {% for texture in part.textures %}
 {% set tex_index = loop.index0 %}
@@ -90,13 +89,11 @@ ps-t{{ tex_index }} = Resource{{ part.fullname }}{{ texture.name }}
 {% if part.textures[0].name|lower == "normalmap" %}
 run = CommandList\global\ORFix\ORFix
 {% endif %}
-{% else %}
-ib = null
-{% endif %}
+
                 {% if join_meshes == False %}
-                    {% for entry in part.objects if entry.vertex_count > 0 -%}
+                    {% for entry in part.objects if entry.vertex_count > 0 %}
                         {% set tabs = "    " %}
-                        {% if loop.previtem and loop.previtem.collection_name != entry.collection_name -%}
+                        {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}
 {{ tabs * entry.depth }}; {{ entry.collection_name }}
                         {% endif %}
 {{ tabs * entry.depth }}; {{ entry.name }} ({{ entry.vertex_count }})
@@ -106,7 +103,7 @@ ib = null
 
             {% endfor %}
     {% endfor %}
-    {% for component in mod_file.components if component.draw_vb == "" -%}
+    {% for component in mod_file.components if component.draw_vb == "" %}
         {% for part in component.parts %}
             {% for texture in part.textures %}
 [TextureOverride{{part.fullname}}{{ texture.name }}]
@@ -118,8 +115,8 @@ this = Resource{{part.fullname}}{{ texture.name }}
     {% endfor %}
 {% endblock  %}
 
-{% block resourcebuffers -%}
-    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 -%}
+{% block resourcebuffers %}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != ""  and component.vertex_count > 0 %}
         {% if component.strides %}
 [Resource{{ component.fullname }}Position]
 type = Buffer
@@ -137,7 +134,7 @@ stride = {{ component.strides.texcoord }}
 filename = {{ component.fullname }}Texcoord.buf
         {% endif %}
         
-        {% for part in component.parts -%}
+        {% for part in component.parts %}
 [Resource{{ part.fullname }}IB]
 type = Buffer
 format = DXGI_FORMAT_R32_UINT
@@ -145,7 +142,7 @@ filename = {{ part.fullname }}.ib
 
         {% endfor %}
     {% endfor %}
-    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" and component.vertex_count > 0 -%}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" and component.vertex_count > 0 %}
         {% if component.strides %}
 [Resource{{ component.fullname }}]
 type = Buffer
@@ -153,7 +150,7 @@ stride = {{ component.strides.position }}
 filename = {{ component.fullname }}.buf
         {% endif %}
         
-        {% for part in component.parts -%}
+        {% for part in component.parts %}
 [Resource{{ part.fullname }}IB]
 type = Buffer
 format = DXGI_FORMAT_R32_UINT
@@ -163,10 +160,10 @@ filename = {{ part.fullname }}.ib
     {% endfor %}
 {% endblock %}
 
-{% block resourcetextures -%}
-    {% for component in mod_file.components -%}
-        {% for part in component.parts -%}
-            {% for texture in part.textures -%}
+{% block resourcetextures %}
+    {% for component in mod_file.components %}
+        {% for part in component.parts %}
+            {% for texture in part.textures %}
 [Resource{{ part.fullname }}{{ texture.name }}]
 filename = {{ part.fullname }}{{ texture.name }}{{ texture.extension }}
 

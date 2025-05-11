@@ -425,7 +425,6 @@ class DataModel(object):
 class DataModelXXMI(DataModel):
     game: GameEnum
     mirror_mesh: bool = False
-    outline_optimization: bool = False
     flip_texcoords_vertical: dict[str, bool] = {}
     buffers_format: dict[str, BufferLayout] = {}
 
@@ -443,11 +442,10 @@ class DataModelXXMI(DataModel):
 
     @classmethod
     def from_obj(
-        cls, obj: Object, game: GameEnum, outline_optimization: bool = False
+        cls, obj: Object, game: GameEnum
     ) -> "DataModelXXMI":
         cls = super().__new__(cls)
         cls.game = game
-        cls.outline_optimization = outline_optimization
         for prop in [
             "3DMigoto:FlipNormal",
             "3DMigoto:FlipTangent",
