@@ -189,6 +189,8 @@ class ModExporter:
             return
 
         objs = [obj for obj in collection.objects if obj.type == "MESH"]
+        if self.ignore_hidden:
+            objs = [obj for obj in objs if obj.visible_get()]
         sorted_objs = sorted(objs, key=lambda x: x.name)
         for obj in sorted_objs:
             final_mesh = self.process_mesh(main_obj, obj, depsgraph)
@@ -407,7 +409,6 @@ class ModExporter:
             return
         if len(position_buffer) == 0:
             return
-        """Optimize the outlines of the meshes with angle-weighted normal averaging."""
         position = numpy.round(position_buffer["POSITION"], 3)
         u, u_inverse, counts = numpy.unique(
             position, axis=0, return_counts=True, return_inverse=True
@@ -421,6 +422,8 @@ class ModExporter:
             weights = normal_magnitudes / numpy.sum(normal_magnitudes)
             weighted_normals = vertex_normals * weights[:, numpy.newaxis]
             avg_normal = numpy.sum(weighted_normals, axis=0)
+            if avg_normal[0] == 0 and avg_normal[1] == 0 and avg_normal[2] == 0:
+                continue
             normalized_avg = avg_normal / numpy.linalg.norm(avg_normal)
             position_buffer["TANGENT"][mask, 0:3] = normalized_avg
 
