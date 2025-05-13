@@ -246,13 +246,17 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
         col = row.column(align=True)
         col.prop(xxmi, "ignore_hidden")
         col.prop(xxmi, "only_selected")
-        col.prop(xxmi, "no_ramps")
-        col.prop(xxmi, "copy_textures")
         col.prop(xxmi, "apply_modifiers_and_shapekeys")
-        col.prop(xxmi, "join_meshes")
         col.prop(xxmi, "normalize_weights")
         col.prop(xxmi, "outline_optimization")
         # col.prop(xxmi, 'export_shapekeys')
+        # col.prop(xxmi, "export_materials")
+        col.prop(xxmi, "copy_textures")
+        if xxmi.copy_textures:
+            col.prop(xxmi, "no_ramps")
+            col.prop(xxmi, "ignore_duplicate_textures")
+        col.prop(xxmi, "write_buffers")
+        col.prop(xxmi, "write_ini")
 
 
 class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, Panel):
@@ -281,41 +285,6 @@ class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, Panel):
         col2 = split.column()
         col1.prop(xxmi, "batch_pattern")
         col2.operator("xxmi.exportadvancedbatched", text="Start Batch export")
-
-
-class XXMI_PT_SidePanelOutline(XXMISidebarOptionsPanelBase, Panel):
-    bl_label = ""
-    bl_order = 1
-    bl_options = {"DEFAULT_CLOSED"}
-
-    def draw_header(self, context):
-        xxmi = context.scene.xxmi
-        self.layout.prop(xxmi, "outline_optimization")
-
-    def draw(self, context):
-        XXMISidebarOptionsPanelBase.draw(self, context)
-        xxmi = context.scene.xxmi
-        self.layout.enabled = xxmi.outline_optimization
-        box = self.layout.box()
-        row = box.row()
-        col = row.column(align=True)
-
-        col.prop(
-            xxmi,
-            "toggle_rounding_outline",
-            text="Vertex Position Rounding",
-            toggle=True,
-            icon="SHADING_WIRE",
-        )
-        col.prop(xxmi, "decimal_rounding_outline")
-        if xxmi.toggle_rounding_outline:
-            col.prop(xxmi, "detect_edges")
-        if xxmi.detect_edges and xxmi.toggle_rounding_outline:
-            col.prop(xxmi, "nearest_edge_distance")
-        col.prop(xxmi, "overlapping_faces")
-        col.prop(xxmi, "angle_weighted")
-        col.prop(xxmi, "calculate_all_faces")
-
 
 class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""

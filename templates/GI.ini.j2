@@ -1,114 +1,106 @@
 {% extends "base.ini.j2" %}
 
 {% block constantscredit %}
-{% if credit != "" %}
-[Constants]
-global $active = 0
-global $creditinfo = 0
+    {% if credit != "" %}
+        [Constants]
+        global $active = 0
+        global $creditinfo = 0
 
-[Present]
-post $active = 0
-run = CommandListCreditInfo
-{% endif %}
+        [Present]
+        post $active = 0
+        run = CommandListCreditInfo
+    {% endif %}
 {% endblock %}
 
 {% block commandlistscredit %}
     {% if credit != "" %}
-[CommandListCreditInfo]
-if $creditinfo == 0 && $active > 0
-    pre Resource\ShaderFixes\help.ini\Notification = ResourceCreditInfo
-    pre run = CustomShader\ShaderFixes\help.ini\FormatText
-    pre $\ShaderFixes\help.ini\notification_timeout = time + 5.0
-    $creditinfo = 1
-endif
+        [CommandListCreditInfo]
+        if $creditinfo == 0 && $active > 0
+            pre Resource\ShaderFixes\help.ini\Notification = ResourceCreditInfo
+            pre run = CustomShader\ShaderFixes\help.ini\FormatText
+            pre $\ShaderFixes\help.ini\notification_timeout = time + 5.0
+            $creditinfo = 1
+        endif
     {% endif %}
 {% endblock %}
 
 {% block resourcecredit %}
     {% if credit != "" %}
-[ResourceCreditInfo]
-type = Buffer
-data = "Created by {{ credit }}"
+        [ResourceCreditInfo]
+        type = Buffer
+        data = "Created by {{ credit }}"
     {% endif %}
 {% endblock %}
 
 {%- block overridesbuffers %}
     {%- for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 %}
-[TextureOverride{{ component.fullname }}Position]
-hash = {{ component.position_vb }}
-vb0 = Resource{{ component.fullname }}Position
-{% if credit != "" %}
-$active = 1
-{% endif %}
+        [TextureOverride{{ component.fullname }}Position]
+        hash = {{ component.position_vb }}
+        vb0 = Resource{{ component.fullname }}Position
+        {% if credit != "" %}
+            $active = 1
+        {% endif %}
 
-[TextureOverride{{ component.fullname }}Blend]
-hash = {{ component.blend_vb }}
-handling = skip
-vb1 = Resource{{ component.fullname }}Blend
-draw = {{ component.vertex_count }}, 0
+        [TextureOverride{{ component.fullname }}Blend]
+        hash = {{ component.blend_vb }}
+        handling = skip
+        vb1 = Resource{{ component.fullname }}Blend
+        draw = {{ component.vertex_count }}, 0
 
-[TextureOverride{{ component.fullname }}Texcoord]
-hash = {{ component.texcoord_vb }}
-vb1 = Resource{{ component.fullname }}Texcoord
+        [TextureOverride{{ component.fullname }}Texcoord]
+        hash = {{ component.texcoord_vb }}
+        vb1 = Resource{{ component.fullname }}Texcoord
 
-[TextureOverride{{ component.fullname }}VertexLimitRaise]
-hash = {{ component.draw_vb }}
-override_vertex_count = {{ component.vertex_count }}
-override_byte_stride = {{ component.strides.position }}
+        [TextureOverride{{ component.fullname }}VertexLimitRaise]
+        hash = {{ component.draw_vb }}
+        override_vertex_count = {{ component.vertex_count }}
+        override_byte_stride = {{ component.strides.position }}
 
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" %}
-[TextureOverride{{ component.fullname }}]
-hash = {{ component.position_vb }}
-vb0 = Resource{{ component.fullname }}
-{% if credit != "" %}
-$active = 1
-{% endif %}
+        [TextureOverride{{ component.fullname }}]
+        hash = {{ component.position_vb }}
+        vb0 = Resource{{ component.fullname }}
+        {% if credit != "" %}
+            $active = 1
+        {% endif %}
 
     {% endfor %}
 {% endblock %}
 
 {% block overridesibs %}
      {% for component in mod_file.components if component.draw_vb != "" %}
-[TextureOverride{{component.fullname}}IB]
-hash = {{ component.ib }}
-handling = skip
-{% if join_meshes and component.vertex_count > 0: %}
-drawindexed = auto
-{% endif %}
+        [TextureOverride{{component.fullname}}IB]
+        hash = {{ component.ib }}
+        handling = skip
 
-            {% for part in component.parts %}
-[TextureOverride{{ part.fullname }}]
-hash = {{ component.ib }}
-match_first_index = {{ part.first_index }}
-ib = Resource{{ part.fullname }}IB
-{% for texture in part.textures %}
-{% set tex_index = loop.index0 %}
-ps-t{{ tex_index }} = Resource{{ part.fullname }}{{ texture.name }}
-{% endfor %}
-{% if part.textures[0].name|lower == "normalmap" %}
-run = CommandList\global\ORFix\ORFix
-{% endif %}
-
-                {% if join_meshes == False %}
-                    {% for entry in part.objects if entry.vertex_count > 0 %}
-                        {% set tabs = "    " %}
-                        {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}
-{{ tabs * entry.depth }}; {{ entry.collection_name }}
-                        {% endif %}
-{{ tabs * entry.depth }}; {{ entry.name }} ({{ entry.vertex_count }})
-{{ tabs * entry.depth }}drawindexed = {{ entry.index_count}}, {{ entry.index_offset }}, 0
-                    {% endfor %}
-                {% endif %}
-
+        {% for part in component.parts if part.vertex_count > 0%}
+            [TextureOverride{{ part.fullname }}]
+            hash = {{ component.ib }}
+            match_first_index = {{ part.first_index }}
+            ib = Resource{{ part.fullname }}IB
+            {% for texture in part.textures %}
+                ps-t{{ loop.index0 }} = Resource{{ part.fullname }}{{ texture.name }}
             {% endfor %}
+            {% if part.textures[0].name|lower == "normalmap" %}
+                run = CommandList\global\ORFix\ORFix
+            {% endif %}
+            {% for entry in part.objects if entry.vertex_count > 0 %}
+                {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}
+                    ; {{ entry.collection_name }}
+                {% endif %}
+                ; {{ entry.name }} ({{ entry.vertex_count }})
+                drawindexed = {{ entry.index_count}}, {{ entry.index_offset }}, 0
+            {% endfor %}
+
+        {% endfor %}
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb == "" %}
         {% for part in component.parts %}
             {% for texture in part.textures %}
-[TextureOverride{{part.fullname}}{{ texture.name }}]
-hash = {{ texture.hash }}
-this = Resource{{part.fullname}}{{ texture.name }}
+                [TextureOverride{{part.fullname}}{{ texture.name }}]
+                hash = {{ texture.hash }}
+                this = Resource{{part.fullname}}{{ texture.name }}
 
             {% endfor %}
         {% endfor %}
@@ -118,43 +110,43 @@ this = Resource{{part.fullname}}{{ texture.name }}
 {% block resourcebuffers %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != ""  and component.vertex_count > 0 %}
         {% if component.strides %}
-[Resource{{ component.fullname }}Position]
-type = Buffer
-stride = {{ component.strides.position }}
-filename = {{ component.fullname }}Position.buf
+            [Resource{{ component.fullname }}Position]
+            type = Buffer
+            stride = {{ component.strides.position }}
+            filename = {{ component.fullname }}Position.buf
 
-[Resource{{ component.fullname }}Blend]
-type = Buffer
-stride = {{ component.strides.blend }}
-filename = {{ component.fullname }}Blend.buf
+            [Resource{{ component.fullname }}Blend]
+            type = Buffer
+            stride = {{ component.strides.blend }}
+            filename = {{ component.fullname }}Blend.buf
 
-[Resource{{ component.fullname }}Texcoord]
-type = Buffer
-stride = {{ component.strides.texcoord }}
-filename = {{ component.fullname }}Texcoord.buf
+            [Resource{{ component.fullname }}Texcoord]
+            type = Buffer
+            stride = {{ component.strides.texcoord }}
+            filename = {{ component.fullname }}Texcoord.buf
         {% endif %}
         
         {% for part in component.parts %}
-[Resource{{ part.fullname }}IB]
-type = Buffer
-format = DXGI_FORMAT_R32_UINT
-filename = {{ part.fullname }}.ib
+            [Resource{{ part.fullname }}IB]
+            type = Buffer
+            format = DXGI_FORMAT_R32_UINT
+            filename = {{ part.fullname }}.ib
 
         {% endfor %}
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" and component.vertex_count > 0 %}
         {% if component.strides %}
-[Resource{{ component.fullname }}]
-type = Buffer
-stride = {{ component.strides.position }}
-filename = {{ component.fullname }}.buf
+            [Resource{{ component.fullname }}]
+            type = Buffer
+            stride = {{ component.strides.position }}
+            filename = {{ component.fullname }}.buf
         {% endif %}
         
         {% for part in component.parts %}
-[Resource{{ part.fullname }}IB]
-type = Buffer
-format = DXGI_FORMAT_R32_UINT
-filename = {{ part.fullname }}.ib
+            [Resource{{ part.fullname }}IB]
+            type = Buffer
+            format = DXGI_FORMAT_R32_UINT
+            filename = {{ part.fullname }}.ib
 
         {% endfor %}
     {% endfor %}
@@ -164,8 +156,8 @@ filename = {{ part.fullname }}.ib
     {% for component in mod_file.components %}
         {% for part in component.parts %}
             {% for texture in part.textures %}
-[Resource{{ part.fullname }}{{ texture.name }}]
-filename = {{ part.fullname }}{{ texture.name }}{{ texture.extension }}
+                [Resource{{ part.fullname }}{{ texture.name }}]
+                filename = {{ part.fullname }}{{ texture.name }}{{ texture.extension }}
 
             {% endfor %}
         {% endfor %}

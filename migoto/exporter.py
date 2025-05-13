@@ -16,6 +16,7 @@ from .data.byte_buffer import BufferLayout, Semantic, NumpyBuffer
 from .datastructures import GameEnum
 from .export_ops import mesh_triangulate
 from .operators import Fatal
+from .data.ini_format import INI_file
 
 
 @dataclass
@@ -64,7 +65,7 @@ class Component:
 class ModFile:
     name: str
     components: list[Component]
-    hash_data: dict[str, str]
+    hash_data: list[dict]
     game: GameEnum
     credit: str = ""
 
@@ -80,13 +81,16 @@ class ModExporter:
     apply_modifiers: bool
     only_selected: bool
     copy_textures: bool
-    join_meshes: bool
     dump_path: Path
     destination: Path
     credit: str
     game: GameEnum
     operator: Operator
-    outline_optimization: bool = False
+    outline_optimization: bool
+    no_ramps: bool
+    ignore_duplicate_textures: bool
+    write_buffers: bool
+    write_ini: bool
     # Output
     mod_file: ModFile = field(init=False)
     ini_content: str = field(init=False)
@@ -123,12 +127,12 @@ class ModExporter:
             component_entry = Component(
                 fullname=current_name,
                 parts=[],
-                root_vs=component["root_vs"],
-                draw_vb=component["draw_vb"],
-                position_vb=component["position_vb"],
-                blend_vb=component["blend_vb"],
-                texcoord_vb=component["texcoord_vb"],
-                ib=component["ib"],
+                root_vs=component.get("root_vs", ""),
+                draw_vb=component.get("draw_vb", ""),
+                position_vb=component.get("position_vb", ""),
+                blend_vb=component.get("blend_vb", ""),
+                texcoord_vb=component.get("texcoord_vb", ""),
+                ib=component.get("ib", ""),
                 strides={},
             )
             for j, part in enumerate(component["object_classifications"]):
@@ -225,11 +229,15 @@ class ModExporter:
         self.files_to_copy = {}
         repeated_textures = {}
         for component in self.mod_file.components:
+            excluded_buffers: list[str] = []
             output_buffers: dict[str, NDArray] = {
                 "Position": numpy.empty(0, dtype=numpy.uint8),
                 "Blend": numpy.empty(0, dtype=numpy.uint8),
                 "TexCoord": numpy.empty(0, dtype=numpy.uint8),
             }
+            if self.write_buffers is False:
+                for key in output_buffers.keys():
+                    excluded_buffers.append(key)
             ib_offset: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname} " + "-" * 10)
@@ -251,14 +259,14 @@ class ModExporter:
                         entry.obj,
                         entry.mesh,
                         data_model.buffers_format,
-                        [],
+                        excluded_buffers,
                     )
                     gen_buffers, v_count = data_model.get_data(
                         bpy.context,
                         None,
                         entry.obj,
                         entry.mesh,
-                        [],
+                        excluded_buffers,
                         data_model.mirror_mesh,
                     )
                     for k in output_buffers:
@@ -282,13 +290,17 @@ class ModExporter:
                     part.vertex_count += v_count
                     component.vertex_count += v_count
                 for t in part.textures:
-                    if (
-                        t.hash in repeated_textures
-                        and self.game != GameEnum.GenshinImpact
-                    ):
-                        repeated_textures[t.hash].append(t)
+                    if self.ignore_duplicate_textures:
+                        if t.hash in repeated_textures:
+                            repeated_textures[t.hash].append(t)
+                            continue
+                        repeated_textures[t.hash] = [t]
+                    if self.no_ramps and t.name in [
+                        "ShadowRamp",
+                        "MetalMap",
+                        "DiffuseGuide",
+                    ]:
                         continue
-                    repeated_textures[t.hash] = [t]
                     tex_name = part.fullname + t.name + t.extension
                     self.files_to_copy[self.dump_path / tex_name] = (
                         self.destination / tex_name
@@ -383,6 +395,8 @@ class ModExporter:
         self, template_name: str = "default.ini.j2", user_paths=None
     ) -> None:
         # Extensions handle modifiable paths differently. If we ever move to them we should make modifications in here
+        if self.write_ini is False:
+            return
         print("Generating .ini file")
         addon_path: Path = Path(__file__).parent.parent
         for mod in addon_utils.modules():
@@ -398,16 +412,18 @@ class ModExporter:
             lstrip_blocks=True,
         )
         template = env.get_template(template_name)
-        self.files_to_write[self.destination / (self.mod_name + ".ini")] = (
+        ini_file = INI_file(
             template.render(
                 version=bl_info["version"],
                 mod_file=self.mod_file,
                 credit=self.credit,
                 game=self.game,
                 character_name=self.mod_name,
-                join_meshes=self.join_meshes,
             )
         )
+        ini_file.clean_up_indentation()
+        ini_body: str = str(ini_file)
+        self.files_to_write[self.destination / (self.mod_name + ".ini")] = ini_body
 
     def optimize_outlines(self, position_buffer: NDArray) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
@@ -435,15 +451,15 @@ class ModExporter:
 
     def write_files(self) -> None:
         """Write the files to the destination."""
-        print("Writen files: ")
         self.destination.mkdir(parents=True, exist_ok=True)
+        print("Writen files: ")
         try:
             for file_path, content in self.files_to_write.items():
                 print(f"{file_path.name}", end=", ")
-                if isinstance(content, str):
+                if isinstance(content, str) and self.write_ini:
                     with open(file_path, "w", encoding="utf-8") as file:
                         file.write(content)
-                elif isinstance(content, numpy.ndarray):
+                elif isinstance(content, numpy.ndarray) and self.write_buffers:
                     content.tofile(file_path)
         except (OSError, IOError) as e:
             raise Fatal(f"Error writing file {file_path}: {e}")

@@ -247,15 +247,17 @@ def export_3dmigoto_xxmi(
     credit: str,
     copy_textures: bool,
     outline_optimization: bool,
-    join_meshes: bool,
     apply_modifiers_and_shapekeys: bool,
+    ignore_duplicate_textures: bool,
+    write_buffers: bool,
+    write_ini: bool,
     game: GameEnum,
     destination: Optional[Path] = None,
 ) -> None:
     scene = bpy.context.scene
-    if not destination:
-        destination = vb_path.parent / f"{object_name}Mod"
     object_name = vb_path.stem
+    if not destination:
+        destination = vb_path.parent.parent / f"{object_name}Mod"
     if not [
         obj for obj in scene.objects if object_name.lower() in obj.name.lower()
     ] or not [
@@ -268,21 +270,24 @@ def export_3dmigoto_xxmi(
         )
     hash_data = load_hashes(vb_path.parent, vb_path.stem)
     mod_exporter: ModExporter = ModExporter(
-        context,
-        object_name,
-        hash_data,
-        ignore_hidden,
-        True,
-        apply_modifiers_and_shapekeys,
-        only_selected,
-        copy_textures,
-        join_meshes,
-        vb_path.parent,
-        destination,
+        context=context,
+        mod_name=object_name,
+        hash_data=hash_data,
+        ignore_hidden=ignore_hidden,
+        ignore_muted_shape_keys=True,
+        apply_modifiers=apply_modifiers_and_shapekeys,
+        only_selected=only_selected,
+        copy_textures=copy_textures,
+        dump_path=vb_path.parent,
+        destination=destination,
         credit=credit,
         game=game,
         operator=operator,
         outline_optimization=outline_optimization,
+        no_ramps=no_ramps,
+        ignore_duplicate_textures=ignore_duplicate_textures,
+        write_buffers=write_buffers,
+        write_ini=write_ini,
     )
     mod_exporter.export()
     print(f"Exported {object_name} to {destination}")
@@ -377,6 +382,11 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         description="Copies the texture files to the mod folder, useful for the initial export but might be redundant afterwards.",
         default=True,
     )
+    ignore_duplicate_textures: BoolProperty(
+        name="Ignore duplicated textures",
+        description="Ignore new textures with the same hash as already copied ones.",
+        default=False,
+    )
 
     credit: StringProperty(
         name="Credit",
@@ -394,11 +404,6 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
-    join_meshes: BoolProperty(
-        name="Join meshes",
-        description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
-        default=False,
-    )
     normalize_weights: BoolProperty(
         name="Normalize weights to format",
         description="Limits weights to match export format. Also normalizes the remaining weights",
@@ -414,11 +419,6 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
         default=False,
     )
-    join_meshes: BoolProperty(
-        name="Join meshes",
-        description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
-        default=False,
-    )
     export_shapekeys: BoolProperty(
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
@@ -431,33 +431,16 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         col.prop(self, "game")
         col.prop(self, "ignore_hidden")
         col.prop(self, "only_selected")
-        col.prop(self, "no_ramps")
-        col.prop(self, "copy_textures")
         col.prop(self, "apply_modifiers_and_shapekeys")
-        col.prop(self, "join_meshes")
         col.prop(self, "normalize_weights")
         # col.prop(self, 'export_shapekeys')
-        layout.separator()
         col.prop(self, "outline_optimization")
-
-        if self.outline_optimization:
-            col.prop(
-                self,
-                "toggle_rounding_outline",
-                text="Vertex Position Rounding",
-                toggle=True,
-                icon="SHADING_WIRE",
-            )
-            col.prop(self, "decimal_rounding_outline")
-            if self.toggle_rounding_outline:
-                col.prop(self, "detect_edges")
-            if self.detect_edges and self.toggle_rounding_outline:
-                col.prop(self, "nearest_edge_distance")
-            col.prop(self, "overlapping_faces")
-            col.prop(self, "angle_weighted")
-            col.prop(self, "calculate_all_faces")
-        layout.separator()
-
+        col.prop(self, "copy_textures")
+        if self.copy_textures:
+            col.prop(self, "no_ramps")
+            col.prop(self, "ignore_duplicate_textures")
+        col.prop(self, "write_buffers")
+        col.prop(self, "write_ini")
         col.prop(self, "credit")
 
     def invoke(self, context, event):
@@ -480,20 +463,22 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
             fmt_path = vb_path.parent / (vb_path.stem + ".fmt")
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             export_3dmigoto_xxmi(
-                self,
-                context,
-                vb_path,
-                ib_path,
-                fmt_path,
-                self.ignore_hidden,
-                self.only_selected,
-                self.no_ramps,
-                self.credit,
-                self.copy_textures,
-                self.outline_optimization,
-                self.apply_modifiers_and_shapekeys,
-                self.join_meshes,
-                self.game,
+                operator=self,
+                context=context,
+                vb_path=vb_path,
+                ib_path=ib_path,
+                fmt_path=fmt_path,
+                ignore_hidden=self.ignore_hidden,
+                only_selected=self.only_selected,
+                no_ramps=self.no_ramps,
+                credit=self.credit,
+                copy_texturesi=self.copy_textures,
+                outline_optimization=self.outline_optimization,
+                apply_modifiers_and_shapekeys=self.apply_modifiers_and_shapekeys,
+                ignore_duplicate_textures=self.ignore_duplicate_textures,
+                write_buffers=self.write_buffers,
+                write_ini=self.write_ini,
+                game=self.game,
             )
             self.report({"INFO"}, "Export completed")
         except Fatal as e:
@@ -551,6 +536,12 @@ class XXMIProperties(PropertyGroup):
         default=True,
     )
 
+    ignore_duplicate_textures: BoolProperty(
+        name="Ignore duplicated textures",
+        description="Ignore new textures with the same hash as already copied ones",
+        default=False,
+    )
+
     credit: StringProperty(
         name="Credit",
         description="Name that pops up on screen when mod is loaded. If left blank, will result in no pop up",
@@ -563,48 +554,6 @@ class XXMIProperties(PropertyGroup):
         default=False,
     )
 
-    toggle_rounding_outline: BoolProperty(
-        name="Round vertex positions",
-        description="Rounding of vertex positions to specify which are the overlapping vertices",
-        default=True,
-    )
-
-    decimal_rounding_outline: IntProperty(
-        name="Decimals:",
-        description="Rounding of vertex positions to specify which are the overlapping vertices",
-        default=3,
-    )
-
-    angle_weighted: BoolProperty(
-        name="Weight by angle",
-        description="Optional: calculate angles to improve accuracy of outlines. Slow",
-        default=False,
-    )
-
-    overlapping_faces: BoolProperty(
-        name="Ignore overlapping faces",
-        description="Detect and ignore overlapping/antiparallel faces to avoid buggy outlines",
-        default=False,
-    )
-
-    detect_edges: BoolProperty(
-        name="Calculate edges",
-        description="Calculate for disconnected edges when rounding, closing holes in the edge outline",
-        default=False,
-    )
-
-    calculate_all_faces: BoolProperty(
-        name="Calculate outline for all faces",
-        description="Calculate outline for all faces, which is especially useful if you have any flat shaded non-edge faces. Slow",
-        default=False,
-    )
-
-    nearest_edge_distance: FloatProperty(
-        name="Distance:",
-        description="Expand grouping for edge vertices within this radial distance to close holes in the edge outline. Requires rounding",
-        default=0.001,
-        min=0.001,
-    )
     game: EnumProperty(
         name="Game to mod",
         description="Select the game you are modding to optimize the mod for that game",
@@ -613,11 +562,6 @@ class XXMIProperties(PropertyGroup):
     apply_modifiers_and_shapekeys: BoolProperty(
         name="Apply modifiers and shapekeys",
         description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
-        default=False,
-    )
-    join_meshes: BoolProperty(
-        name="Join meshes",
-        description="Joins all meshes into a single object. Allows for versatile pre-baked animation mods and blender like masking for toggles.",
         default=False,
     )
     normalize_weights: BoolProperty(
@@ -634,6 +578,16 @@ class XXMIProperties(PropertyGroup):
         name="Batch pattern",
         description="Pattern to name export folders. Example: name_###",
         default="",
+    )
+    write_buffers: BoolProperty(
+        name="Write buffers",
+        description="Writes the vertex and index buffers to disk. Disabling this won't refresh the buffers in the mod folder, useful for debugging.",
+        default=True,
+    )
+    write_ini: BoolProperty(
+        name="Write ini",
+        description="Writes the ini file to disk. Disabling this won't refresh the ini file in the mod folder, useful for debugging.",
+        default=True,
     )
 
 
@@ -708,21 +662,23 @@ class ExportAdvancedOperator(Operator):
             game = GameEnum[xxmi.game]
             start = time.time()
             export_3dmigoto_xxmi(
-                self,
-                context,
-                vb_path,
-                ib_path,
-                fmt_path,
-                xxmi.ignore_hidden,
-                xxmi.only_selected,
-                xxmi.no_ramps,
-                xxmi.credit,
-                xxmi.copy_textures,
-                xxmi.outline_optimization,
-                xxmi.apply_modifiers_and_shapekeys,
-                xxmi.join_meshes,
-                game,
-                Path(xxmi.destination_path),
+                operator=self,
+                context=context,
+                vb_path=vb_path,
+                ib_path=ib_path,
+                fmt_path=fmt_path,
+                ignore_hidden=xxmi.ignore_hidden,
+                only_selected=xxmi.only_selected,
+                no_ramps=xxmi.no_ramps,
+                credit=xxmi.credit,
+                copy_textures=xxmi.copy_textures,
+                outline_optimization=xxmi.outline_optimization,
+                apply_modifiers_and_shapekeys=xxmi.apply_modifiers_and_shapekeys,
+                ignore_duplicate_textures=xxmi.ignore_duplicate_textures,
+                write_buffers=xxmi.write_buffers,
+                write_ini=xxmi.write_ini,
+                game=game,
+                destination=Path(xxmi.destination_path),
             )
             print("Export took", time.time() - start, "seconds")
             self.report({"INFO"}, "Export completed")
