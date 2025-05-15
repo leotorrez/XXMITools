@@ -32,8 +32,8 @@
     {% endif %}
 {% endblock %}
 
-{%- block overridesbuffers %}
-    {%- for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 %}
+{% block overridesbuffers %}
+    {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 %}
         [TextureOverride{{ component.fullname }}Position]
         hash = {{ component.position_vb }}
         vb0 = Resource{{ component.fullname }}Position
@@ -74,7 +74,7 @@
         hash = {{ component.ib }}
         handling = skip
 
-        {% for part in component.parts if part.vertex_count > 0%}
+        {% for part in component.parts if part.vertex_count > 0 %}
             [TextureOverride{{ part.fullname }}]
             hash = {{ component.ib }}
             match_first_index = {{ part.first_index }}
@@ -182,3 +182,7 @@
     {{- self.resourcetextures() -}}
     {{- self.resourcecredit() -}}
 {% endblock %}
+
+
+
+
