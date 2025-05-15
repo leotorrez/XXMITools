@@ -188,7 +188,7 @@ class ModExporter:
         if collection is None:
             return
 
-        objs = [obj for obj in collection.objects if obj.type == "MESH"]
+        objs = [obj for obj in collection.objects if obj.type == "MESH" and obj != main_obj]
         if self.ignore_hidden:
             objs = [obj for obj in objs if obj.visible_get()]
         if self.only_selected:
@@ -387,6 +387,8 @@ class ModExporter:
                             ),
                         )
                         break
+        # At the moment these errors made the UV layers and vertex colors mandatory to export
+        # in the future we might want to make them optional or auto generate them
         if len(missing_uvs) > 0:
             raise Fatal(
                     f"Mesh({obj.name}) is missing the following UV layers: {', '.join(missing_uvs)}. "
