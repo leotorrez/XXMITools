@@ -136,40 +136,33 @@ class ModExporter:
                 strides={},
             )
             for j, part in enumerate(component["object_classifications"]):
-                if component["draw_vb"] == "":
-                    continue
                 part_name: str = current_name + part
+                objects: list[SubObj] = []
+                textures = [TextureData(*e) for e in component["texture_hashes"][j]]
                 matching_objs = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
-                if not matching_objs:
-                    raise Fatal(f"Cannot find object {part_name} in the scene.")
-                if len(matching_objs) > 1:
-                    raise Fatal(f"Found multiple objects with the name {part_name}.")
-                obj: Object = matching_objs[0]
-                collection_name = [
-                    c
-                    for c in bpy.data.collections
-                    if c.name.lower().startswith((part_name).lower())
-                ]
-                if len(collection_name) > 1:
-                    raise Fatal(
-                        f"ERROR: Found multiple collections with the name {part_name}. Ensure only one collection exists with that name."
-                    )
-                textures = []
-                for entry in component["texture_hashes"][j]:
-                    textures.append(TextureData(*entry))
-
-                objects: list[SubObj] = []
-                if len(collection_name) == 0:
-                    self.obj_from_col(obj, None, objects)
-                else:
-                    self.obj_from_col(obj, collection_name[0], objects)
-                offset = 0
-                for entry in objects:
-                    entry.index_count = len(entry.mesh.polygons) * 3
-                    entry.index_offset = offset
-                    offset += entry.index_count
+                if component["draw_vb"] != "":
+                    if not matching_objs:
+                        raise Fatal(f"Cannot find object {part_name} in the scene.")
+                    if len(matching_objs) > 1:
+                        raise Fatal(
+                            f"Found multiple objects with the name {part_name}."
+                        )
+                    obj: Object = matching_objs[0]
+                    collection = [
+                        c
+                        for c in bpy.data.collections
+                        if c.name.lower().startswith((part_name).lower())
+                    ]
+                    if len(collection) > 1:
+                        raise Fatal(
+                            f"ERROR: Found multiple collections with the name {part_name}. Ensure only one collection exists with that name."
+                        )
+                    if len(collection) == 0:
+                        self.obj_from_col(obj, None, objects)
+                    else:
+                        self.obj_from_col(obj, collection[0], objects)
                 component_entry.parts.append(
                     Part(
                         fullname=part_name,
@@ -238,10 +231,29 @@ class ModExporter:
             if self.write_buffers is False:
                 for key in output_buffers.keys():
                     excluded_buffers.append(key)
-            ib_offset: int = 0
+            vb_offset: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname} " + "-" * 10)
                 ib_buffer = None
+                ib_offset: int = 0
+                for t in part.textures:
+                    if self.ignore_duplicate_textures:
+                        if t.hash in repeated_textures:
+                            repeated_textures[t.hash].append(t)
+                            continue
+                        repeated_textures[t.hash] = [t]
+                    if self.no_ramps and t.name in [
+                        "ShadowRamp",
+                        "MetalMap",
+                        "DiffuseGuide",
+                    ]:
+                        continue
+                    tex_name = part.fullname + t.name + t.extension
+                    self.files_to_copy[self.dump_path / tex_name] = (
+                        self.destination / tex_name
+                    )
+                if component.draw_vb == "":
+                    continue
                 data_model: DataModelXXMI = DataModelXXMI.from_obj(
                     part.objects[0].obj, self.game
                 )
@@ -279,32 +291,19 @@ class ModExporter:
                                 (output_buffers[k], gen_buffers[k].data)  # type: ignore
                             )
                         )
-                    gen_buffers["IB"].data["INDEX"] += ib_offset
+                    gen_buffers["IB"].data["INDEX"] += vb_offset
                     ib_buffer = (
                         gen_buffers["IB"].data
                         if ib_buffer is None
                         else numpy.concatenate((ib_buffer, gen_buffers["IB"].data))
                     )
-                    ib_offset += v_count
+                    vb_offset += v_count
                     entry.vertex_count = v_count
                     part.vertex_count += v_count
                     component.vertex_count += v_count
-                for t in part.textures:
-                    if self.ignore_duplicate_textures:
-                        if t.hash in repeated_textures:
-                            repeated_textures[t.hash].append(t)
-                            continue
-                        repeated_textures[t.hash] = [t]
-                    if self.no_ramps and t.name in [
-                        "ShadowRamp",
-                        "MetalMap",
-                        "DiffuseGuide",
-                    ]:
-                        continue
-                    tex_name = part.fullname + t.name + t.extension
-                    self.files_to_copy[self.dump_path / tex_name] = (
-                        self.destination / tex_name
-                    )
+                    entry.index_count = len(gen_buffers["IB"].data)
+                    entry.index_offset = ib_offset
+                    ib_offset += entry.index_count
                 if ib_buffer is None:
                     print(f"Skipping {part.fullname}.ib due to no index data.")
                     continue
@@ -359,17 +358,15 @@ class ModExporter:
             for semantic in buffer_layout.semantics
             if key not in excluded_buffers
         ]
+        missing_uvs:list[str] = []
+        missing_colors:list[str] = []
         for sem in semantics_to_check:
             abs_enum = sem.abstract.enum
             abs_name = sem.abstract.get_name()
             if abs_enum == Semantic.Color and mesh.vertex_colors.get(abs_name) is None:
-                raise Fatal(
-                    f"Mesh({obj.name}) needs to have a color attribute called '{abs_name}'!"
-                )
+                missing_colors.append(abs_name)
             if abs_enum == Semantic.TexCoord and mesh.uv_layers.get(abs_name) is None:
-                raise Fatal(
-                    f"Mesh({obj.name}) needs to have a uv attribute called '{abs_name}'!"
-                )
+                missing_uvs.append(abs_name)
             if abs_enum == Semantic.Blendweight:
                 if len(mesh.vertices) > 0 and len(obj.vertex_groups) == 0:
                     self.operator.report(
@@ -390,6 +387,16 @@ class ModExporter:
                             ),
                         )
                         break
+        if len(missing_uvs) > 0:
+            raise Fatal(
+                    f"Mesh({obj.name}) is missing the following UV layers: {', '.join(missing_uvs)}. "
+                    f"Please add them to the mesh before exporting."
+                )
+        if len(missing_colors) > 0:
+            raise Fatal(
+                    f"Mesh({obj.name}) is missing the following vertex colors: {', '.join(missing_colors)}. "
+                    f"Please add them to the mesh before exporting."
+                )
 
     def generate_ini(
         self, template_name: str = "default.ini.j2", user_paths=None
@@ -425,13 +432,11 @@ class ModExporter:
         ini_body: str = str(ini_file)
         self.files_to_write[self.destination / (self.mod_name + ".ini")] = ini_body
 
-    def optimize_outlines(self, position_buffer: NDArray) -> None:
+    def optimize_outlines(self, position_buffer: NDArray, precision: int = 3) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
-        if not self.outline_optimization:
+        if not self.outline_optimization or len(position_buffer) == 0:
             return
-        if len(position_buffer) == 0:
-            return
-        position = numpy.round(position_buffer["POSITION"], 3)
+        position = numpy.round(position_buffer["POSITION"], precision)
         u, u_inverse, counts = numpy.unique(
             position, axis=0, return_counts=True, return_inverse=True
         )
@@ -440,14 +445,18 @@ class ModExporter:
         for i in shared_indices:
             mask = u_inverse == i
             vertex_normals = position_buffer["NORMAL"][mask, 0:3]
-            normal_magnitudes = numpy.linalg.norm(vertex_normals, axis=1)
-            weights = normal_magnitudes / numpy.sum(normal_magnitudes)
-            weighted_normals = vertex_normals * weights[:, numpy.newaxis]
-            avg_normal = numpy.sum(weighted_normals, axis=0)
-            if avg_normal[0] == 0 and avg_normal[1] == 0 and avg_normal[2] == 0:
-                continue
-            normalized_avg = avg_normal / numpy.linalg.norm(avg_normal)
+            normalized_avg = numpy.mean(vertex_normals, axis=0)
+            normalized_avg /= numpy.linalg.norm(normalized_avg)
             position_buffer["TANGENT"][mask, 0:3] = normalized_avg
+
+        # # TODO: Might need to gamma correct for genshin impact...... OR MAYBE THE OTHERS
+        # if self.game == GameEnum.GenshinImpact:
+        #     position_buffer["TANGENT"][:, 0:3] = numpy.power(
+        #         position_buffer["TANGENT"][:, 0:3], 1/2.2
+        #     )
+        #     position_buffer["TANGENT"][:, 0:3] /= numpy.linalg.norm(
+        #         position_buffer["TANGENT"][:, 0:3], axis=1
+        #     )[:, numpy.newaxis]
 
     def write_files(self) -> None:
         """Write the files to the destination."""

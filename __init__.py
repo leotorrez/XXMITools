@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
+import sys
+from pathlib import Path
 from . import auto_load
-
+sys.path.insert(0, str(Path(__file__).parent / 'libs'))
 # Original plugin by DarkStarSword (https://github.com/DarkStarSword/3d-fixes/blob/master/blender_3dmigoto.py)
 # Updated to support 3.0 by MicroKnightmare from the DOA modding discord
 
 ####### AGMG Discord Contributors #######
 # Modified by SilentNightSound#7430 to add Genshin support and some more Genshin-specific features
 # QOL feature (ignoring hidden meshes while exporting) added by HazrateGolabi#1364
-# HummyR#8131
+# HummyR#8131 created optimized outline algorithm for Genshin meshes
 # merged several iterations of this plugin for other games back into a single one by LeoTorreZ
-# Testing and deveping of modern featres by SinsOfSeven
+# Testing and developing of modern features by SinsOfSeven
 # Added support for WUWA and more formal implementation of its classes by SpectrumQT
 
 bl_info = {
