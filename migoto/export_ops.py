@@ -268,7 +268,8 @@ def export_3dmigoto_xxmi(
         raise Fatal(
             "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
         )
-    hash_data = load_hashes(vb_path.parent, vb_path.stem)
+    template: Path | None = Path(template) if template else None
+    hash_data: list[dict] = load_hashes(vb_path.parent, vb_path.stem)
     mod_exporter: ModExporter = ModExporter(
         context=context,
         mod_name=object_name,
@@ -496,13 +497,12 @@ class XXMIProperties(PropertyGroup):
         default="",
         maxlen=1024,
     )
-    
+
     dump_path: StringProperty(
         name="Dump Folder",
         description="Dump Folder:",
         default="",
         maxlen=1024,
-    
     )
     filter_glob: StringProperty(
         default="*.vb*",
@@ -512,7 +512,7 @@ class XXMIProperties(PropertyGroup):
     template_path: StringProperty(
         name="Template Path",
         description="Path to the template file. Optional.",
-        default="",
+        default="(Optional)",
         maxlen=1024,
     )
 
@@ -640,6 +640,7 @@ class DumpSelector(Operator, ExportHelper):
         context.scene.xxmi.dump_path = str(userpath.parent)
         bpy.ops.ed.undo_push(message="XXMI Tools: dump path selected")
         return {"FINISHED"}
+
 
 class TemplateSelector(Operator, ExportHelper):
     """Export single mod based on current frame"""

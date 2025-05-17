@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from .. import bl_info
 from ..libs.jinja2 import Environment, FileSystemLoader
 from .data.data_model import DataModelXXMI
-from .data.byte_buffer import BufferLayout, Semantic, NumpyBuffer
+from .data.byte_buffer import BufferLayout, Semantic, NumpyBuffer, BufferSemantic
 from .datastructures import GameEnum
 from .export_ops import mesh_triangulate
 from .operators import Fatal
@@ -357,7 +357,7 @@ class ModExporter:
         excluded_buffers: list[str],
     ) -> None:
         """Checks for format requirements in specific layouts"""
-        semantics_to_check = [
+        semantics_to_check: list[BufferSemantic] = [
             semantic
             for key, buffer_layout in buffers_format.items()
             for semantic in buffer_layout.semantics
@@ -366,8 +366,8 @@ class ModExporter:
         missing_uvs: list[str] = []
         missing_colors: list[str] = []
         for sem in semantics_to_check:
-            abs_enum = sem.abstract.enum
-            abs_name = sem.abstract.get_name()
+            abs_enum: Semantic = sem.abstract.enum
+            abs_name: str = sem.abstract.get_name()
             if abs_enum == Semantic.Color and mesh.vertex_colors.get(abs_name) is None:
                 missing_colors.append(abs_name)
             if abs_enum == Semantic.TexCoord and mesh.uv_layers.get(abs_name) is None:
@@ -381,7 +381,7 @@ class ModExporter:
                             "Please add vertex groups to the mesh if you intend for it to be rendered. "
                         ),
                     )
-                max_groups = sem.format.get_num_values()
+                max_groups: int = sem.format.get_num_values()
                 for vertex in mesh.vertices:
                     if len(vertex.groups) > max_groups:
                         self.operator.report(
@@ -419,17 +419,17 @@ class ModExporter:
                 addon_path = Path(mod.__file__).parent
                 break
         templates_paths: list[Path] = [addon_path / "templates"]
-        if self.template == "":
+        if isinstance(self.template, Path) and self.template.exists():
             templates_paths.insert(0, self.template.parent)
             template_name = self.template.name
-        env = Environment(
+        env: Environment = Environment(
             loader=FileSystemLoader(searchpath=templates_paths),
             trim_blocks=True,
             lstrip_blocks=True,
         )
-        template = env.get_template(template_name)
-        ini_file = INI_file(
-            template.render(
+        print(f"Using template {template_name}")
+        ini_file: INI_file = INI_file(
+            env.get_template(template_name).render(
                 version=bl_info["version"],
                 mod_file=self.mod_file,
                 credit=self.credit,
