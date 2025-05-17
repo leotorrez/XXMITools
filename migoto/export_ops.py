@@ -2,20 +2,25 @@ import collections
 import json
 import time
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
+import textwrap
 
 import bpy
 from bpy.props import (
     BoolProperty,
     EnumProperty,
-    FloatProperty,
-    IntProperty,
     PointerProperty,
     StringProperty,
 )
 from bpy.types import Context, Mesh, Object, Operator, PropertyGroup
 from bpy_extras.io_utils import ExportHelper
 
+from .data.byte_buffer import (
+    AbstractSemantic,
+    BufferLayout,
+    Semantic,
+)
+from .data.dxgi_format import DXGIType
 from .datahandling import (
     Fatal,
     custom_attributes_float,
@@ -31,12 +36,6 @@ from .datastructures import (
     VertexBufferGroup,
     game_enum,
 )
-from .data.byte_buffer import (
-    BufferLayout,
-    Semantic,
-    AbstractSemantic,
-)
-from .data.dxgi_format import DXGIType
 from .exporter import ModExporter
 
 
@@ -253,6 +252,7 @@ def export_3dmigoto_xxmi(
     write_ini: bool,
     game: GameEnum,
     destination: Optional[Path] = None,
+    template: Optional[Path] = None,
 ) -> None:
     scene = bpy.context.scene
     object_name = vb_path.stem
@@ -280,6 +280,7 @@ def export_3dmigoto_xxmi(
         copy_textures=copy_textures,
         dump_path=vb_path.parent,
         destination=destination,
+        template=template,
         credit=credit,
         game=game,
         operator=operator,
@@ -330,10 +331,10 @@ class Export3DMigoto(Operator, ExportHelper):
     def execute(self, context):
         try:
             file_path = Path(self.filepath)
-            vb_path = file_path.parent / file_path.stem + ".vb"
-            ib_path = file_path.parent / file_path.stem + ".ib"
-            fmt_path = file_path.parent / file_path.stem + ".fmt"
-            ini_path = file_path.parent / file_path.stem + "_generated.ini"
+            vb_path = file_path.parent / (file_path.stem + ".vb")
+            ib_path = file_path.parent / (file_path.stem + ".ib")
+            fmt_path = file_path.parent / (file_path.stem + ".fmt")
+            ini_path = file_path.parent / (file_path.stem + "_generated.ini")
             obj = context.object
             self.flip_normal = obj.get("3DMigoto:FlipNormal", False)
             self.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
@@ -472,7 +473,7 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
                 only_selected=self.only_selected,
                 no_ramps=self.no_ramps,
                 credit=self.credit,
-                copy_texturesi=self.copy_textures,
+                copy_textures=self.copy_textures,
                 outline_optimization=self.outline_optimization,
                 apply_modifiers_and_shapekeys=self.apply_modifiers_and_shapekeys,
                 ignore_duplicate_textures=self.ignore_duplicate_textures,
@@ -495,15 +496,24 @@ class XXMIProperties(PropertyGroup):
         default="",
         maxlen=1024,
     )
+    
     dump_path: StringProperty(
         name="Dump Folder",
         description="Dump Folder:",
         default="",
         maxlen=1024,
+    
     )
     filter_glob: StringProperty(
         default="*.vb*",
         options={"HIDDEN"},
+    )
+
+    template_path: StringProperty(
+        name="Template Path",
+        description="Path to the template file. Optional.",
+        default="",
+        maxlen=1024,
     )
 
     flip_winding: BoolProperty(
@@ -631,6 +641,23 @@ class DumpSelector(Operator, ExportHelper):
         bpy.ops.ed.undo_push(message="XXMI Tools: dump path selected")
         return {"FINISHED"}
 
+class TemplateSelector(Operator, ExportHelper):
+    """Export single mod based on current frame"""
+
+    bl_idname = "template.selector"
+    bl_label = "Tempalte file selector"
+    filename_ext = ".j2"
+    use_filter_folder = True
+    filter_glob: StringProperty(
+        default="*.j2",
+        options={"HIDDEN"},
+    )
+
+    def execute(self, context):
+        context.scene.xxmi.template_path = self.properties.filepath
+        bpy.ops.ed.undo_push(message="XXMI Tools: template path selected")
+        return {"FINISHED"}
+
 
 class ExportAdvancedOperator(Operator):
     """Export operation base class"""
@@ -679,6 +706,7 @@ class ExportAdvancedOperator(Operator):
                 write_ini=xxmi.write_ini,
                 game=game,
                 destination=Path(xxmi.destination_path),
+                template=Path(xxmi.template_path),
             )
             print("Export took", time.time() - start, "seconds")
             self.report({"INFO"}, "Export completed")

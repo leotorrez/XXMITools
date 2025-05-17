@@ -91,6 +91,7 @@ class ModExporter:
     ignore_duplicate_textures: bool
     write_buffers: bool
     write_ini: bool
+    template: Optional[Path] = None
     # Output
     mod_file: ModFile = field(init=False)
     ini_content: str = field(init=False)
@@ -124,7 +125,7 @@ class ModExporter:
         )
         for i, component in enumerate(self.hash_data):
             current_name: str = f"{self.mod_name}{component['component_name']}"
-            component_entry = Component(
+            component_entry: Component = Component(
                 fullname=current_name,
                 parts=[],
                 root_vs=component.get("root_vs", ""),
@@ -138,8 +139,10 @@ class ModExporter:
             for j, part in enumerate(component["object_classifications"]):
                 part_name: str = current_name + part
                 objects: list[SubObj] = []
-                textures = [TextureData(*e) for e in component["texture_hashes"][j]]
-                matching_objs = [
+                textures: list[TextureData] = [
+                    TextureData(*e) for e in component["texture_hashes"][j]
+                ]
+                matching_objs: list[Collection] = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
                 if component["draw_vb"] != "":
@@ -188,7 +191,9 @@ class ModExporter:
         if collection is None:
             return
 
-        objs = [obj for obj in collection.objects if obj.type == "MESH" and obj != main_obj]
+        objs = [
+            obj for obj in collection.objects if obj.type == "MESH" and obj != main_obj
+        ]
         if self.ignore_hidden:
             objs = [obj for obj in objs if obj.visible_get()]
         if self.only_selected:
@@ -358,8 +363,8 @@ class ModExporter:
             for semantic in buffer_layout.semantics
             if key not in excluded_buffers
         ]
-        missing_uvs:list[str] = []
-        missing_colors:list[str] = []
+        missing_uvs: list[str] = []
+        missing_colors: list[str] = []
         for sem in semantics_to_check:
             abs_enum = sem.abstract.enum
             abs_name = sem.abstract.get_name()
@@ -391,17 +396,18 @@ class ModExporter:
         # in the future we might want to make them optional or auto generate them
         if len(missing_uvs) > 0:
             raise Fatal(
-                    f"Mesh({obj.name}) is missing the following UV layers: {', '.join(missing_uvs)}. "
-                    f"Please add them to the mesh before exporting."
-                )
+                f"Mesh({obj.name}) is missing the following UV layers: {', '.join(missing_uvs)}. "
+                f"Please add them to the mesh before exporting."
+            )
         if len(missing_colors) > 0:
             raise Fatal(
-                    f"Mesh({obj.name}) is missing the following vertex colors: {', '.join(missing_colors)}. "
-                    f"Please add them to the mesh before exporting."
-                )
+                f"Mesh({obj.name}) is missing the following vertex colors: {', '.join(missing_colors)}. "
+                f"Please add them to the mesh before exporting."
+            )
 
     def generate_ini(
-        self, template_name: str = "default.ini.j2", user_paths=None
+        self,
+        template_name: str = "default.ini.j2",
     ) -> None:
         # Extensions handle modifiable paths differently. If we ever move to them we should make modifications in here
         if self.write_ini is False:
@@ -412,9 +418,10 @@ class ModExporter:
             if mod.bl_info["name"] == "XXMI_Tools":
                 addon_path = Path(mod.__file__).parent
                 break
-        templates_paths = [addon_path / "templates"]
-        if user_paths is not None:
-            templates_paths.extend(user_paths)
+        templates_paths: list[Path] = [addon_path / "templates"]
+        if self.template is not None:
+            templates_paths.insert(0, self.template.parent)
+            template_name = self.template.name
         env = Environment(
             loader=FileSystemLoader(searchpath=templates_paths),
             trim_blocks=True,
