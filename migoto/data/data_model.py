@@ -575,8 +575,12 @@ class DataModelXXMI(DataModel):
 
     def get_mesh_data(
         self,
+        context: Context,
+        collection: Collection,
         mesh: Mesh,
         export_layout: BufferLayout,
+        fetch_loop_data: bool,
+        mirror_mesh: bool = False,
     ) -> tuple[NDArray, NumpyBuffer]:
         flip_winding: bool = (
             self.flip_winding if not self.mirror_mesh else not self.flip_winding

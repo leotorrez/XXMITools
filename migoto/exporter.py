@@ -419,7 +419,7 @@ class ModExporter:
                 addon_path = Path(mod.__file__).parent
                 break
         templates_paths: list[Path] = [addon_path / "templates"]
-        if self.template is not None:
+        if self.template == "":
             templates_paths.insert(0, self.template.parent)
             template_name = self.template.name
         env = Environment(
@@ -459,13 +459,13 @@ class ModExporter:
             position_buffer["TANGENT"][mask, 0:3] = normalized_avg
 
         # # TODO: Might need to gamma correct for genshin impact...... OR MAYBE THE OTHERS
-        # if self.game == GameEnum.GenshinImpact:
-        #     position_buffer["TANGENT"][:, 0:3] = numpy.power(
-        #         position_buffer["TANGENT"][:, 0:3], 1/2.2
-        #     )
+        # if self.game == GameEnum.HonkaiStarRail:
+        #     position_buffer["TANGENT"][:, 0:3] = (
+        #         position_buffer["TANGENT"][:, 0:3] * 0.5 + 0.5
+        #     ) ** 2.2 * 2 - 1
         #     position_buffer["TANGENT"][:, 0:3] /= numpy.linalg.norm(
-        #         position_buffer["TANGENT"][:, 0:3], axis=1
-        #     )[:, numpy.newaxis]
+        #         position_buffer["TANGENT"][:, 0:3]
+        #     )
 
     def write_files(self) -> None:
         """Write the files to the destination."""
