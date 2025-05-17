@@ -26,7 +26,7 @@ class DataModel(object):
     flip_bitangent_sign: bool = False
     flip_texcoord_v: bool = False
 
-    data_extractor = BlenderDataExtractor()
+    data_extractor: BlenderDataExtractor = BlenderDataExtractor()
     buffers_format: dict[str, BufferLayout] = {}
     semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
     format_converters: dict[AbstractSemantic, list[Callable]] = {}
@@ -62,7 +62,9 @@ class DataModel(object):
         # Add generic converters
 
         # Swap first and third index for each triangle in index buffer
-        flip_winding = self.flip_winding if not mirror_mesh else not self.flip_winding
+        flip_winding: bool = (
+            self.flip_winding if not mirror_mesh else not self.flip_winding
+        )
         if flip_winding:
             self._insert_converter(
                 semantic_converters,
@@ -122,7 +124,7 @@ class DataModel(object):
                         format_converters, semantic.abstract, converter
                     )
 
-        data_importer = BlenderDataImporter()
+        data_importer: BlenderDataImporter = BlenderDataImporter()
 
         data_importer.set_data(
             obj,
@@ -425,25 +427,17 @@ class DataModel(object):
 class DataModelXXMI(DataModel):
     game: GameEnum
     mirror_mesh: bool = False
+    flip_winding: bool = False
+    flip_normal: bool = False
+    flip_tangent: bool = False
+    flip_bitangent_sign: bool = False
     flip_texcoords_vertical: dict[str, bool] = {}
     buffers_format: dict[str, BufferLayout] = {}
-
-    def __init__(self) -> None:
-        self.semantic_converters = {
-            # AbstractSemantic(Semantic.Tangent, 0): [
-            #     lambda data: self.converter_resize_second_dim(data, 4, fill=1)
-            # ],
-        }
-        self.format_converters = {
-            AbstractSemantic(Semantic.Tangent, 0): [
-                lambda data: self.converter_resize_second_dim(data, 4, fill=1)
-            ],
-        }
+    format_converters: dict[AbstractSemantic, list[Callable]] = {}
+    semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
 
     @classmethod
-    def from_obj(
-        cls, obj: Object, game: GameEnum
-    ) -> "DataModelXXMI":
+    def from_obj(cls, obj: Object, game: GameEnum) -> "DataModelXXMI":
         cls = super().__new__(cls)
         cls.game = game
         for prop in [
@@ -459,14 +453,25 @@ class DataModelXXMI(DataModel):
         cls.flip_tangent = obj.get("3DMigoto:FlipTangent")
         cls.flip_bitangent_sign = obj.get("3DMigoto:Tangent")
         cls.mirror_mesh = obj.get("3DMigoto:FlipMesh")
+        if obj.get("3DMigoto:VBLayout") is None:
+            raise Fatal(
+                f"Object({obj.name}) is missing custom properties required for export! Reimport the mesh from dump folder."
+            )
+        if (ib_f := obj.get("3DMigoto:IBFormat")) is None:
+            raise Fatal("Export doesn't support meshes without index buffer")
         for uv_layer in obj.data.uv_layers:
+            if obj.get("3DMigoto:" + uv_layer.name) is None:
+                continue
             cls.flip_texcoords_vertical[uv_layer.name] = obj[
                 "3DMigoto:" + uv_layer.name
             ]["flip_v"]
-        if (ib_f := obj.get("3DMigoto:IBFormat")) is None:
-            raise Fatal("Export doesn't support meshes without index buffer")
-        n = ib_f.replace("DXGI_FORMAT_R", "").replace("_UINT", "").replace("16", "32")
-        ib_format = DXGIFormat(f"R{n}_UINT")
+        ib_format: DXGIFormat = DXGIFormat(ib_f)
+        if ib_format.dxgi_type == DXGIFormat.R16_UINT.dxgi_type:
+            # 16-bit index buffer promoted to 32-bit
+            ib_format = DXGIFormat.from_type(
+                DXGIFormat.R32_UINT.dxgi_type,
+                ib_format.get_num_values(),
+            )
         cls.buffers_format: dict[str, BufferLayout] = {
             "IB": BufferLayout(
                 [
@@ -480,9 +485,13 @@ class DataModelXXMI(DataModel):
             "Blend": BufferLayout([]),
             "TexCoord": BufferLayout([]),
         }
-        pos_semantics = [Semantic.Position, Semantic.Normal, Semantic.Tangent]
-        blend_semantics = [Semantic.Blendweight, Semantic.Blendindices]
-        tex_semantics = [Semantic.TexCoord, Semantic.Color]
+        pos_semantics: list[Semantic] = [
+            Semantic.Position,
+            Semantic.Normal,
+            Semantic.Tangent,
+        ]
+        blend_semantics: list[Semantic] = [Semantic.Blendweight, Semantic.Blendindices]
+        tex_semantics: list[Semantic] = [Semantic.TexCoord, Semantic.Color]
         if game == GameEnum.HonkaiImpactPart2:
             pos_semantics = [
                 Semantic.Position,
@@ -490,7 +499,6 @@ class DataModelXXMI(DataModel):
                 Semantic.Tangent,
                 Semantic.Color,
             ]
-            blend_semantics = [Semantic.Blendweight, Semantic.Blendindices]
             tex_semantics = [Semantic.TexCoord]
 
         try:
@@ -535,22 +543,24 @@ class DataModelXXMI(DataModel):
                         and new_semantic.get_num_values() == 4
                     ):
                         # Tangent is 4D vector, we need to convert it to 3D, 1D BitangentSign
-                        tangent_semantic = BufferSemantic(
-                            new_semantic.abstract,
-                            DXGIFormat.from_type(new_semantic.format.dxgi_type, 3),
-                            new_semantic.input_slot,
-                            new_semantic.data_step_rate,
-                            remapped_abstract=new_semantic.remapped_abstract,
+                        cls.buffers_format["Position"].add_element(
+                            BufferSemantic(
+                                new_semantic.abstract,
+                                DXGIFormat.from_type(new_semantic.format.dxgi_type, 3),
+                                new_semantic.input_slot,
+                                new_semantic.data_step_rate,
+                                remapped_abstract=new_semantic.remapped_abstract,
+                            )
                         )
-                        bitangent_semantic = BufferSemantic(
-                            AbstractSemantic(Semantic.BitangentSign),
-                            DXGIFormat.from_type(new_semantic.format.dxgi_type, 1),
-                            new_semantic.input_slot,
-                            new_semantic.data_step_rate,
-                            remapped_abstract=new_semantic.remapped_abstract,
+                        cls.buffers_format["Position"].add_element(
+                            BufferSemantic(
+                                AbstractSemantic(Semantic.BitangentSign),
+                                DXGIFormat.from_type(new_semantic.format.dxgi_type, 1),
+                                new_semantic.input_slot,
+                                new_semantic.data_step_rate,
+                                remapped_abstract=new_semantic.remapped_abstract,
+                            )
                         )
-                        cls.buffers_format["Position"].add_element(tangent_semantic)
-                        cls.buffers_format["Position"].add_element(bitangent_semantic)
                         continue
                     cls.buffers_format["Position"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in blend_semantics:
@@ -559,56 +569,27 @@ class DataModelXXMI(DataModel):
                     cls.buffers_format["TexCoord"].add_element(new_semantic)
         except KeyError:
             raise Fatal(
-                "Object doesn't count with the custom properties required for export!"
+                f"Object({obj.name}) doesn't count with the custom properties required for export! Reimport the mesh from dump folder."
             )
         return cls
 
     def get_mesh_data(
         self,
-        context: Context,
-        collection: Collection,
         mesh: Mesh,
         export_layout: BufferLayout,
-        fetch_loop_data: bool,
-        mirror_mesh: bool = False,
     ) -> tuple[NDArray, NumpyBuffer]:
-        vertex_ids_cache, cache_vertex_ids = None, False
-
-        flip_winding = (
+        flip_winding: bool = (
             self.flip_winding if not self.mirror_mesh else not self.flip_winding
         )
-        flip_bitangent_sign = (
+        flip_bitangent_sign: bool = (
             self.flip_bitangent_sign
             if not self.mirror_mesh
             else not self.flip_bitangent_sign
         )
 
-        # if not fetch_loop_data:
-        #     if (
-        #         collection
-        #         != context.scene.wwmi_tools_settings.vertex_ids_cached_collection
-        #     ):
-        #         # Cache contains data for different object and must be cleared
-        #         context.scene.wwmi_tools_settings.vertex_ids_cache = ""
-        #         fetch_loop_data = True
-        #         cache_vertex_ids = True
-        #     else:
-        #         # Partial export is enabled
-        #         if context.scene.wwmi_tools_settings.vertex_ids_cache:
-        #             # Valid vertex ids cache exists, lets load it
-        #             vertex_ids_cache = numpy.array(
-        #                 json.loads(context.scene.wwmi_tools_settings.vertex_ids_cache)
-        #             )
-        #         else:
-        #             # Cache is clear, we'll have to fetch loop data once
-        #             fetch_loop_data = True
-        #             cache_vertex_ids = True
-        # elif context.scene.wwmi_tools_settings.vertex_ids_cache:
-        #     # We're going to fetch loop data, cache must be cleared
-        #     context.scene.wwmi_tools_settings.vertex_ids_cache = ""
-
         # Copy default converters
-        semantic_converters, format_converters = {}, {}
+        semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
+        format_converters: dict[AbstractSemantic, list[Callable]] = {}
         semantic_converters.update(self.semantic_converters)
         format_converters.update(self.format_converters)
 
@@ -655,25 +636,12 @@ class DataModelXXMI(DataModel):
                     self.converter_flip_texcoord_v,
                 )
 
-        # If vertex_ids_cache is *not* None, get_data method will skip loop data fetching
         index_buffer, vertex_buffer = self.data_extractor.get_data(
             mesh,
             export_layout,
             self.blender_data_formats,
             semantic_converters,
             format_converters,
-            vertex_ids_cache,
             flip_winding=flip_winding,
         )
-
-        # if cache_vertex_ids:
-        #     # As vertex_ids_cache is None, get_data fetched loop data for us and we can cache vertex ids
-        #     vertex_ids = vertex_buffer.get_field(
-        #         AbstractSemantic(Semantic.VertexId).get_name()
-        #     )
-        #     context.scene.wwmi_tools_settings.vertex_ids_cache = json.dumps(
-        #         vertex_ids.tolist()
-        #     )
-        #     context.scene.wwmi_tools_settings.vertex_ids_cached_collection = collection
-
         return index_buffer, vertex_buffer
