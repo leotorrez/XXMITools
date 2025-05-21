@@ -74,18 +74,19 @@ class ModFile:
 class ModExporter:
     # Input
     context: Context
+    operator: Operator
     mod_name: str
     hash_data: list[dict]
+    dump_path: Path
+    destination: Path
+    credit: str
+    game: GameEnum
     ignore_hidden: bool
     ignore_muted_shape_keys: bool
     apply_modifiers: bool
     only_selected: bool
     copy_textures: bool
-    dump_path: Path
-    destination: Path
-    credit: str
-    game: GameEnum
-    operator: Operator
+    normalize_weights: bool
     outline_optimization: bool
     no_ramps: bool
     ignore_duplicate_textures: bool
@@ -265,7 +266,10 @@ class ModExporter:
                 if component.draw_vb == "":
                     continue
                 data_model: DataModelXXMI = DataModelXXMI.from_obj(
-                    part.objects[0].obj, self.game
+                    part.objects[0].obj,
+                    game=self.game,
+                    normalize_weights=self.normalize_weights,
+                    is_posed_mesh=component.blend_vb != "",
                 )
                 for entry in part.objects:
                     print(f"Processing {entry.name}...")
@@ -336,22 +340,10 @@ class ModExporter:
                         continue
                     component.strides[k.lower()] = buffer.stride
                 continue
-            merged_dtype = numpy.dtype(
-                list(output_buffers["Position"].dtype.descr)
-                + list(output_buffers["TexCoord"].dtype.descr)
-            )
-            merged_buffer = numpy.empty(
-                len(output_buffers["Position"]), dtype=merged_dtype
-            )
-            for key, entry in output_buffers.items():
-                if key == "IB" or entry.dtype.names is None:
-                    continue
-                for name in entry.dtype.names:
-                    merged_buffer[name] = entry[name]
             self.files_to_write[self.destination / (component.fullname + ".buf")] = (
-                merged_buffer
+                output_buffers["Position"]
             )
-            component.strides = {"position": merged_buffer.itemsize}
+            component.strides = {"position": output_buffers["Position"].itemsize}
 
     def verify_mesh_requirements(
         self,
@@ -394,6 +386,7 @@ class ModExporter:
                             (
                                 f"Mesh({obj.name}) has some vertex with more VGs than the amount supported by the buffer format ({max_groups}). "
                                 "Please remove the extra groups from the vertex or use to clean up the weights(limit total plus normalization). "
+                                "Alternatively you can enable normalize weights to format(Ignore this warning if you already have it enabled)"
                             ),
                         )
                         break

@@ -431,15 +431,23 @@ class DataModelXXMI(DataModel):
     flip_normal: bool = False
     flip_tangent: bool = False
     flip_bitangent_sign: bool = False
+    normalize_weights: bool = False
     flip_texcoords_vertical: dict[str, bool] = {}
     buffers_format: dict[str, BufferLayout] = {}
     format_converters: dict[AbstractSemantic, list[Callable]] = {}
     semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
 
     @classmethod
-    def from_obj(cls, obj: Object, game: GameEnum) -> "DataModelXXMI":
+    def from_obj(
+        cls,
+        obj: Object,
+        game: GameEnum,
+        normalize_weights: bool = False,
+        is_posed_mesh: bool = False,
+    ) -> "DataModelXXMI":
         cls = super().__new__(cls)
         cls.game = game
+        cls.normalize_weights = normalize_weights
         for prop in [
             "3DMigoto:FlipNormal",
             "3DMigoto:FlipTangent",
@@ -500,7 +508,18 @@ class DataModelXXMI(DataModel):
                 Semantic.Color,
             ]
             tex_semantics = [Semantic.TexCoord]
-
+        if not is_posed_mesh:
+            pos_semantics: list[Semantic] = [
+                Semantic.Position,
+                Semantic.Normal,
+                Semantic.Tangent,
+                Semantic.Blendweight,
+                Semantic.Blendindices,
+                Semantic.TexCoord,
+                Semantic.Color,
+            ]
+            blend_semantics: list[Semantic] = []
+            tex_semantics: list[Semantic] = []
         try:
             for entry in obj.get("3DMigoto:VBLayout"):
                 s_dict = entry.to_dict()
@@ -564,6 +583,13 @@ class DataModelXXMI(DataModel):
                         continue
                     cls.buffers_format["Position"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in blend_semantics:
+                    if (
+                        new_semantic.abstract.enum is Semantic.Blendweight
+                        and cls.normalize_weights
+                    ):
+                        cls.format_converters[new_semantic.abstract] = [
+                            lambda data: cls.convert_normalize_weights(data)
+                        ]
                     cls.buffers_format["Blend"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in tex_semantics:
                     cls.buffers_format["TexCoord"].add_element(new_semantic)
@@ -572,6 +598,15 @@ class DataModelXXMI(DataModel):
                 f"Object({obj.name}) doesn't count with the custom properties required for export! Reimport the mesh from dump folder."
             )
         return cls
+
+    def convert_normalize_weights(self, data: NDArray) -> NDArray:
+        """Normalizes weight values to ensure they sum to 1.0 for each vertex"""
+        sums: NDArray = numpy.sum(data, axis=1, keepdims=True)
+        # Avoid division by zero - if sum is 0, set it to 1
+        sums[sums == 0] = 1.0
+        normalized: NDArray = data / sums
+
+        return normalized
 
     def get_mesh_data(
         self,
