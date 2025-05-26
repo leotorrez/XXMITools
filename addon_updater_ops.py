@@ -421,7 +421,7 @@ class AddonUpdaterInstallManually(bpy.types.Operator):
     bl_description = "Proceed to manually install update"
     bl_options = {"REGISTER", "INTERNAL"}
 
-    error: bpy.props.StringProperty(
+    error = bpy.props.StringProperty(
         name="Error Occurred", default="", options={"HIDDEN"}
     )
 
@@ -482,7 +482,7 @@ class AddonUpdaterUpdatedSuccessful(bpy.types.Operator):
     bl_description = "Update installation response"
     bl_options = {"REGISTER", "INTERNAL", "UNDO"}
 
-    error: bpy.props.StringProperty(
+    error = bpy.props.StringProperty(
         name="Error Occurred", default="", options={"HIDDEN"}
     )
 

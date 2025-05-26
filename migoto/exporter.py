@@ -12,11 +12,75 @@ from numpy.typing import NDArray
 from .. import bl_info
 from ..libs.jinja2 import Environment, FileSystemLoader
 from .data.data_model import DataModelXXMI
-from .data.byte_buffer import BufferLayout, Semantic, NumpyBuffer, BufferSemantic
+from .data.byte_buffer import (
+    BufferLayout,
+    Semantic,
+    NumpyBuffer,
+    BufferSemantic,
+)
 from .datastructures import GameEnum
 from .export_ops import mesh_triangulate
 from .operators import Fatal
 from .data.ini_format import INI_file
+
+
+def unit_vector(vector: NDArray) -> NDArray:
+    a = numpy.linalg.norm(vector, axis=max(len(vector.shape) - 1, 0), keepdims=True)
+    return numpy.divide(vector, a, out=numpy.zeros_like(vector), where=a != 0)
+
+
+def antiparallel_search(ConnectedFaceNormals) -> bool:
+    a = numpy.einsum("ij,kj->ik", ConnectedFaceNormals, ConnectedFaceNormals)
+    return bool(numpy.any((a > -1.000001) & (a < -0.999999)))
+
+
+def measure_precision(x) -> int:
+    return -int(numpy.floor(numpy.log10(x)))
+
+
+def recursive_connections(Over2_connected_points) -> bool:
+    for entry, connectedpointentry in Over2_connected_points.items():
+        if len(connectedpointentry & Over2_connected_points.keys()) < 2:
+            Over2_connected_points.pop(entry)
+            if len(Over2_connected_points) < 3:
+                return False
+            return recursive_connections(Over2_connected_points)
+    return True
+
+
+def checkEnclosedFacesVertex(
+    ConnectedFaces: list[NDArray], vg_set, Precalculated_Outline_data
+) -> bool:
+    Main_connected_points: dict = {}
+    # connected points non-same vertex
+    for face in ConnectedFaces:
+        non_vg_points = [p for p in face if p not in vg_set]
+        if len(non_vg_points) > 1:
+            for point in non_vg_points:
+                Main_connected_points.setdefault(point, []).extend(
+                    [x for x in non_vg_points if x != point]
+                )
+        # connected points same vertex
+    New_Main_connect: dict = {}
+    for entry, value in Main_connected_points.items():
+        for val in value:
+            ivspv = Precalculated_Outline_data["Same_Vertex"][val] - {val}
+            intersect_sidevertex = ivspv & Main_connected_points.keys()
+            if intersect_sidevertex:
+                New_Main_connect.setdefault(entry, []).extend(
+                    list(intersect_sidevertex)
+                )
+        # connected points same vertex reverse connection
+    for key, value in New_Main_connect.items():
+        Main_connected_points[key].extend(value)
+        for val in value:
+            Main_connected_points[val].append(key)
+        # exclude for only 2 way paths
+    Over2_connected_points = {
+        k: set(v) for k, v in Main_connected_points.items() if len(v) > 1
+    }
+
+    return recursive_connections(Over2_connected_points)
 
 
 @dataclass
@@ -124,6 +188,7 @@ class ModExporter:
             game=self.game,
             credit=self.credit,
         )
+        seen_hashes = set()
         for i, component in enumerate(self.hash_data):
             current_name: str = f"{self.mod_name}{component['component_name']}"
             component_entry: Component = Component(
@@ -148,6 +213,12 @@ class ModExporter:
                 textures: list[TextureData] = [
                     TextureData(*e) for e in component["texture_hashes"][j]
                 ]
+                if self.ignore_duplicate_textures:
+                    textures = [
+                        t
+                        for t in textures
+                        if t.hash not in seen_hashes and not seen_hashes.add(t.hash)
+                    ]
                 matching_objs: list[Collection] = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
@@ -239,6 +310,7 @@ class ModExporter:
                 "Blend": numpy.empty(0, dtype=numpy.uint8),
                 "TexCoord": numpy.empty(0, dtype=numpy.uint8),
             }
+            component_ib: NDArray = numpy.empty(0, dtype=numpy.uint8)
             if self.write_buffers is False:
                 for key in output_buffers.keys():
                     excluded_buffers.append(key)
@@ -302,12 +374,12 @@ class ModExporter:
                             gen_buffers[k].data
                             if len(output_buffers[k]) == 0
                             else numpy.concatenate(
-                                (output_buffers[k], gen_buffers[k].data)  # type: ignore
+                                (output_buffers[k], gen_buffers[k].data)
                             )
                         )
                     gen_buffers["IB"].data["INDEX"] += vb_offset
                     ib_buffer = (
-                        gen_buffers["IB"].data
+                        gen_buffers["IB"].data.copy()
                         if ib_buffer is None
                         else numpy.concatenate((ib_buffer, gen_buffers["IB"].data))
                     )
@@ -321,10 +393,15 @@ class ModExporter:
                 if ib_buffer is None:
                     print(f"Skipping {part.fullname}.ib due to no index data.")
                     continue
+                component_ib = (
+                    ib_buffer.copy()
+                    if len(component_ib) == 0
+                    else numpy.concatenate((component_ib, ib_buffer))
+                )
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     ib_buffer
                 )
-            self.optimize_outlines(output_buffers["Position"])
+            self.optimize_outlines(output_buffers, component_ib, data_model)
             if component.blend_vb != "":
                 self.files_to_write[
                     self.destination / (component.fullname + "Position.buf")
@@ -335,10 +412,11 @@ class ModExporter:
                 self.files_to_write[
                     self.destination / (component.fullname + "Texcoord.buf")
                 ] = output_buffers["TexCoord"]
-                for k, buffer in data_model.buffers_format.items():
-                    if k == "IB":
-                        continue
-                    component.strides[k.lower()] = buffer.stride
+                component.strides = {
+                    k.lower(): v.stride
+                    for k, v in data_model.buffers_format.items()
+                    if k != "IB"
+                }
                 continue
             self.files_to_write[self.destination / (component.fullname + ".buf")] = (
                 output_buffers["Position"]
@@ -417,7 +495,11 @@ class ModExporter:
                 addon_path = Path(mod.__file__).parent
                 break
         templates_paths: list[Path] = [addon_path / "templates"]
-        if isinstance(self.template, Path) and self.template.exists():
+        if (
+            self.template != Path("")
+            and isinstance(self.template, Path)
+            and self.template.exists()
+        ):
             templates_paths.insert(0, self.template.parent)
             template_name = self.template.name
         env: Environment = Environment(
@@ -439,31 +521,234 @@ class ModExporter:
         ini_body: str = str(ini_file)
         self.files_to_write[self.destination / (self.mod_name + ".ini")] = ini_body
 
-    def optimize_outlines(self, position_buffer: NDArray, precision: int = 3) -> None:
+    def optimize_outlines(
+        self,
+        output_buffers: dict[str, NDArray],
+        ib: NDArray,
+        data_model: DataModelXXMI,
+        precision: int = 4,
+    ) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
-        if not self.outline_optimization or len(position_buffer) == 0:
+        position_buf: NDArray = output_buffers["Position"]
+        if len(position_buf) == 0:
             return
-        position = numpy.round(position_buffer["POSITION"], precision)
-        u, u_inverse, counts = numpy.unique(
-            position, axis=0, return_counts=True, return_inverse=True
-        )
-        position_buffer["TANGENT"][:, 0:3] = position_buffer["NORMAL"][:, 0:3]
-        shared_indices = numpy.where(counts > 1)[0]
-        for i in shared_indices:
-            mask = u_inverse == i
-            vertex_normals = position_buffer["NORMAL"][mask, 0:3]
-            normalized_avg = numpy.mean(vertex_normals, axis=0)
-            normalized_avg /= numpy.linalg.norm(normalized_avg)
-            position_buffer["TANGENT"][mask, 0:3] = normalized_avg
+        if not self.outline_optimization:
+            if self.game == GameEnum.GenshinImpact:
+                position_buf["TANGENT"][:, 0:3] = position_buf["NORMAL"][:, 0:3]
+            return
+        nearest_edge_distance = 0.0001
+        toggle_rounding_outline = True
+        angle_weighted = True
+        overlapping_faces = True
+        detect_edges = False
+        calculate_all_faces = True
 
-        # # TODO: Might need to gamma correct for genshin impact...... OR MAYBE THE OTHERS
-        # if self.game == GameEnum.HonkaiStarRail:
-        #     position_buffer["TANGENT"][:, 0:3] = (
-        #         position_buffer["TANGENT"][:, 0:3] * 0.5 + 0.5
-        #     ) ** 2.2 * 2 - 1
-        #     position_buffer["TANGENT"][:, 0:3] /= numpy.linalg.norm(
-        #         position_buffer["TANGENT"][:, 0:3]
-        #     )
+        new_tangent: NDArray = numpy.zeros((len(position_buf), 3), dtype=numpy.float32)
+        new_tangent[:, 0:3] = position_buf["NORMAL"][:, 0:3]
+
+        triangles: NDArray = position_buf["POSITION"][ib["INDEX"]]
+        triangles: NDArray = triangles.reshape(-1, 3, 3)
+        edge1: NDArray = triangles[:, 1] - triangles[:, 0]
+        edge2: NDArray = triangles[:, 2] - triangles[:, 0]
+        face_normals: NDArray = numpy.cross(edge1, edge2)
+        face_normals /= numpy.linalg.norm(face_normals, axis=1)[:, numpy.newaxis]
+        round_pos: NDArray = numpy.round(position_buf["POSITION"], precision)
+        face_verts: NDArray = ib["INDEX"].reshape(-1, 3)
+
+        Precalc_Outline: dict = {
+            "Connected_Faces": {},
+            "Same_Vertex": {},
+            "RepositionLocal": set(),
+        }
+        Pos_Same_Vertices: dict[tuple, set] = {}
+        Pos_Close_Vertices: dict[tuple, set] = {}
+
+        if detect_edges and toggle_rounding_outline:
+            i_nedd: int = (
+                min(
+                    measure_precision(nearest_edge_distance),
+                    precision,
+                )
+                - 1
+            )
+            # i_nedd_increment: int = 10 ** (-i_nedd)
+
+        for i_poly in range(len(face_normals)):
+            for vert in face_verts[i_poly]:
+                Precalc_Outline["Connected_Faces"].setdefault(vert, []).append(i_poly)
+
+                vert_position: NDArray = position_buf["POSITION"][vert, 0:3]
+                Pos_Same_Vertices.setdefault(
+                    tuple(
+                        round(coord, precision)
+                        for coord in vert_position
+                    ),
+                    {vert},
+                ).add(vert)
+                if detect_edges:
+                    Pos_Close_Vertices.setdefault(
+                        tuple(round(coord, i_nedd) for coord in vert_position),
+                        {vert},
+                    ).add(vert)
+
+        Precalc_Outline["Same_Vertex"] = Pos_Same_Vertices
+
+        if detect_edges and toggle_rounding_outline:
+            for vertex_group in Pos_Same_Vertices.values():
+                # FacesConnected: list = []
+                # for x in vertex_group:
+                #     FacesConnected.extend(Precalc_Outline["Connected_Faces"][x])
+
+                # ConnectedFaces = [face_verts[x] for x in FacesConnected]
+                # if checkEnclosedFacesVertex(
+                #     ConnectedFaces, vertex_group, Precalc_Outline
+                # ):
+                #     continue
+                p1, p2, p3 = round_pos[next(iter(vertex_group))]
+                p1n = p1 + nearest_edge_distance
+                p1nn = p1 - nearest_edge_distance
+                p2n = p2 + nearest_edge_distance
+                p2nn = p2 - nearest_edge_distance
+                p3n = p3 + nearest_edge_distance
+                p3nn = p3 - nearest_edge_distance
+
+                coord: list[list] = [
+                    [round(p1n, i_nedd), round(p1nn, i_nedd)],
+                    [round(p2n, i_nedd), round(p2nn, i_nedd)],
+                    [round(p3n, i_nedd), round(p3nn, i_nedd)],
+                ]
+
+                xset: set = {
+                    p
+                    for p in Pos_Close_Vertices
+                    if p[0] < coord[0][0] and p[0] > coord[0][1]
+                }
+                yset: set = {
+                    p
+                    for p in Pos_Close_Vertices
+                    if p[1] < coord[1][0] and p[1] > coord[1][1]
+                }
+                zset: set = {
+                    p
+                    for p in Pos_Close_Vertices
+                    if p[2] < coord[2][0] and p[2] > coord[2][1]
+                }
+
+                xyzset = xset & yset & zset
+
+                # for i in range(3):
+                #     z, n = coord[i]
+                #     zndifference = int((z - n) / i_nedd_increment)
+                #     if zndifference > 1:
+                #         for r in range(zndifference - 1):
+                #             coord[i].append(z - r * i_nedd_increment)
+
+                # closest_group = set()
+                # for pos1 in coord[0]:
+                #     for pos2 in coord[1]:
+                #         for pos3 in coord[2]:
+                #             try:
+                #                 closest_group.update(
+                #                     Pos_Close_Vertices.get(tuple([pos1, pos2, pos3]))
+                #                 )
+                #             except Exception:
+                #                 continue
+                closest_group: set = set()
+                for pos in xyzset:
+                    closest_group.update(Pos_Close_Vertices.get(pos, set()))
+                if len(closest_group) > 1:
+                    for x in vertex_group:
+                        Precalc_Outline["RepositionLocal"].add(x)
+
+                    for v_closest_pos in closest_group:
+                        if v_closest_pos not in vertex_group:
+                            o1, o2, o3 = round_pos[v_closest_pos]
+                            if (
+                                p1n >= o1 >= p1nn
+                                and p2n >= o2 >= p2nn
+                                and p3n >= o3 >= p3nn
+                            ):
+                                for x in vertex_group:
+                                    Precalc_Outline["Same_Vertex"][x].add(v_closest_pos)
+
+        Connected_Faces_bySameVertex = {}
+        for key, value in Precalc_Outline["Same_Vertex"].items():
+            for vertex in value:
+                Connected_Faces_bySameVertex.setdefault(key, set()).update(
+                    Precalc_Outline["Connected_Faces"][vertex]
+                )
+
+        ################# CALCULATIONS #####################
+
+        IteratedValues: set = set()
+        for key, vertex_group in Precalc_Outline["Same_Vertex"].items():
+            if key in IteratedValues or (
+                not calculate_all_faces and len(vertex_group) == 1
+            ):
+                continue
+            FacesConnectedbySameVertex: list = list(Connected_Faces_bySameVertex[key])
+            row: int = len(FacesConnectedbySameVertex)
+
+            if overlapping_faces:
+                ConnectedFaceNormals = numpy.empty(shape=(row, 3))
+                for i_normal, x in enumerate(FacesConnectedbySameVertex):
+                    ConnectedFaceNormals[i_normal] = face_normals[x]
+                if antiparallel_search(ConnectedFaceNormals):
+                    continue
+
+            if angle_weighted:
+                VectorMatrix0 = numpy.empty(shape=(row, 3))
+                VectorMatrix1 = numpy.empty(shape=(row, 3))
+
+            ConnectedWeightedNormal = numpy.empty(shape=(row, 3))
+
+            for i, facei in enumerate(FacesConnectedbySameVertex):
+                vlist = face_verts[facei]
+
+                vert0p = set(vlist) & vertex_group
+
+                if angle_weighted:
+                    for vert0 in vert0p:
+                        v0 = round_pos[vert0]
+                        vn = [round_pos[x] for x in vlist if x != vert0]
+                        VectorMatrix0[i] = vn[0] - v0
+                        VectorMatrix1[i] = vn[1] - v0
+                ConnectedWeightedNormal[i] = face_normals[facei]
+
+                influence_restriction: int = len(vert0p)
+                if influence_restriction > 1:
+                    numpy.multiply(
+                        ConnectedWeightedNormal[i], 0.5 ** (1 - influence_restriction)
+                    )
+
+            if angle_weighted:
+                angle = numpy.arccos(
+                    numpy.clip(
+                        numpy.einsum(
+                            "ij, ij->i",
+                            unit_vector(VectorMatrix0),
+                            unit_vector(VectorMatrix1),
+                        ),
+                        -1.0,
+                        1.0,
+                    )
+                )
+                ConnectedWeightedNormal *= angle[:, None]
+
+            wSum = unit_vector(numpy.nansum(ConnectedWeightedNormal, axis=0)).tolist()
+
+            if numpy.all(wSum == 0.0):
+                continue
+            if (
+                Precalc_Outline["RepositionLocal"]
+                and key in Precalc_Outline["RepositionLocal"]
+            ):
+                new_tangent[key] = wSum
+                continue
+            for vertexf in vertex_group:
+                new_tangent[vertexf] = wSum
+                IteratedValues.add(vertexf)
+        position_buf["TANGENT"][:, 0:3] = new_tangent[:, 0:3]
 
     def write_files(self) -> None:
         """Write the files to the destination."""
