@@ -24,65 +24,6 @@ from .operators import Fatal
 from .data.ini_format import INI_file
 
 
-def unit_vector(vector: NDArray) -> NDArray:
-    a = numpy.linalg.norm(vector, axis=max(len(vector.shape) - 1, 0), keepdims=True)
-    return numpy.divide(vector, a, out=numpy.zeros_like(vector), where=a != 0)
-
-
-def antiparallel_search(ConnectedFaceNormals) -> bool:
-    a = numpy.einsum("ij,kj->ik", ConnectedFaceNormals, ConnectedFaceNormals)
-    return bool(numpy.any((a > -1.000001) & (a < -0.999999)))
-
-
-def measure_precision(x) -> int:
-    return -int(numpy.floor(numpy.log10(x)))
-
-
-def recursive_connections(Over2_connected_points) -> bool:
-    for entry, connectedpointentry in Over2_connected_points.items():
-        if len(connectedpointentry & Over2_connected_points.keys()) < 2:
-            Over2_connected_points.pop(entry)
-            if len(Over2_connected_points) < 3:
-                return False
-            return recursive_connections(Over2_connected_points)
-    return True
-
-
-def checkEnclosedFacesVertex(
-    ConnectedFaces: list[NDArray], vg_set, Precalculated_Outline_data
-) -> bool:
-    Main_connected_points: dict = {}
-    # connected points non-same vertex
-    for face in ConnectedFaces:
-        non_vg_points = [p for p in face if p not in vg_set]
-        if len(non_vg_points) > 1:
-            for point in non_vg_points:
-                Main_connected_points.setdefault(point, []).extend(
-                    [x for x in non_vg_points if x != point]
-                )
-        # connected points same vertex
-    New_Main_connect: dict = {}
-    for entry, value in Main_connected_points.items():
-        for val in value:
-            ivspv = Precalculated_Outline_data["Same_Vertex"][val] - {val}
-            intersect_sidevertex = ivspv & Main_connected_points.keys()
-            if intersect_sidevertex:
-                New_Main_connect.setdefault(entry, []).extend(
-                    list(intersect_sidevertex)
-                )
-        # connected points same vertex reverse connection
-    for key, value in New_Main_connect.items():
-        Main_connected_points[key].extend(value)
-        for val in value:
-            Main_connected_points[val].append(key)
-        # exclude for only 2 way paths
-    Over2_connected_points = {
-        k: set(v) for k, v in Main_connected_points.items() if len(v) > 1
-    }
-
-    return recursive_connections(Over2_connected_points)
-
-
 @dataclass
 class SubObj:
     collection_name: str
@@ -402,6 +343,7 @@ class ModExporter:
                     ib_buffer
                 )
             self.optimize_outlines(output_buffers, component_ib, data_model)
+            # self.optimize_outlines_old_simplified(output_buffers, component_ib, data_model)
             if component.blend_vb != "":
                 self.files_to_write[
                     self.destination / (component.fullname + "Position.buf")
@@ -521,7 +463,7 @@ class ModExporter:
         ini_body: str = str(ini_file)
         self.files_to_write[self.destination / (self.mod_name + ".ini")] = ini_body
 
-    def optimize_outlines(
+    def optimize_outlines_old_simplified(
         self,
         output_buffers: dict[str, NDArray],
         ib: NDArray,
@@ -529,6 +471,30 @@ class ModExporter:
         precision: int = 4,
     ) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
+
+        def unit_vector(vector: NDArray) -> NDArray:
+            a = numpy.linalg.norm(
+                vector, axis=max(len(vector.shape) - 1, 0), keepdims=True
+            )
+            return numpy.divide(vector, a, out=numpy.zeros_like(vector), where=a != 0)
+
+        def antiparallel_search(normals) -> bool:
+            a = numpy.einsum("ij,kj->ik", normals, normals)
+            return bool(numpy.any((a > -1.000001) & (a < -0.999999)))
+
+        def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
+            return numpy.arccos(
+                numpy.clip(
+                    numpy.einsum(
+                        "ij, ij->i",
+                        unit_vector(edge_a),
+                        unit_vector(edge_b),
+                    ),
+                    -1.0,
+                    1.0,
+                )
+            )
+
         position_buf: NDArray = output_buffers["Position"]
         if len(position_buf) == 0:
             return
@@ -536,169 +502,57 @@ class ModExporter:
             if self.game == GameEnum.GenshinImpact:
                 position_buf["TANGENT"][:, 0:3] = position_buf["NORMAL"][:, 0:3]
             return
-        nearest_edge_distance = 0.0001
-        toggle_rounding_outline = True
-        angle_weighted = True
-        overlapping_faces = True
-        detect_edges = False
-        calculate_all_faces = True
 
+        ib_data: NDArray = ib["INDEX"]
         new_tangent: NDArray = numpy.zeros((len(position_buf), 3), dtype=numpy.float32)
         new_tangent[:, 0:3] = position_buf["NORMAL"][:, 0:3]
 
-        triangles: NDArray = position_buf["POSITION"][ib["INDEX"]]
+        triangles: NDArray = position_buf["POSITION"][ib_data]
         triangles: NDArray = triangles.reshape(-1, 3, 3)
         edge1: NDArray = triangles[:, 1] - triangles[:, 0]
         edge2: NDArray = triangles[:, 2] - triangles[:, 0]
         face_normals: NDArray = numpy.cross(edge1, edge2)
         face_normals /= numpy.linalg.norm(face_normals, axis=1)[:, numpy.newaxis]
         round_pos: NDArray = numpy.round(position_buf["POSITION"], precision)
-        face_verts: NDArray = ib["INDEX"].reshape(-1, 3)
+        face_verts: NDArray = ib_data.reshape(-1, 3)
 
-        Precalc_Outline: dict = {
-            "Connected_Faces": {},
-            "Same_Vertex": {},
-            "RepositionLocal": set(),
-        }
-        Pos_Same_Vertices: dict[tuple, set] = {}
-        Pos_Close_Vertices: dict[tuple, set] = {}
-
-        if detect_edges and toggle_rounding_outline:
-            i_nedd: int = (
-                min(
-                    measure_precision(nearest_edge_distance),
-                    precision,
-                )
-                - 1
-            )
-            # i_nedd_increment: int = 10 ** (-i_nedd)
+        connected_faces: dict = {}
+        pos_same_vertices: dict[tuple, set] = {}
 
         for i_poly in range(len(face_normals)):
             for vert in face_verts[i_poly]:
-                Precalc_Outline["Connected_Faces"].setdefault(vert, []).append(i_poly)
+                connected_faces.setdefault(vert, []).append(i_poly)
 
                 vert_position: NDArray = position_buf["POSITION"][vert, 0:3]
-                Pos_Same_Vertices.setdefault(
-                    tuple(
-                        round(coord, precision)
-                        for coord in vert_position
-                    ),
+                pos_same_vertices.setdefault(
+                    tuple(round(coord, precision) for coord in vert_position),
                     {vert},
                 ).add(vert)
-                if detect_edges:
-                    Pos_Close_Vertices.setdefault(
-                        tuple(round(coord, i_nedd) for coord in vert_position),
-                        {vert},
-                    ).add(vert)
-
-        Precalc_Outline["Same_Vertex"] = Pos_Same_Vertices
-
-        if detect_edges and toggle_rounding_outline:
-            for vertex_group in Pos_Same_Vertices.values():
-                # FacesConnected: list = []
-                # for x in vertex_group:
-                #     FacesConnected.extend(Precalc_Outline["Connected_Faces"][x])
-
-                # ConnectedFaces = [face_verts[x] for x in FacesConnected]
-                # if checkEnclosedFacesVertex(
-                #     ConnectedFaces, vertex_group, Precalc_Outline
-                # ):
-                #     continue
-                p1, p2, p3 = round_pos[next(iter(vertex_group))]
-                p1n = p1 + nearest_edge_distance
-                p1nn = p1 - nearest_edge_distance
-                p2n = p2 + nearest_edge_distance
-                p2nn = p2 - nearest_edge_distance
-                p3n = p3 + nearest_edge_distance
-                p3nn = p3 - nearest_edge_distance
-
-                coord: list[list] = [
-                    [round(p1n, i_nedd), round(p1nn, i_nedd)],
-                    [round(p2n, i_nedd), round(p2nn, i_nedd)],
-                    [round(p3n, i_nedd), round(p3nn, i_nedd)],
-                ]
-
-                xset: set = {
-                    p
-                    for p in Pos_Close_Vertices
-                    if p[0] < coord[0][0] and p[0] > coord[0][1]
-                }
-                yset: set = {
-                    p
-                    for p in Pos_Close_Vertices
-                    if p[1] < coord[1][0] and p[1] > coord[1][1]
-                }
-                zset: set = {
-                    p
-                    for p in Pos_Close_Vertices
-                    if p[2] < coord[2][0] and p[2] > coord[2][1]
-                }
-
-                xyzset = xset & yset & zset
-
-                # for i in range(3):
-                #     z, n = coord[i]
-                #     zndifference = int((z - n) / i_nedd_increment)
-                #     if zndifference > 1:
-                #         for r in range(zndifference - 1):
-                #             coord[i].append(z - r * i_nedd_increment)
-
-                # closest_group = set()
-                # for pos1 in coord[0]:
-                #     for pos2 in coord[1]:
-                #         for pos3 in coord[2]:
-                #             try:
-                #                 closest_group.update(
-                #                     Pos_Close_Vertices.get(tuple([pos1, pos2, pos3]))
-                #                 )
-                #             except Exception:
-                #                 continue
-                closest_group: set = set()
-                for pos in xyzset:
-                    closest_group.update(Pos_Close_Vertices.get(pos, set()))
-                if len(closest_group) > 1:
-                    for x in vertex_group:
-                        Precalc_Outline["RepositionLocal"].add(x)
-
-                    for v_closest_pos in closest_group:
-                        if v_closest_pos not in vertex_group:
-                            o1, o2, o3 = round_pos[v_closest_pos]
-                            if (
-                                p1n >= o1 >= p1nn
-                                and p2n >= o2 >= p2nn
-                                and p3n >= o3 >= p3nn
-                            ):
-                                for x in vertex_group:
-                                    Precalc_Outline["Same_Vertex"][x].add(v_closest_pos)
 
         Connected_Faces_bySameVertex = {}
-        for key, value in Precalc_Outline["Same_Vertex"].items():
+        for key, value in pos_same_vertices.items():
             for vertex in value:
                 Connected_Faces_bySameVertex.setdefault(key, set()).update(
-                    Precalc_Outline["Connected_Faces"][vertex]
+                    connected_faces[vertex]
                 )
 
         ################# CALCULATIONS #####################
 
         IteratedValues: set = set()
-        for key, vertex_group in Precalc_Outline["Same_Vertex"].items():
-            if key in IteratedValues or (
-                not calculate_all_faces and len(vertex_group) == 1
-            ):
+        for key, vertex_group in pos_same_vertices.items():
+            if key in IteratedValues:
                 continue
             FacesConnectedbySameVertex: list = list(Connected_Faces_bySameVertex[key])
             row: int = len(FacesConnectedbySameVertex)
 
-            if overlapping_faces:
-                ConnectedFaceNormals = numpy.empty(shape=(row, 3))
-                for i_normal, x in enumerate(FacesConnectedbySameVertex):
-                    ConnectedFaceNormals[i_normal] = face_normals[x]
-                if antiparallel_search(ConnectedFaceNormals):
-                    continue
+            ConnectedFaceNormals = numpy.empty(shape=(row, 3))
+            for i_normal, x in enumerate(FacesConnectedbySameVertex):
+                ConnectedFaceNormals[i_normal] = face_normals[x]
+            if antiparallel_search(ConnectedFaceNormals):
+                continue
 
-            if angle_weighted:
-                VectorMatrix0 = numpy.empty(shape=(row, 3))
-                VectorMatrix1 = numpy.empty(shape=(row, 3))
+            VectorMatrix0 = numpy.empty(shape=(row, 3))
+            VectorMatrix1 = numpy.empty(shape=(row, 3))
 
             ConnectedWeightedNormal = numpy.empty(shape=(row, 3))
 
@@ -707,12 +561,11 @@ class ModExporter:
 
                 vert0p = set(vlist) & vertex_group
 
-                if angle_weighted:
-                    for vert0 in vert0p:
-                        v0 = round_pos[vert0]
-                        vn = [round_pos[x] for x in vlist if x != vert0]
-                        VectorMatrix0[i] = vn[0] - v0
-                        VectorMatrix1[i] = vn[1] - v0
+                for vert0 in vert0p:
+                    v0 = round_pos[vert0]
+                    vn = [round_pos[x] for x in vlist if x != vert0]
+                    VectorMatrix0[i] = vn[0] - v0
+                    VectorMatrix1[i] = vn[1] - v0
                 ConnectedWeightedNormal[i] = face_normals[facei]
 
                 influence_restriction: int = len(vert0p)
@@ -721,34 +574,120 @@ class ModExporter:
                         ConnectedWeightedNormal[i], 0.5 ** (1 - influence_restriction)
                     )
 
-            if angle_weighted:
-                angle = numpy.arccos(
-                    numpy.clip(
-                        numpy.einsum(
-                            "ij, ij->i",
-                            unit_vector(VectorMatrix0),
-                            unit_vector(VectorMatrix1),
-                        ),
-                        -1.0,
-                        1.0,
-                    )
+            angle = numpy.arccos(
+                numpy.clip(
+                    numpy.einsum(
+                        "ij, ij->i",
+                        unit_vector(VectorMatrix0),
+                        unit_vector(VectorMatrix1),
+                    ),
+                    -1.0,
+                    1.0,
                 )
-                ConnectedWeightedNormal *= angle[:, None]
+            )
+            ConnectedWeightedNormal *= angle[:, None]
 
             wSum = unit_vector(numpy.nansum(ConnectedWeightedNormal, axis=0)).tolist()
 
             if numpy.all(wSum == 0.0):
                 continue
-            if (
-                Precalc_Outline["RepositionLocal"]
-                and key in Precalc_Outline["RepositionLocal"]
-            ):
-                new_tangent[key] = wSum
-                continue
             for vertexf in vertex_group:
                 new_tangent[vertexf] = wSum
                 IteratedValues.add(vertexf)
         position_buf["TANGENT"][:, 0:3] = new_tangent[:, 0:3]
+
+    def optimize_outlines(
+        self,
+        output_buffers: dict[str, NDArray],
+        ib_buf: NDArray,
+        data_model: DataModelXXMI,
+        precision: int = 4,
+    ) -> None:
+        """Optimize the outlines of the meshes with angle-weighted normal averaging."""
+
+        def unit_vector(vector: NDArray) -> NDArray:
+            norm = numpy.linalg.norm(vector, axis=0, keepdims=True)
+            return vector / norm
+
+        def antiparallel_search(normals) -> bool:
+            a = numpy.einsum("ij,kj->ik", normals, normals)
+            return bool(numpy.any((a > -1.000001) & (a < -0.999999)))
+
+        def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
+            return numpy.arccos(
+                numpy.clip(
+                    numpy.einsum(
+                        "ij, ij->i",
+                        unit_vector(edge_a),
+                        unit_vector(edge_b),
+                    ),
+                    -1.0,
+                    1.0,
+                )
+            )
+
+        pos_buf: NDArray = output_buffers["Position"]
+        ib_data: NDArray = ib_buf["INDEX"]
+        if len(pos_buf) == 0:
+            return
+        if not self.outline_optimization:
+            if self.game in [
+                GameEnum.GenshinImpact,
+                GameEnum.HonkaiStarRail,
+                GameEnum.HonkaiImpact3rd,
+            ]:
+                pos_buf["TANGENT"][:, 0:3] = pos_buf["NORMAL"][:, 0:3]
+                # TODO: handle zzz texcoord and hi3p2 color
+            return
+
+        # TODO: CHECK 4D Position or normal
+        triangles: NDArray = pos_buf["POSITION"][ib_data]
+        triangles: NDArray = triangles.reshape(-1, 3, 3)
+        edge0: NDArray = triangles[:, 1] - triangles[:, 2]
+        edge1: NDArray = triangles[:, 2] - triangles[:, 0]
+        edge2: NDArray = triangles[:, 0] - triangles[:, 1]
+        angle0: NDArray = calc_angle(edge2, edge1)
+        angle1: NDArray = calc_angle(edge2, edge0)
+        angle2: NDArray = calc_angle(edge1, edge0)
+        loops_angle: NDArray = numpy.zeros((len(triangles), 3), dtype=numpy.float32)
+        loops_angle[:, 0] = angle0
+        loops_angle[:, 1] = angle1
+        loops_angle[:, 2] = angle2
+        loops_angle = loops_angle.flatten()
+        faces_normal: NDArray = numpy.cross(edge1, edge2)
+        faces_normal /= numpy.linalg.norm(faces_normal, axis=1)[:, numpy.newaxis]
+
+        verts_face_normal: NDArray = numpy.zeros((len(pos_buf), 3), dtype=numpy.float32)
+        verts_face_normal[ib_data] = faces_normal.repeat(3, axis=0)
+
+        loops_coord: NDArray = pos_buf["POSITION"][ib_data]
+        loops_face_normal: NDArray = faces_normal.repeat(3, axis=0)
+
+        loops_outline_vector: NDArray = verts_face_normal[ib_data]
+
+        loops_round_coord: NDArray = numpy.round(loops_coord, precision)
+        u, u_inverse, counts = numpy.unique(
+            loops_round_coord, axis=0, return_counts=True, return_inverse=True
+        )
+        shared_indices = numpy.where(counts > 1)[0]
+        for i in shared_indices:
+            mask = u_inverse == i
+            l_face_normals = loops_face_normal[mask]
+            if antiparallel_search(l_face_normals):
+                continue
+            l_angle = loops_angle[mask]
+            l_face_normals *= l_angle[:, None]
+            weighted_sum = numpy.nansum(l_face_normals, axis=0)
+            if numpy.all(weighted_sum == 0.0):
+                continue
+            norm = numpy.linalg.norm(weighted_sum, axis=0, keepdims=True)
+            weighted_sum /= norm
+            loops_outline_vector[mask, 0:3] = weighted_sum
+        verts_outline_vector: NDArray = numpy.zeros(
+            (len(pos_buf), 3), dtype=numpy.float32
+        )
+        verts_outline_vector[ib_data] = loops_outline_vector
+        pos_buf["TANGENT"][:, 0:3] = verts_outline_vector[:, 0:3]
 
     def write_files(self) -> None:
         """Write the files to the destination."""
