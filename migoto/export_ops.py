@@ -234,87 +234,6 @@ def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     return mesh
 
 
-def export_3dmigoto_xxmi(
-    operator: Operator,
-    context: Context,
-    vb_path: Path,
-    ib_path: Path,
-    fmt_path: Path,
-    ignore_hidden: bool,
-    only_selected: bool,
-    no_ramps: bool,
-    normalize_weights: bool,
-    credit: str,
-    copy_textures: bool,
-    outline_optimization: bool,
-    apply_modifiers_and_shapekeys: bool,
-    ignore_duplicate_textures: bool,
-    write_buffers: bool,
-    write_ini: bool,
-    game: GameEnum,
-    destination: Optional[Path] = None,
-    template: Optional[Path] = None,
-) -> None:
-    scene = bpy.context.scene
-    object_name = vb_path.stem
-    if not destination:
-        destination = vb_path.parent.parent / f"{object_name}Mod"
-    if not [
-        obj for obj in scene.objects if object_name.lower() in obj.name.lower()
-    ] or not [
-        file
-        for file in vb_path.parent.iterdir()
-        if object_name.lower() in file.name.lower()
-    ]:
-        raise Fatal(
-            "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
-        )
-    template: Path | None = Path(template) if template else None
-    hash_data: list[dict] = load_hashes(vb_path.parent, vb_path.stem)
-    mod_exporter: ModExporter = ModExporter(
-        context=context,
-        mod_name=object_name,
-        hash_data=hash_data,
-        ignore_hidden=ignore_hidden,
-        ignore_muted_shape_keys=True,
-        apply_modifiers=apply_modifiers_and_shapekeys,
-        only_selected=only_selected,
-        copy_textures=copy_textures,
-        dump_path=vb_path.parent,
-        destination=destination,
-        template=template,
-        normalize_weights=normalize_weights,
-        credit=credit,
-        game=game,
-        operator=operator,
-        outline_optimization=outline_optimization,
-        no_ramps=no_ramps,
-        ignore_duplicate_textures=ignore_duplicate_textures,
-        write_buffers=write_buffers,
-        write_ini=write_ini,
-    )
-    mod_exporter.export()
-    print(f"Exported {object_name} to {destination}")
-
-
-def load_hashes(path: Path, name: str, hashfile: str = "hash.json") -> list[dict]:
-    parent_folder = path.parent
-    if path / hashfile not in path.iterdir():
-        print(
-            "WARNING: Could not find hash.info in character directory. Falling back to hash_info.json"
-        )
-        if (parent_folder / "hash_info.json") not in parent_folder.iterdir():
-            raise Fatal("Cannot find hash information, check hash.json in folder")
-        # Backwards compatibility with the old hash_info.json
-        with open(parent_folder / "hash_info.json", "r") as f:
-            hash_data = json.load(f)
-            char_hashes = [hash_data[name]]
-    else:
-        with open(path / hashfile, "r") as f:
-            char_hashes = json.load(f)
-    # TODO: Check for hash.json integrity
-    return char_hashes
-
 
 class Export3DMigoto(Operator, ExportHelper):
     """Export a mesh for re-injection into a game with 3DMigoto"""
@@ -466,25 +385,26 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
             ib_path = vb_path.parent / (vb_path.stem + ".ib")
             fmt_path = vb_path.parent / (vb_path.stem + ".fmt")
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
-            export_3dmigoto_xxmi(
-                operator=self,
+            mod_exporter: ModExporter = ModExporter(
                 context=context,
-                vb_path=vb_path,
-                ib_path=ib_path,
-                fmt_path=fmt_path,
+                operator=self,
+                dump_path=vb_path,
+                destination=Path(self.properties.destination_path),
+                game=GameEnum[self.properties.game],
                 ignore_hidden=self.ignore_hidden,
                 only_selected=self.only_selected,
                 no_ramps=self.no_ramps,
-                normalize_weights=self.normalize_weights,
-                credit=self.credit,
                 copy_textures=self.copy_textures,
-                outline_optimization=self.outline_optimization,
-                apply_modifiers_and_shapekeys=self.apply_modifiers_and_shapekeys,
                 ignore_duplicate_textures=self.ignore_duplicate_textures,
-                write_buffers=self.write_buffers,
-                write_ini=self.write_ini,
-                game=self.game,
+                credit=self.credit,
+                outline_optimization=self.outline_optimization,
+                experimental_fast_outline=self.experimental_fast_outline,
+                apply_modifiers=self.apply_modifiers_and_shapekeys,
+                normalize_weights=self.normalize_weights,
+                write_buffers=True,
+                write_ini=True,
             )
+            mod_exporter.export()
             self.report({"INFO"}, "Export completed")
         except Fatal as e:
             self.report({"ERROR"}, str(e))
@@ -564,6 +484,12 @@ class XXMIProperties(PropertyGroup):
     outline_optimization: BoolProperty(
         name="Outline Optimization",
         description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
+        default=False,
+    )
+
+    experimental_fast_outline: BoolProperty(
+        name="Experimental fast outline",
+        description="Uses a faster outline optimization algorithm. May produce worse results than the regular one, but is much faster",
         default=False,
     )
 
@@ -691,29 +617,26 @@ class ExportAdvancedOperator(Operator):
             fmt_path = base_path / (base_path.stem + ".fmt")
             # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             game = GameEnum[xxmi.game]
-            start = time.time()
-            export_3dmigoto_xxmi(
-                operator=self,
+            mod_exporter: ModExporter = ModExporter(
                 context=context,
-                vb_path=vb_path,
-                ib_path=ib_path,
-                fmt_path=fmt_path,
+                operator=self,
+                dump_path=vb_path,
+                destination=Path(xxmi.destination_path),
+                game=game,
                 ignore_hidden=xxmi.ignore_hidden,
                 only_selected=xxmi.only_selected,
                 no_ramps=xxmi.no_ramps,
-                normalize_weights=xxmi.normalize_weights,
-                credit=xxmi.credit,
                 copy_textures=xxmi.copy_textures,
-                outline_optimization=xxmi.outline_optimization,
-                apply_modifiers_and_shapekeys=xxmi.apply_modifiers_and_shapekeys,
                 ignore_duplicate_textures=xxmi.ignore_duplicate_textures,
+                credit=xxmi.credit,
+                outline_optimization=xxmi.outline_optimization,
+                experimental_fast_outline= xxmi.experimental_fast_outline,
+                apply_modifiers=xxmi.apply_modifiers_and_shapekeys,
+                normalize_weights=xxmi.normalize_weights,
                 write_buffers=xxmi.write_buffers,
                 write_ini=xxmi.write_ini,
-                game=game,
-                destination=Path(xxmi.destination_path),
-                template=Path(xxmi.template_path),
             )
-            print("Export took", time.time() - start, "seconds")
+            mod_exporter.export()
             self.report({"INFO"}, "Export completed")
         except Fatal as e:
             self.report({"ERROR"}, str(e))
