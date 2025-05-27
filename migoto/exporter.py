@@ -1,4 +1,5 @@
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
@@ -11,17 +12,17 @@ from numpy.typing import NDArray
 
 from .. import bl_info
 from ..libs.jinja2 import Environment, FileSystemLoader
-from .data.data_model import DataModelXXMI
 from .data.byte_buffer import (
     BufferLayout,
-    Semantic,
-    NumpyBuffer,
     BufferSemantic,
+    NumpyBuffer,
+    Semantic,
 )
+from .data.data_model import DataModelXXMI
+from .data.ini_format import INI_file
 from .datastructures import GameEnum
 from .export_ops import mesh_triangulate
 from .operators import Fatal
-from .data.ini_format import INI_file
 
 
 @dataclass
@@ -630,19 +631,11 @@ class ModExporter:
         ib_data: NDArray = ib_buf["INDEX"]
         if len(pos_buf) == 0:
             return
-        if not self.outline_optimization:
-            if self.game in [
-                GameEnum.GenshinImpact,
-                GameEnum.HonkaiStarRail,
-                GameEnum.HonkaiImpact3rd,
-            ]:
-                pos_buf["TANGENT"][:, 0:3] = pos_buf["NORMAL"][:, 0:3]
-                # TODO: handle zzz texcoord and hi3p2 color
-            return
 
-        # TODO: CHECK 4D Position or normal
-        triangles: NDArray = pos_buf["POSITION"][ib_data]
-        triangles: NDArray = triangles.reshape(-1, 3, 3)
+        start_time: int | float = time.time()
+
+        loops_coord: NDArray = pos_buf["POSITION"][ib_data, 0:3]
+        triangles: NDArray = loops_coord.reshape(-1, 3, 3)
         edge0: NDArray = triangles[:, 1] - triangles[:, 2]
         edge1: NDArray = triangles[:, 2] - triangles[:, 0]
         edge2: NDArray = triangles[:, 0] - triangles[:, 1]
@@ -653,41 +646,60 @@ class ModExporter:
         loops_angle[:, 0] = angle0
         loops_angle[:, 1] = angle1
         loops_angle[:, 2] = angle2
-        loops_angle = loops_angle.flatten()
         faces_normal: NDArray = numpy.cross(edge1, edge2)
         faces_normal /= numpy.linalg.norm(faces_normal, axis=1)[:, numpy.newaxis]
 
-        verts_face_normal: NDArray = numpy.zeros((len(pos_buf), 3), dtype=numpy.float32)
-        verts_face_normal[ib_data] = faces_normal.repeat(3, axis=0)
-
-        loops_coord: NDArray = pos_buf["POSITION"][ib_data]
         loops_face_normal: NDArray = faces_normal.repeat(3, axis=0)
+        loops_outline_vector: NDArray = loops_face_normal.copy()
 
-        loops_outline_vector: NDArray = verts_face_normal[ib_data]
+        if self.outline_optimization:
+            loops_round_coord: NDArray = numpy.round(loops_coord, precision)
+            loops_angle = loops_angle.flatten()
+            loops_weighted_normal = loops_face_normal * loops_angle[:, None]
 
-        loops_round_coord: NDArray = numpy.round(loops_coord, precision)
-        u, u_inverse, counts = numpy.unique(
-            loops_round_coord, axis=0, return_counts=True, return_inverse=True
-        )
-        shared_indices = numpy.where(counts > 1)[0]
-        for i in shared_indices:
-            mask = u_inverse == i
-            l_face_normals = loops_face_normal[mask]
-            if antiparallel_search(l_face_normals):
-                continue
-            l_angle = loops_angle[mask]
-            l_face_normals *= l_angle[:, None]
-            weighted_sum = numpy.nansum(l_face_normals, axis=0)
-            if numpy.all(weighted_sum == 0.0):
-                continue
-            norm = numpy.linalg.norm(weighted_sum, axis=0, keepdims=True)
-            weighted_sum /= norm
-            loops_outline_vector[mask, 0:3] = weighted_sum
+            u, u_inverse, counts = numpy.unique(
+                loops_round_coord, axis=1, return_counts=True, return_inverse=True
+            )
+            shared_indices = numpy.where(counts > 1)[0]
+            print(
+                f"{len(shared_indices)} shared indices found, starting optimization..."
+            )
+
+            iterated_indices: set[int] = set()
+            for i in shared_indices:
+                if i in iterated_indices:
+                    continue
+                mask: NDArray = u_inverse == i
+                l_w_normal: NDArray = loops_weighted_normal[mask]
+                if antiparallel_search(l_w_normal):
+                    continue
+                weighted_sum: NDArray = numpy.sum(l_w_normal, axis=0)
+                if numpy.all(weighted_sum == 0.0):
+                    continue
+                loops_outline_vector[mask, 0:3] = weighted_sum
+                iterated_indices.update(numpy.where(mask)[0])
+
+            norm = numpy.linalg.norm(loops_outline_vector, axis=1, keepdims=True)
+            loops_outline_vector /= norm
+
         verts_outline_vector: NDArray = numpy.zeros(
             (len(pos_buf), 3), dtype=numpy.float32
         )
         verts_outline_vector[ib_data] = loops_outline_vector
-        pos_buf["TANGENT"][:, 0:3] = verts_outline_vector[:, 0:3]
+        if self.game in [
+            GameEnum.GenshinImpact,
+            GameEnum.HonkaiStarRail,
+            GameEnum.HonkaiImpact3rd,
+        ]:
+            # TODO: handle zzz texcoord and hi3p2 color
+
+            pos_buf["TANGENT"][:, 0:3] = verts_outline_vector[:, 0:3]
+        elif self.game == GameEnum.HonkaiImpactPart2:
+            pos_buf["COLOR"][:, 0:3] = verts_outline_vector[:, 0:3]
+        elif self.game == GameEnum.ZenlessZoneZero:
+            output_buffers["TexCoord"]["TEXCOORD2"] = verts_outline_vector[:, 0:2]
+
+        print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
     def write_files(self) -> None:
         """Write the files to the destination."""
