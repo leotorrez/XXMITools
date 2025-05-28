@@ -251,6 +251,8 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
         col.prop(xxmi, "apply_modifiers_and_shapekeys")
         col.prop(xxmi, "normalize_weights")
         col.prop(xxmi, "outline_optimization")
+        if xxmi.outline_optimization != "OFF":
+            col.prop(xxmi, "outline_rounding_precision")
         # col.prop(xxmi, 'export_shapekeys')
         # col.prop(xxmi, "export_materials")
         col.prop(xxmi, "copy_textures")

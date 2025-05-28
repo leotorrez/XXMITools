@@ -11,6 +11,7 @@ from bpy.props import (
     EnumProperty,
     PointerProperty,
     StringProperty,
+    IntProperty,
 )
 from bpy.types import Context, Mesh, Object, Operator, PropertyGroup
 from bpy_extras.io_utils import ExportHelper
@@ -234,7 +235,6 @@ def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     return mesh
 
 
-
 class Export3DMigoto(Operator, ExportHelper):
     """Export a mesh for re-injection into a game with 3DMigoto"""
 
@@ -332,21 +332,47 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         description="Limits weights to match export format. Also normalizes the remaining weights",
         default=False,
     )
-    outline_optimization: BoolProperty(
+    outline_optimization: EnumProperty(
         name="Outline Optimization",
-        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality. This option is tailored for Genshin Impact and may not work as well for other games. Use with caution.",
-        default=False,
+        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
+        items=[
+            ("OFF", "Deactivate", "No outline optimization"),
+            (
+                "ON",
+                "Traditional",
+                "Traditional outline optimization, used in old script. May be slow for high vertex count meshes",
+            ),
+            (
+                "EXPERIMENTAL",
+                "Fast Experimental",
+                "Experimental fast outline optimization, may produce artifacts",
+            ),
+        ],
+        default="OFF",
     )
-    apply_modifiers_and_shapekeys: BoolProperty(
-        name="Apply modifiers and shapekeys",
-        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
-        default=False,
+    outline_rounding_precision: IntProperty(
+        name="Outline decimal rounding precision",
+        description="Higher values merge farther away vertices into a single outline vertex. Lower values produce more accurate outlines, but may result in split edges",
+        default=4,
+        min=1,
+        max=10,
     )
     export_shapekeys: BoolProperty(
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
         default=False,
     )
+    write_buffers: BoolProperty(
+        name="Write buffers",
+        description="Writes the vertex and index buffers to disk. Disabling this won't refresh the buffers in the mod folder, useful for debugging.",
+        default=True,
+    )
+    write_ini: BoolProperty(
+        name="Write ini",
+        description="Writes the ini file to disk. Disabling this won't refresh the ini file in the mod folder, useful for debugging.",
+        default=True,
+    )
+
 
     def draw(self, context):
         layout = self.layout
@@ -358,6 +384,8 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         col.prop(self, "normalize_weights")
         # col.prop(self, 'export_shapekeys')
         col.prop(self, "outline_optimization")
+        if self.outline_optimization != "OFF":
+            col.prop(self, "outline_rounding_precision")
         col.prop(self, "copy_textures")
         if self.copy_textures:
             col.prop(self, "no_ramps")
@@ -381,14 +409,11 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
 
     def execute(self, context):
         try:
-            vb_path = Path(self.filepath)
-            ib_path = vb_path.parent / (vb_path.stem + ".ib")
-            fmt_path = vb_path.parent / (vb_path.stem + ".fmt")
-            # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
+            dump_path = Path(self.filepath)
             mod_exporter: ModExporter = ModExporter(
                 context=context,
                 operator=self,
-                dump_path=vb_path,
+                dump_path=dump_path,
                 destination=Path(self.properties.destination_path),
                 game=GameEnum[self.properties.game],
                 ignore_hidden=self.ignore_hidden,
@@ -398,14 +423,12 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
                 ignore_duplicate_textures=self.ignore_duplicate_textures,
                 credit=self.credit,
                 outline_optimization=self.outline_optimization,
-                experimental_fast_outline=self.experimental_fast_outline,
                 apply_modifiers=self.apply_modifiers_and_shapekeys,
                 normalize_weights=self.normalize_weights,
-                write_buffers=True,
-                write_ini=True,
+                write_ini=self.write_ini,
+                write_buffers=self.write_buffers,
             )
             mod_exporter.export()
-            self.report({"INFO"}, "Export completed")
         except Fatal as e:
             self.report({"ERROR"}, str(e))
         return {"FINISHED"}
@@ -481,18 +504,31 @@ class XXMIProperties(PropertyGroup):
         default="",
     )
 
-    outline_optimization: BoolProperty(
+    outline_optimization: EnumProperty(
         name="Outline Optimization",
         description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
-        default=False,
+        items=[
+            ("OFF", "Deactivate", "No outline optimization"),
+            (
+                "ON",
+                "Traditional",
+                "Traditional outline optimization, used in old script. May be slow for high vertex count meshes",
+            ),
+            (
+                "EXPERIMENTAL",
+                "Fast Experimental",
+                "Experimental fast outline optimization, may produce artifacts",
+            ),
+        ],
+        default="OFF",
     )
-
-    experimental_fast_outline: BoolProperty(
-        name="Experimental fast outline",
-        description="Uses a faster outline optimization algorithm. May produce worse results than the regular one, but is much faster",
-        default=False,
+    outline_rounding_precision: IntProperty(
+        name="Outline decimal rounding precision",
+        description="Higher values merge farther away vertices into a single outline vertex. Lower values produce more accurate outlines, but may result in split edges",
+        default=4,
+        min=1,
+        max=10,
     )
-
     game: EnumProperty(
         name="Game to mod",
         description="Select the game you are modding to optimize the mod for that game",
@@ -612,15 +648,11 @@ class ExportAdvancedOperator(Operator):
             return {"CANCELLED"}
         try:
             base_path = Path(xxmi.dump_path + "/")
-            vb_path = base_path / (base_path.stem + ".vb")
-            ib_path = base_path / (base_path.stem + ".ib")
-            fmt_path = base_path / (base_path.stem + ".fmt")
-            # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
             game = GameEnum[xxmi.game]
             mod_exporter: ModExporter = ModExporter(
                 context=context,
                 operator=self,
-                dump_path=vb_path,
+                dump_path=base_path,
                 destination=Path(xxmi.destination_path),
                 game=game,
                 ignore_hidden=xxmi.ignore_hidden,
@@ -630,14 +662,12 @@ class ExportAdvancedOperator(Operator):
                 ignore_duplicate_textures=xxmi.ignore_duplicate_textures,
                 credit=xxmi.credit,
                 outline_optimization=xxmi.outline_optimization,
-                experimental_fast_outline= xxmi.experimental_fast_outline,
                 apply_modifiers=xxmi.apply_modifiers_and_shapekeys,
                 normalize_weights=xxmi.normalize_weights,
                 write_buffers=xxmi.write_buffers,
                 write_ini=xxmi.write_ini,
             )
             mod_exporter.export()
-            self.report({"INFO"}, "Export completed")
         except Fatal as e:
             self.report({"ERROR"}, str(e))
         return {"FINISHED"}

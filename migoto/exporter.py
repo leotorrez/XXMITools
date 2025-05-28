@@ -92,12 +92,12 @@ class ModExporter:
     copy_textures: bool
     normalize_weights: bool
     outline_optimization: bool
-    experimental_fast_outline: bool
     no_ramps: bool
     ignore_duplicate_textures: bool
     write_buffers: bool
     write_ini: bool
     template: Optional[Path] = None
+    outline_rounding_precision: int = 3
     # Internal / not implemented
     ignore_muted_shape_keys: bool = False
     # Output
@@ -127,7 +127,7 @@ class ModExporter:
             raise Fatal(
                 "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
             )
-        self.hash_data = self.load_hashes(self.dump_path.parent, self.dump_path.stem)
+        self.hash_data = self.load_hashes(self.dump_path, self.dump_path.stem)
         if not self.hash_data:
             raise ValueError("Hash data is empty!")
 
@@ -362,7 +362,6 @@ class ModExporter:
                     ib_buffer
                 )
             self.optimize_outlines(output_buffers, component_ib, data_model)
-            # self.optimize_outlines_old_simplified(output_buffers, component_ib, data_model)
             if component.blend_vb != "":
                 self.files_to_write[
                     self.destination / (component.fullname + "Position.buf")
@@ -487,7 +486,6 @@ class ModExporter:
         output_buffers: dict[str, NDArray],
         ib_buf: NDArray,
         data_model: DataModelXXMI,
-        precision: int = 5,
     ) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
 
@@ -540,10 +538,11 @@ class ModExporter:
         verts_outline_vector: NDArray = numpy.zeros(
             (len(pos_buf), 3), dtype=numpy.float32
         )
-        verts_outline_vector[ib_data] = loops_outline_vector
 
-        if self.outline_optimization and not self.experimental_fast_outline:
-            loops_round_coord: NDArray = numpy.round(loops_coord, precision)
+        if self.outline_optimization == "EXPERIMENTAL":
+            loops_round_coord: NDArray = numpy.round(
+                loops_coord, self.outline_rounding_precision
+            )
             loops_angle = loops_angle.flatten()
             loops_weighted_normal = loops_face_normal * loops_angle[:, None]
 
@@ -566,10 +565,12 @@ class ModExporter:
 
             norm = numpy.linalg.norm(loops_outline_vector, axis=1, keepdims=True)
             loops_outline_vector /= norm
-        elif self.outline_optimization and self.experimental_fast_outline:
+            verts_outline_vector[ib_data] = loops_outline_vector
+        elif self.outline_optimization == "ON":
+            verts_outline_vector[ib_data] = loops_outline_vector
             face_verts = ib_data.reshape(-1, 3)
             vertex_round_pos: NDArray = numpy.round(
-                pos_buf["POSITION"][:, 0:3], precision
+                pos_buf["POSITION"][:, 0:3], self.outline_rounding_precision
             )
             connected_faces: dict = {}
             pos_same_vertices: dict[tuple, set] = {}
@@ -580,7 +581,10 @@ class ModExporter:
 
                     vert_position: NDArray = pos_buf["POSITION"][vert, 0:3]
                     pos_same_vertices.setdefault(
-                        tuple(round(coord, precision) for coord in vert_position),
+                        tuple(
+                            round(coord, self.outline_rounding_precision)
+                            for coord in vert_position
+                        ),
                         {vert},
                     ).add(vert)
 
@@ -690,8 +694,10 @@ class ModExporter:
         self.generate_buffers()
         self.generate_ini()
         self.write_files()
-        print(
-            f"Exported {self.mod_name} to {self.destination}in {time.time() - start} seconds"
+        print()
+        self.operator.report(
+            {"INFO"},
+            f"Exported {self.mod_name} to {self.destination}in {(time.time() - start):2f} seconds",
         )
 
     def cleanup(self) -> None:
