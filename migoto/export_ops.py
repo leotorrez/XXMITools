@@ -394,26 +394,12 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         col.prop(self, "write_ini")
         col.prop(self, "credit")
 
-    def invoke(self, context, event):
-        obj = context.object
-        if obj is None:
-            try:
-                obj = [
-                    obj
-                    for obj in bpy.data.objects
-                    if obj.type == "MESH" and obj.visible_get()
-                ][0]
-            except IndexError:
-                return ExportHelper.invoke(self, context, event)
-        return ExportHelper.invoke(self, context, event)
-
     def execute(self, context):
         try:
-            dump_path = Path(self.filepath)
             mod_exporter: ModExporter = ModExporter(
                 context=context,
                 operator=self,
-                dump_path=dump_path,
+                dump_path=Path(self.filepath),
                 destination=Path(self.properties.destination_path),
                 game=GameEnum[self.properties.game],
                 ignore_hidden=self.ignore_hidden,
@@ -454,7 +440,11 @@ class XXMIProperties(PropertyGroup):
         default="*.vb*",
         options={"HIDDEN"},
     )
-
+    use_custom_template: BoolProperty(
+        name="Use custom template",
+        description="Use a custom template file for the mod. If unchecked, the default template will be used",
+        default=False,
+    )
     template_path: StringProperty(
         name="Template Path",
         description="Path to the template file. Optional.",
@@ -634,25 +624,18 @@ class ExportAdvancedOperator(Operator):
     bl_options = {"REGISTER"}
     operations = []
 
+
     def execute(self, context):
         scene = bpy.context.scene
         xxmi = scene.xxmi
-        if not xxmi.dump_path:
-            self.report({"ERROR"}, "Dump path not set")
-            return {"CANCELLED"}
-        if not xxmi.destination_path:
-            self.report({"ERROR"}, "Destination path not set")
-            return {"CANCELLED"}
-        if xxmi.destination_path == xxmi.dump_path:
-            self.report({"ERROR"}, "Destination path can not be the same as Dump path")
-            return {"CANCELLED"}
+        if not xxmi.use_custom_template:
+            xxmi.template_path = ""
         try:
-            base_path = Path(xxmi.dump_path + "/")
             game = GameEnum[xxmi.game]
             mod_exporter: ModExporter = ModExporter(
                 context=context,
                 operator=self,
-                dump_path=base_path,
+                dump_path=Path(xxmi.dump_path),
                 destination=Path(xxmi.destination_path),
                 game=game,
                 ignore_hidden=xxmi.ignore_hidden,

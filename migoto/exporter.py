@@ -109,14 +109,33 @@ class ModExporter:
     files_to_copy: dict[Path, Path] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.initialize_data()
-
-    def initialize_data(self) -> None:
         print("Initializing data for export...")
-        scene = bpy.context.scene
+        if self.dump_path == Path(""):
+            raise Fatal("Dump path not set")
+        if self.dump_path.is_file():
+            self.dump_path = self.dump_path.parent
+
         self.mod_name = self.dump_path.stem
-        if not self.destination:
-            self.destination = self.dump_path.parent.parent / f"{self.mod_name}Mod"
+
+        if self.destination == Path(""):
+            self.destination = self.dump_path.parent / f"{self.mod_name}Mod"
+            self.operator.report(
+                {"WARNING"},
+                f"Destination path not set, defaulting to {self.destination}",
+            )
+        if not self.destination.exists():
+            raise Fatal("Destination path does not exist.")
+        if self.destination.is_file():
+            self.destination = self.destination.parent
+
+        if self.destination == self.dump_path:
+            raise Fatal("Destination path can't be the same as Dump path")
+
+        self.hash_data = self.load_hashes(self.dump_path, self.dump_path.stem)
+        if not self.hash_data:
+            raise Fatal("ERROR", "Hash data is empty or invalid!")
+
+        scene = bpy.context.scene
         if not [
             obj for obj in scene.objects if self.mod_name.lower() in obj.name.lower()
         ] or not [
@@ -127,9 +146,6 @@ class ModExporter:
             raise Fatal(
                 "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
             )
-        self.hash_data = self.load_hashes(self.dump_path, self.dump_path.stem)
-        if not self.hash_data:
-            raise ValueError("Hash data is empty!")
 
         candidate_objs: list[Object] = (
             [obj for obj in bpy.context.selected_objects]
@@ -667,7 +683,7 @@ class ModExporter:
         print("Writen files: ")
         try:
             for file_path, content in self.files_to_write.items():
-                print(f"{file_path.name}", end=", ")
+                print(f" - {file_path.name}")
                 if isinstance(content, str) and self.write_ini:
                     with open(file_path, "w", encoding="utf-8") as file:
                         file.write(content)
@@ -679,13 +695,12 @@ class ModExporter:
             return
         try:
             for src, dest in self.files_to_copy.items():
-                print(f"{dest.name}", end=", ")
+                print(f" - {dest.name}")
                 if not dest.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(src, dest)
         except (OSError, IOError) as e:
             raise Fatal(f"Error copying file {src} to {dest}: {e}")
-        print("")
 
     def export(self) -> None:
         """Export the mod file."""
@@ -697,7 +712,7 @@ class ModExporter:
         print()
         self.operator.report(
             {"INFO"},
-            f"Exported {self.mod_name} to {self.destination}in {(time.time() - start):2f} seconds",
+            f"Exported {self.mod_name} to {self.destination} in {(time.time() - start):2f} seconds",
         )
 
     def cleanup(self) -> None:
@@ -707,19 +722,7 @@ class ModExporter:
     def load_hashes(
         self, path: Path, name: str, hashfile: str = "hash.json"
     ) -> list[dict]:
-        parent_folder = path.parent
-        if path / hashfile not in path.iterdir():
-            print(
-                "WARNING: Could not find hash.info in character directory. Falling back to hash_info.json"
-            )
-            if (parent_folder / "hash_info.json") not in parent_folder.iterdir():
-                raise Fatal("Cannot find hash information, check hash.json in folder")
-            # Backwards compatibility with the old hash_info.json
-            with open(parent_folder / "hash_info.json", "r") as f:
-                hash_data = json.load(f)
-                char_hashes = [hash_data[name]]
-        else:
-            with open(path / hashfile, "r") as f:
-                char_hashes = json.load(f)
+        with open(path / hashfile, "r") as f:
+            char_hashes = json.load(f)
         # TODO: Check for hash.json integrity
         return char_hashes
