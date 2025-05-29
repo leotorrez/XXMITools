@@ -400,7 +400,7 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
                 context=context,
                 operator=self,
                 dump_path=Path(self.filepath),
-                destination=Path(self.properties.destination_path),
+                destination=Path(""),
                 game=GameEnum[self.properties.game],
                 ignore_hidden=self.ignore_hidden,
                 only_selected=self.only_selected,
