@@ -213,15 +213,6 @@ class XXMI_PT_Sidebar(Panel):
         col_2.operator("dump.selector", icon="FILE_FOLDER", text="")
         col_1.prop(xxmi, "destination_path")
         col_2.operator("destination.selector", icon="FILE_FOLDER", text="")
-        col = layout.column()
-        col.prop(xxmi, "use_custom_template")
-        col = layout.column(align=True)
-        if xxmi.use_custom_template:
-            split = layout.split(factor=0.85)
-            col_1 = split.column()
-            col_2 = split.column()
-            col_1.prop(xxmi, "template_path")
-            col_2.operator("template.selector", icon="FILE_FOLDER", text="")
         col = layout.column(align=True)
         layout.separator()
         col.prop(xxmi, "game")
@@ -250,37 +241,41 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)
         xxmi = context.scene.xxmi
-        box = self.layout.box()
-        row = box.row()
-        col = row.column(align=True)
+        layout:bpy.types.UILayout = self.layout
+        box = layout.box()
+        col = box.column(align=True)
         col.prop(xxmi, "ignore_hidden")
         col.prop(xxmi, "only_selected")
-        col.prop(xxmi, "apply_modifiers_and_shapekeys")
-        col.prop(xxmi, "normalize_weights")
-        col.prop(xxmi, "outline_optimization")
-        if xxmi.outline_optimization != "OFF":
-            col.prop(xxmi, "outline_rounding_precision")
-        # col.prop(xxmi, 'export_shapekeys')
-        # col.prop(xxmi, "export_materials")
+        col.separator()
         col.prop(xxmi, "copy_textures")
         if xxmi.copy_textures:
             col.prop(xxmi, "no_ramps")
             col.prop(xxmi, "ignore_duplicate_textures")
         col.prop(xxmi, "write_buffers")
         col.prop(xxmi, "write_ini")
-
-
-class XXMI_PT_SidePanelExportCredit(XXMISidebarOptionsPanelBase, Panel):
-    bl_label = ""
-    bl_options = {"HIDE_HEADER"}
-    bl_order = 2
-
-    def draw(self, context):
-        XXMISidebarOptionsPanelBase.draw(self, context)
-        xxmi = context.scene.xxmi
-        col = self.layout.column(align=True)
-        col.prop(xxmi, "credit")
-
+        if xxmi.write_ini:
+            col.prop(xxmi, "use_custom_template")
+            if xxmi.use_custom_template:
+                split = box.split(factor=0.85)
+                col_1 = split.column()
+                col_2 = split.column()
+                col_1.prop(xxmi, "template_path")
+                col_2.operator("template.selector", icon="FILE_FOLDER", text="")
+            col = box.column(align=True)
+            col.prop(xxmi, "credit")
+        col.separator()
+        col.prop(xxmi, "apply_modifiers_and_shapekeys")
+        col.prop(xxmi, "normalize_weights")
+        if xxmi.outline_optimization == "OFF":
+            col.prop(xxmi, "outline_optimization")
+        else:
+            split = col.split(factor=0.5)
+            col_1 = split.column()
+            col_2 = split.column()
+            col_1.prop(xxmi, "outline_optimization")
+            col_2.prop(xxmi, "outline_rounding_precision")
+        # col.prop(xxmi, 'export_shapekeys')
+        # col.prop(xxmi, "export_materials")
 
 class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
@@ -294,8 +289,9 @@ class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, Panel):
         split = row.split(factor=0.5)
         col1 = split.column()
         col2 = split.column()
-        col1.prop(xxmi, "batch_pattern")
-        col2.operator("xxmi.exportadvancedbatched", text="Start Batch export")
+        if xxmi.write_buffers or xxmi.write_ini or xxmi.copy_textures:
+            col1.prop(xxmi, "batch_pattern")
+            col2.operator("xxmi.exportadvancedbatched", text="Start Batch export")
 
 class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
@@ -306,7 +302,11 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, Panel):
         XXMISidebarOptionsPanelBase.draw(self, context)
         layout = self.layout
         row = layout.row()
-        row.operator("xxmi.exportadvanced", text="Export Mod")
+        xxmi = context.scene.xxmi
+        if not xxmi.write_buffers and not xxmi.write_ini and not xxmi.copy_textures:
+            row.label(text="Nothing to export", icon="ERROR")
+        else:
+            row.operator("xxmi.exportadvanced", text="Export Mod")
 
 
 class UpdaterPanel(Panel):

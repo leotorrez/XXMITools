@@ -14,7 +14,6 @@ vertex_color_layer_channels = 4
 
 # FIXME: hardcoded values in a very weird way cause blender EnumProperties are odd-
 class GameEnum(str, Enum):
-    Unknown = "Unknown"
     HonkaiImpact3rd = "Honkai Impact 3rd"
     GenshinImpact = "Genshin Impact"
     HonkaiStarRail = "Honkai Star Rail"
@@ -22,14 +21,13 @@ class GameEnum(str, Enum):
     HonkaiImpactPart2 = "Honkai Impact 3rd Part 2"
 
 
-game_enum = [
+game_enum = [None]+[
     (
         game.name,
         game.value,
         game.value,
     )
     for game in GameEnum
-    if game != GameEnum.Unknown
 ]
 
 supported_topologies = ("trianglelist", "pointlist", "trianglestrip")

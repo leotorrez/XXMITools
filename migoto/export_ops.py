@@ -2,7 +2,7 @@ import collections
 import json
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 import textwrap
 
 import bpy
@@ -373,7 +373,6 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         default=True,
     )
 
-
     def draw(self, context):
         layout = self.layout
         col = layout.column(align=True)
@@ -447,8 +446,7 @@ class XXMIProperties(PropertyGroup):
     )
     template_path: StringProperty(
         name="Template Path",
-        description="Path to the template file. Optional.",
-        default="(Optional)",
+        description="Path to the template file.",
         maxlen=1024,
     )
 
@@ -523,6 +521,7 @@ class XXMIProperties(PropertyGroup):
         name="Game to mod",
         description="Select the game you are modding to optimize the mod for that game",
         items=game_enum,
+        default=None,
     )
     apply_modifiers_and_shapekeys: BoolProperty(
         name="Apply modifiers and shapekeys",
@@ -624,20 +623,24 @@ class ExportAdvancedOperator(Operator):
     bl_options = {"REGISTER"}
     operations = []
 
-
     def execute(self, context):
         scene = bpy.context.scene
         xxmi = scene.xxmi
         if not xxmi.use_custom_template:
             xxmi.template_path = ""
         try:
-            game = GameEnum[xxmi.game]
+            if xxmi.game == "":
+                self.report(
+                    {"ERROR"},
+                    "Please select a valid game before continuing.",
+                )
+                return {"CANCELLED"}
             mod_exporter: ModExporter = ModExporter(
                 context=context,
                 operator=self,
                 dump_path=Path(xxmi.dump_path),
                 destination=Path(xxmi.destination_path),
-                game=game,
+                game=GameEnum[xxmi.game],
                 ignore_hidden=xxmi.ignore_hidden,
                 only_selected=xxmi.only_selected,
                 no_ramps=xxmi.no_ramps,
@@ -649,6 +652,9 @@ class ExportAdvancedOperator(Operator):
                 normalize_weights=xxmi.normalize_weights,
                 write_buffers=xxmi.write_buffers,
                 write_ini=xxmi.write_ini,
+                template=Path(xxmi.template_path)
+                if xxmi.use_custom_template != ""
+                else None,
             )
             mod_exporter.export()
         except Fatal as e:
