@@ -191,8 +191,7 @@ class BlenderDataExtractor:
             if buffer_semantic.abstract.enum in self.blender_loop_semantics:
                 layout.add_element(buffer_semantic)
 
-        # Calculate data for Semantic.Tangent
-        mesh.calc_tangents()
+        mesh.calc_tangents(uvmap=mesh.uv_layers[0].name)
 
         # Initialize loop data storage
         size = len(mesh.loops)
@@ -295,11 +294,12 @@ class BlenderDataExtractor:
         for buffer_semantic in proxy_layout.semantics:
             semantic = buffer_semantic.abstract.enum
             numpy_type = buffer_semantic.get_numpy_type()
-
+            num_values: int = buffer_semantic.get_num_values()
+            if not isinstance(numpy_type, tuple) and semantic != Semantic.Position:
+                numpy_type = (numpy_type, 1)
             if semantic == Semantic.Position:
                 data = self.fetch_data(mesh.vertices, "undeformed_co", numpy_type, size)
             elif semantic == Semantic.Blendindices:
-                num_values = buffer_semantic.format.num_values
                 data = numpy.array(
                     [
                         [vg.group for vg in groups][:num_values]
@@ -309,7 +309,6 @@ class BlenderDataExtractor:
                     dtype=numpy_type[0],
                 )
             elif semantic == Semantic.Blendweight:
-                num_values = buffer_semantic.format.num_values
                 # TODO: Try to load data into the empty numpy instead of inline padding, it may be faster
                 if buffer_semantic.format.value_byte_width > 1:
                     data = numpy.array(
@@ -324,9 +323,7 @@ class BlenderDataExtractor:
                     stride = buffer_semantic.stride
                     data = numpy.array(
                         [
-                            self.normalize_8bit_weights(
-                                [vg.weight for vg in groups][:stride]
-                            )
+                            [vg.weight for vg in groups][:stride]
                             + [0] * (stride - len(groups))
                             for groups in vertex_groups
                         ],
@@ -335,7 +332,8 @@ class BlenderDataExtractor:
 
             else:
                 continue
-
+            if num_values == 1:
+                data = data.reshape(-1)
             vertex_data.set_field(buffer_semantic.get_name(), data)
 
         print(

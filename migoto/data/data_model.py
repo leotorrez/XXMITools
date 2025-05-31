@@ -601,6 +601,8 @@ class DataModelXXMI(DataModel):
 
     def convert_normalize_weights(self, data: NDArray) -> NDArray:
         """Normalizes weight values to ensure they sum to 1.0 for each vertex"""
+        if data.size == data.shape[0]:
+            return data
         sums: NDArray = numpy.sum(data, axis=1, keepdims=True)
         # Avoid division by zero - if sum is 0, set it to 1
         sums[sums == 0] = 1.0

@@ -499,7 +499,7 @@ class ModExporter:
 
     def optimize_outlines(
         self,
-        output_buffers: dict[str, NDArray],
+        output_buffs: dict[str, NDArray],
         ib_buf: NDArray,
         data_model: DataModelXXMI,
     ) -> None:
@@ -526,10 +526,10 @@ class ModExporter:
                 )
             )
 
-        pos_buf: NDArray = output_buffers["Position"]
-        ib_data: NDArray = ib_buf["INDEX"]
+        pos_buf: NDArray = output_buffs["Position"]
         if len(pos_buf) == 0:
             return
+        ib_data: NDArray = ib_buf["INDEX"]
 
         start_time: int | float = time.time()
 
@@ -672,9 +672,31 @@ class ModExporter:
             pos_buf["TANGENT"][:, 0:3] = verts_outline_vector[:, 0:3]
         elif self.game == GameEnum.HonkaiImpactPart2:
             pos_buf["COLOR"][:, 0:3] = verts_outline_vector[:, 0:3]
-        elif self.game == GameEnum.ZenlessZoneZero:
-            output_buffers["TexCoord"]["TEXCOORD2"] = verts_outline_vector[:, 1:3]
+        elif (
+            self.game == GameEnum.ZenlessZoneZero and self.outline_optimization != "OFF"
+        ):
+            norm: NDArray = numpy.empty_like(verts_outline_vector)
+            tan: NDArray = numpy.empty_like(verts_outline_vector)
+            norm[ib_data] = loops_face_normal
+            tan = pos_buf["TANGENT"]
+            tan /= numpy.linalg.norm(tan, axis=1, keepdims=True)
+            bitan: NDArray = pos_buf["BITANGENTSIGN"][:, numpy.newaxis] * numpy.cross(
+                norm, tan
+            )
 
+            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 0] = numpy.einsum(
+                "ij,ij->i", tan, verts_outline_vector
+            )
+            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] = (
+                numpy.einsum("ij,ij->i", bitan, verts_outline_vector) + 1
+            )
+            # TODO: prolly gotta flip again based on custom props
+            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] *= -1.0
+            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] += 1.0
+            # TODO: GENERATE TEXCOORD2.xy as an ortogonal front view of the mesh
+
+        if self.game == GameEnum.ZenlessZoneZero:
+            pos_buf["BITANGENTSIGN"] *= -1
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
     def write_files(self) -> None:
