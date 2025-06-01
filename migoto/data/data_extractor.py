@@ -119,10 +119,12 @@ class BlenderDataExtractor:
         proxy_layout = BufferLayout([])
         # Some formats cannot be converted at foreach_get -> numpy request level and require special care
         for export_semantic in export_layout.semantics:
-            blender_format = self.blender_data_formats[export_semantic.abstract.enum]
-            export_format = export_semantic.format
+            blender_format: DXGIFormat = self.blender_data_formats[
+                export_semantic.abstract.enum
+            ]
+            export_format: DXGIFormat = export_semantic.format
 
-            proxy_semantic = copy.deepcopy(export_semantic)
+            proxy_semantic: BufferSemantic = copy.deepcopy(export_semantic)
 
             if export_semantic.extract_format is not None:
                 # Export format has specified extraction format, lets hope they know what they're doing
@@ -140,8 +142,17 @@ class BlenderDataExtractor:
             elif export_semantic.abstract in semantic_converters.keys():
                 # Semantic converter specified and it works with data values
                 # Lets extract data in original format to prevent possible precision loss
-                proxy_semantic.format = blender_format
-                proxy_semantic.stride = blender_format.byte_width
+                if export_semantic.abstract.enum in [
+                    Semantic.Blendindices,
+                    Semantic.Blendweight,
+                ]:
+                    proxy_semantic.stride = (
+                        blender_format.byte_width * proxy_semantic.get_num_values()
+                    )
+                    proxy_semantic.format = blender_format
+                else:
+                    proxy_semantic.format = blender_format
+                    proxy_semantic.stride = blender_format.byte_width
             elif export_semantic.abstract.enum not in [
                 Semantic.Blendindices,
                 Semantic.Blendweight,
@@ -181,7 +192,7 @@ class BlenderDataExtractor:
         flip_winding=False,
         dedupe=False,
     ) -> tuple[NumpyBuffer, NDArray]:
-        start_time = time.time()
+        start_time: float = time.time()
 
         # Make loop data layout
         layout = BufferLayout([])
@@ -199,8 +210,8 @@ class BlenderDataExtractor:
 
         # Fetch data for requested semantics
         for buffer_semantic in proxy_layout.semantics:
-            semantic = buffer_semantic.abstract.enum
-            semantic_name = buffer_semantic.get_name()
+            semantic: Semantic = buffer_semantic.abstract.enum
+            semantic_name: str = buffer_semantic.get_name()
             numpy_type = buffer_semantic.get_numpy_type()
             if semantic == Semantic.VertexId:
                 data = self.fetch_data(mesh.loops, "vertex_index", numpy_type, size)
@@ -220,6 +231,7 @@ class BlenderDataExtractor:
                 )
             else:
                 continue
+            self.sanitize_blender_data(data)
             loop_data.set_field(semantic_name, data)
 
         # Swap every first with every third vertex for every face aka polygon
@@ -292,46 +304,40 @@ class BlenderDataExtractor:
 
         # Fetch data for requested semantics
         for buffer_semantic in proxy_layout.semantics:
-            semantic = buffer_semantic.abstract.enum
-            numpy_type = buffer_semantic.get_numpy_type()
+            semantic: Semantic = buffer_semantic.abstract.enum
+            numpy_type: DTypeLike = buffer_semantic.get_numpy_type()
             num_values: int = buffer_semantic.get_num_values()
-            if not isinstance(numpy_type, tuple) and semantic != Semantic.Position:
-                numpy_type = (numpy_type, 1)
             if semantic == Semantic.Position:
                 data = self.fetch_data(mesh.vertices, "undeformed_co", numpy_type, size)
             elif semantic == Semantic.Blendindices:
+                dtype: DTypeLike = (
+                    numpy_type[0] if isinstance(numpy_type, tuple) else numpy_type
+                )
+                num_vgs: int = buffer_semantic.get_num_values()
                 data = numpy.array(
                     [
-                        [vg.group for vg in groups][:num_values]
-                        + [0] * (num_values - len(groups))
+                        [vg.group for vg in groups[:num_vgs]]
+                        + [0] * (num_vgs - len(groups))
                         for groups in vertex_groups
                     ],
-                    dtype=numpy_type[0],
+                    dtype=dtype,
                 )
             elif semantic == Semantic.Blendweight:
-                # TODO: Try to load data into the empty numpy instead of inline padding, it may be faster
-                if buffer_semantic.format.value_byte_width > 1:
-                    data = numpy.array(
-                        [
-                            [vg.weight for vg in groups][:num_values]
-                            + [0] * (num_values - len(groups))
-                            for groups in vertex_groups
-                        ],
-                        dtype=numpy_type[0],
-                    )
-                else:
-                    stride = buffer_semantic.stride
-                    data = numpy.array(
-                        [
-                            [vg.weight for vg in groups][:stride]
-                            + [0] * (stride - len(groups))
-                            for groups in vertex_groups
-                        ],
-                        dtype=numpy_type[0],
-                    )
-
+                dtype: DTypeLike = (
+                    numpy_type[0] if isinstance(numpy_type, tuple) else numpy_type
+                )
+                num_vgs: int = buffer_semantic.get_num_values()
+                data = numpy.array(
+                    [
+                        [vg.weight for vg in groups[:num_vgs]]
+                        + [0] * (num_vgs - len(groups))
+                        for groups in vertex_groups
+                    ],
+                    dtype=dtype,
+                )
             else:
                 continue
+            self.sanitize_blender_data(data)
             if num_values == 1:
                 data = data.reshape(-1)
             vertex_data.set_field(buffer_semantic.get_name(), data)
@@ -368,6 +374,7 @@ class BlenderDataExtractor:
                 continue
 
             data = self.fetch_data(shapekey.data, "co", numpy_type)
+            self.sanitize_blender_data(data)
 
             if deduct_basis:
                 data -= base_data
@@ -379,6 +386,12 @@ class BlenderDataExtractor:
         )
 
         return result
+
+    @staticmethod
+    def sanitize_blender_data(arr: NDArray) -> None:
+        """Sanitizes Blender data to prevent NaN values in the output."""
+        if numpy.issubdtype(arr.dtype, numpy.floating):
+            numpy.nan_to_num(arr, copy=False)
 
     @staticmethod
     def normalize_8bit_weights(weights: list[float]) -> list[int]:
