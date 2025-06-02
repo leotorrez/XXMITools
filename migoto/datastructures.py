@@ -12,7 +12,6 @@ IOOBJOrientationHelper = type("DummyIOOBJOrientationHelper", (object,), {})
 vertex_color_layer_channels = 4
 
 
-# FIXME: hardcoded values in a very weird way cause blender EnumProperties are odd-
 class GameEnum(str, Enum):
     HonkaiImpact3rd = "Honkai Impact 3rd"
     GenshinImpact = "Genshin Impact"
@@ -21,7 +20,7 @@ class GameEnum(str, Enum):
     HonkaiImpactPart2 = "Honkai Impact 3rd Part 2"
 
 
-game_enum = [None]+[
+game_enum = [None] + [
     (
         game.name,
         game.value,

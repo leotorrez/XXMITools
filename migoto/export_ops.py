@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Callable
 import textwrap
-
+import shutil
 import bpy
 from bpy.props import (
     BoolProperty,
@@ -301,10 +301,11 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
     )
 
     copy_textures: BoolProperty(
-        name="Copy textures",
-        description="Copies the texture files to the mod folder, useful for the initial export but might be redundant afterwards.",
+        name="Mod textures",
+        description="ENABLED: Writes to the INI file and copy missing texture files to the export folder.\nDISABLED: The INI file will not contain entries that mod the textures. i.e. Mod uses vanilla textures.",
         default=True,
     )
+
     ignore_duplicate_textures: BoolProperty(
         name="Ignore duplicated textures",
         description="Ignore new textures with the same hash as already copied ones.",
@@ -475,8 +476,8 @@ class XXMIProperties(PropertyGroup):
     )
 
     copy_textures: BoolProperty(
-        name="Copy textures",
-        description="Copies the texture files to the mod folder, useful for the initial export but might be redundant afterwards",
+        name="Mod textures",
+        description="ENABLED: Writes to the INI file and copy missing texture files to the export folder.\nDISABLED: The INI file will not contain entries that mod the textures. i.e. Mod uses vanilla textures.",
         default=True,
     )
 
@@ -609,7 +610,29 @@ class TemplateSelector(Operator, ExportHelper):
     )
 
     def execute(self, context):
-        context.scene.xxmi.template_path = self.properties.filepath
+        xxmi = context.scene.xxmi
+        if xxmi.game == "":
+            xxmi.template_path = ""
+            self.report(
+                {"ERROR"},
+                "Please select a valid game before chosing a template files.",
+            )
+            return {"CANCELLED"}
+
+        template_path: Path = Path(self.properties.filepath)
+        if template_path.is_dir():
+            self.report({"ERROR"}, "Template path must be a file, not a folder")
+            return {"CANCELLED"}
+
+        if not template_path.exists():
+            addon_path: Path = Path(__file__).parent.parent
+            shutil.copy(
+                addon_path / "templates" / (GameEnum[xxmi.game] + ".ini.j2"),
+                template_path,
+            )
+            self.report({"INFO"}, f"Template file for the game {GameEnum[xxmi.game].value} created at: {str(template_path)}")
+
+        xxmi.template_path = self.properties.filepath
         bpy.ops.ed.undo_push(message="XXMI Tools: template path selected")
         return {"FINISHED"}
 

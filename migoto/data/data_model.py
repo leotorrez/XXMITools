@@ -588,7 +588,7 @@ class DataModelXXMI(DataModel):
                         and cls.normalize_weights
                     ):
                         cls.format_converters[new_semantic.abstract] = [
-                            lambda data: cls.convert_normalize_weights(data)
+                            lambda data: cls.converter_normalize_weights(data)
                         ]
                     cls.buffers_format["Blend"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in tex_semantics:
@@ -597,9 +597,15 @@ class DataModelXXMI(DataModel):
             raise Fatal(
                 f"Object({obj.name}) doesn't count with the custom properties required for export! Reimport the mesh from dump folder."
             )
+        if cls.game ==  GameEnum.ZenlessZoneZero:
+            bitan_abstract: AbstractSemantic = AbstractSemantic(Semantic.BitangentSign)
+            if cls.buffers_format["Position"].get_element(bitan_abstract) is not None:
+                cls.format_converters[bitan_abstract] = [
+                    lambda data: cls.converter_flip_bitangent_sign(data)
+                ]
         return cls
 
-    def convert_normalize_weights(self, data: NDArray) -> NDArray:
+    def converter_normalize_weights(self, data: NDArray) -> NDArray:
         """Normalizes weight values to ensure they sum to 1.0 for each vertex"""
         if data.size == data.shape[0]:
             return data
@@ -609,6 +615,11 @@ class DataModelXXMI(DataModel):
         normalized: NDArray = data / sums
 
         return normalized
+
+    def converter_flip_bitangent_sign(self, data: NDArray) -> NDArray:
+        """Flips the sign of the bitangent vector"""
+        data *= -1
+        return data
 
     def get_mesh_data(
         self,

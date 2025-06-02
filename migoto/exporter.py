@@ -123,13 +123,11 @@ class ModExporter:
                 {"WARNING"},
                 f"Destination path not set, defaulting to {self.destination}",
             )
-        if not self.destination.exists():
-            raise Fatal("Destination path does not exist.")
         if self.destination.is_file():
             self.destination = self.destination.parent
-
         if self.destination == self.dump_path:
             raise Fatal("Destination path can't be the same as Dump path")
+        self.destination.mkdir(parents=True, exist_ok=True)
 
         self.hash_data = self.load_hashes(self.dump_path, self.dump_path.stem)
         if not self.hash_data:
@@ -194,6 +192,17 @@ class ModExporter:
                         t
                         for t in textures
                         if t.hash not in seen_hashes and not seen_hashes.add(t.hash)
+                    ]
+                if self.no_ramps:
+                    textures = [
+                        t
+                        for t in textures
+                        if t.name.lower()
+                        not in [
+                            "shadowramp",
+                            "metalmap",
+                            "diffuseguide",
+                        ]
                     ]
                 matching_objs: list[Collection] = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
@@ -301,12 +310,6 @@ class ModExporter:
                             repeated_textures[t.hash].append(t)
                             continue
                         repeated_textures[t.hash] = [t]
-                    if self.no_ramps and t.name in [
-                        "ShadowRamp",
-                        "MetalMap",
-                        "DiffuseGuide",
-                    ]:
-                        continue
                     tex_name = part.fullname + t.name + t.extension
                     self.files_to_copy[self.dump_path / tex_name] = (
                         self.destination / tex_name
@@ -377,7 +380,8 @@ class ModExporter:
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     ib_buffer
                 )
-            self.optimize_outlines(output_buffers, component_ib, data_model)
+            if self.outline_optimization != "OFF":
+                self.optimize_outlines(output_buffers, component_ib, data_model)
             if component.blend_vb != "":
                 self.files_to_write[
                     self.destination / (component.fullname + "Position.buf")
@@ -466,10 +470,6 @@ class ModExporter:
             return
         print("Generating .ini file")
         addon_path: Path = Path(__file__).parent.parent
-        for mod in addon_utils.modules():
-            if mod.bl_info["name"] == "XXMI_Tools":
-                addon_path = Path(mod.__file__).parent
-                break
         templates_paths: list[Path] = [addon_path / "templates"]
         if (
             self.template != Path("")
@@ -506,25 +506,25 @@ class ModExporter:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
 
         def unit_vector(vector: NDArray) -> NDArray:
-            norm = numpy.linalg.norm(vector, axis=0, keepdims=True)
-            return vector / norm
+            norm = numpy.linalg.norm(vector, axis=1, keepdims=True)
+            return numpy.abs(vector / norm)
 
         def antiparallel_search(normals) -> bool:
             a = numpy.einsum("ij,kj->ik", normals, normals)
             return bool(numpy.any((a > -1.000001) & (a < -0.999999)))
 
         def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
-            return numpy.arccos(
-                numpy.clip(
-                    numpy.einsum(
-                        "ij, ij->i",
-                        unit_vector(edge_a),
-                        unit_vector(edge_b),
-                    ),
-                    -1.0,
-                    1.0,
-                )
+            unit_a = unit_vector(edge_a)
+            unit_b = unit_vector(edge_b)
+
+            ein_sum = numpy.einsum(
+                "ij, ij->i",
+                unit_a,
+                unit_b,
             )
+            result = numpy.arccos(ein_sum)
+
+            return result
 
         pos_buf: NDArray = output_buffs["Position"]
         if len(pos_buf) == 0:
@@ -545,6 +545,7 @@ class ModExporter:
         loops_angle[:, 0] = angle0
         loops_angle[:, 1] = angle1
         loops_angle[:, 2] = angle2
+
         faces_normal: NDArray = numpy.cross(edge1, edge2)
         faces_normal /= numpy.linalg.norm(faces_normal, axis=1)[:, numpy.newaxis]
 
@@ -578,9 +579,9 @@ class ModExporter:
                 accumulated_normals,
             )
             loops_outline_vector = accumulated_normals[u_inverse]
-
-            norm = numpy.linalg.norm(loops_outline_vector, axis=1, keepdims=True)
-            loops_outline_vector /= norm
+            loops_outline_vector /= numpy.linalg.norm(
+                loops_outline_vector, axis=1, keepdims=True
+            )
             verts_outline_vector[ib_data] = loops_outline_vector
         elif self.outline_optimization == "ON":
             verts_outline_vector[ib_data] = loops_outline_vector
@@ -672,18 +673,16 @@ class ModExporter:
             pos_buf["TANGENT"][:, 0:3] = verts_outline_vector[:, 0:3]
         elif self.game == GameEnum.HonkaiImpactPart2:
             pos_buf["COLOR"][:, 0:3] = verts_outline_vector[:, 0:3]
-        elif (
-            self.game == GameEnum.ZenlessZoneZero and self.outline_optimization != "OFF"
-        ):
+        elif self.game == GameEnum.ZenlessZoneZero:
             norm: NDArray = numpy.empty_like(verts_outline_vector)
-            tan: NDArray = numpy.empty_like(verts_outline_vector)
             norm[ib_data] = loops_face_normal
-            tan = pos_buf["TANGENT"]
+            tan: NDArray = pos_buf["TANGENT"]
             tan /= numpy.linalg.norm(tan, axis=1, keepdims=True)
             bitan: NDArray = pos_buf["BITANGENTSIGN"][:, numpy.newaxis] * numpy.cross(
                 norm, tan
             )
 
+            # Dot products
             output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 0] = numpy.einsum(
                 "ij,ij->i", tan, verts_outline_vector
             )
@@ -694,9 +693,6 @@ class ModExporter:
             output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] *= -1.0
             output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] += 1.0
             # TODO: GENERATE TEXCOORD2.xy as an ortogonal front view of the mesh
-
-        if self.game == GameEnum.ZenlessZoneZero:
-            pos_buf["BITANGENTSIGN"] *= -1
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
     def write_files(self) -> None:
@@ -720,6 +716,8 @@ class ModExporter:
                 print(f" - {dest.name}")
                 if not dest.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.exists():
+                    continue
                 shutil.copy(src, dest)
         except (OSError, IOError) as e:
             raise Fatal(f"Error copying file {src} to {dest}: {e}")

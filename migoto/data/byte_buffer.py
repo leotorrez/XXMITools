@@ -27,6 +27,7 @@ class Semantic(str, Enum):
     Binormal = "BINORMAL"
     RawData = "RAWDATA"
 
+   
     def __str__(self) -> str:
         return f"{self.value}"
 
