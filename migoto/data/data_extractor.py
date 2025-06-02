@@ -202,7 +202,10 @@ class BlenderDataExtractor:
             if buffer_semantic.abstract.enum in self.blender_loop_semantics:
                 layout.add_element(buffer_semantic)
 
-        mesh.calc_tangents(uvmap=mesh.uv_layers[0].name)
+        # TODO: Check if the export needs tangents or bitangents
+            # Error out if it does not have a valid UV in these cases
+            # ADD: UI for the user to select which UV map to use for tangent calculation
+        mesh.calc_tangents(uvmap="TEXCOORD.xy")
 
         # Initialize loop data storage
         size = len(mesh.loops)
