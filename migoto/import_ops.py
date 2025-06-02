@@ -43,7 +43,7 @@ from .datastructures import (
     IndexBuffer,
     vertex_color_layer_channels,
 )
-
+from .export_ops import XXMIProperties
 
 def load_3dmigoto_mesh_bin(operator: Operator, vb_paths, ib_paths, pose_path):
     if len(vb_paths) != 1 or len(ib_paths) > 1:
@@ -1094,7 +1094,7 @@ class Import3DMigotoFrameAnalysis(Operator, ImportHelper, IOOBJOrientationHelper
             paths = self.get_vb_ib_paths()
 
             import_3dmigoto(self, context, paths, **keywords)
-            xxmi = context.scene.xxmi
+            xxmi:XXMIProperties = context.scene.xxmi
             if not xxmi.dump_path:
                 if os.path.exists(
                     os.path.join(os.path.dirname(self.filepath), "hash.json")

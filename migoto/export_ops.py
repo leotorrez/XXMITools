@@ -493,23 +493,10 @@ class XXMIProperties(PropertyGroup):
         default="",
     )
 
-    outline_optimization: EnumProperty(
+    outline_optimization: BoolProperty(
         name="Outline Optimization",
         description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
-        items=[
-            ("OFF", "Deactivate", "No outline optimization"),
-            (
-                "ON",
-                "Traditional",
-                "Traditional outline optimization, used in old script. May be slow for high vertex count meshes",
-            ),
-            (
-                "EXPERIMENTAL",
-                "Fast Experimental",
-                "Experimental fast outline optimization, may produce artifacts",
-            ),
-        ],
-        default="OFF",
+        default=False,
     )
     outline_rounding_precision: IntProperty(
         name="Outline decimal rounding precision",
@@ -610,7 +597,7 @@ class TemplateSelector(Operator, ExportHelper):
     )
 
     def execute(self, context):
-        xxmi = context.scene.xxmi
+        xxmi: XXMIProperties = context.scene.xxmi
         if xxmi.game == "":
             xxmi.template_path = ""
             self.report(
@@ -630,7 +617,10 @@ class TemplateSelector(Operator, ExportHelper):
                 addon_path / "templates" / (GameEnum[xxmi.game] + ".ini.j2"),
                 template_path,
             )
-            self.report({"INFO"}, f"Template file for the game {GameEnum[xxmi.game].value} created at: {str(template_path)}")
+            self.report(
+                {"INFO"},
+                f"Template file for the game {GameEnum[xxmi.game].value} created at: {str(template_path)}",
+            )
 
         xxmi.template_path = self.properties.filepath
         bpy.ops.ed.undo_push(message="XXMI Tools: template path selected")
@@ -648,7 +638,7 @@ class ExportAdvancedOperator(Operator):
 
     def execute(self, context):
         scene = bpy.context.scene
-        xxmi = scene.xxmi
+        xxmi: XXMIProperties = scene.xxmi
         if not xxmi.use_custom_template:
             xxmi.template_path = ""
         try:
@@ -709,7 +699,7 @@ class ExportAdvancedBatchedOperator(Operator):
 
     def execute(self, context):
         scene = bpy.context.scene
-        xxmi = scene.xxmi
+        xxmi: XXMIProperties = scene.xxmi
         start_time = time.time()
         base_dir = Path(xxmi.destination_path)
         wildcards = ("#####", "####", "###", "##", "#")

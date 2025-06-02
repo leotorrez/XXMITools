@@ -184,26 +184,26 @@ class ModExporter:
             for j, part in enumerate(component["object_classifications"]):
                 part_name: str = current_name + part
                 objects: list[SubObj] = []
-                textures: list[TextureData] = [
-                    TextureData(*e) for e in component["texture_hashes"][j]
-                ]
-                if self.ignore_duplicate_textures:
-                    textures = [
-                        t
-                        for t in textures
-                        if t.hash not in seen_hashes and not seen_hashes.add(t.hash)
-                    ]
-                if self.no_ramps:
-                    textures = [
-                        t
-                        for t in textures
-                        if t.name.lower()
-                        not in [
-                            "shadowramp",
-                            "metalmap",
-                            "diffuseguide",
+                textures: list[TextureData] = []
+                if self.copy_textures:
+                    textures = [TextureData(*e) for e in component["texture_hashes"][j]]
+                    if self.ignore_duplicate_textures:
+                        textures = [
+                            t
+                            for t in textures
+                            if t.hash not in seen_hashes and not seen_hashes.add(t.hash)
                         ]
-                    ]
+                    if self.no_ramps:
+                        textures = [
+                            t
+                            for t in textures
+                            if t.name.lower()
+                            not in [
+                                "shadowramp",
+                                "metalmap",
+                                "diffuseguide",
+                            ]
+                        ]
                 matching_objs: list[Collection] = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
@@ -380,7 +380,7 @@ class ModExporter:
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     ib_buffer
                 )
-            if self.outline_optimization != "OFF":
+            if self.outline_optimization:
                 self.optimize_outlines(output_buffers, component_ib, data_model)
             if component.blend_vb != "":
                 self.files_to_write[
@@ -504,14 +504,10 @@ class ModExporter:
         data_model: DataModelXXMI,
     ) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
-
+        # TODO: add encoder/decoder 
         def unit_vector(vector: NDArray) -> NDArray:
             norm = numpy.linalg.norm(vector, axis=1, keepdims=True)
             return numpy.abs(vector / norm)
-
-        def antiparallel_search(normals) -> bool:
-            a = numpy.einsum("ij,kj->ik", normals, normals)
-            return bool(numpy.any((a > -1.000001) & (a < -0.999999)))
 
         def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
             unit_a = unit_vector(edge_a)
@@ -556,115 +552,32 @@ class ModExporter:
             (len(pos_buf), 3), dtype=numpy.float32
         )
 
-        if self.outline_optimization == "EXPERIMENTAL":
-            loops_round_coord: NDArray = numpy.round(
-                loops_coord, self.outline_rounding_precision
-            )
-            loops_angle = loops_angle.flatten()
-            loops_weighted_normal = loops_face_normal * loops_angle[:, None]
+        loops_round_coord: NDArray = numpy.round(
+            loops_coord, self.outline_rounding_precision
+        )
+        loops_angle = loops_angle.flatten()
+        loops_weighted_normal = loops_face_normal * loops_angle[:, None]
 
-            u, u_idx, u_inverse = numpy.unique(
-                loops_round_coord,
-                axis=0,
-                return_index=True,
-                return_inverse=True,
-            )
+        u, u_idx, u_inverse = numpy.unique(
+            loops_round_coord,
+            axis=0,
+            return_index=True,
+            return_inverse=True,
+        )
 
-            accumulated_normals: NDArray = numpy.zeros((len(u), 3), dtype=numpy.float32)
-            # Use numpy.add.at to efficiently sum weighted normals for each unique vertex
-            numpy.add.at(accumulated_normals, u_inverse, loops_weighted_normal)
-            accumulated_normals = numpy.where(
-                accumulated_normals == 0,
-                loops_face_normal[u_idx],
-                accumulated_normals,
-            )
-            loops_outline_vector = accumulated_normals[u_inverse]
-            loops_outline_vector /= numpy.linalg.norm(
-                loops_outline_vector, axis=1, keepdims=True
-            )
-            verts_outline_vector[ib_data] = loops_outline_vector
-        elif self.outline_optimization == "ON":
-            verts_outline_vector[ib_data] = loops_outline_vector
-            face_verts = ib_data.reshape(-1, 3)
-            vertex_round_pos: NDArray = numpy.round(
-                pos_buf["POSITION"][:, 0:3], self.outline_rounding_precision
-            )
-            connected_faces: dict = {}
-            pos_same_vertices: dict[tuple, set] = {}
-
-            for i_poly in range(len(faces_normal)):
-                for vert in face_verts[i_poly]:
-                    connected_faces.setdefault(vert, []).append(i_poly)
-
-                    vert_position: NDArray = pos_buf["POSITION"][vert, 0:3]
-                    pos_same_vertices.setdefault(
-                        tuple(
-                            round(coord, self.outline_rounding_precision)
-                            for coord in vert_position
-                        ),
-                        {vert},
-                    ).add(vert)
-
-            Connected_Faces_bySameVertex = {}
-            for key, value in pos_same_vertices.items():
-                for vertex in value:
-                    Connected_Faces_bySameVertex.setdefault(key, set()).update(
-                        connected_faces[vertex]
-                    )
-
-            ################# CALCULATIONS #####################
-
-            IteratedValues: set = set()
-            for key, vertex_group in pos_same_vertices.items():
-                if key in IteratedValues:
-                    continue
-                FacesConnectedbySameVertex: list = list(
-                    Connected_Faces_bySameVertex[key]
-                )
-                row: int = len(FacesConnectedbySameVertex)
-
-                ConnectedFaceNormals = numpy.empty(shape=(row, 3))
-                for i_normal, x in enumerate(FacesConnectedbySameVertex):
-                    ConnectedFaceNormals[i_normal] = faces_normal[x]
-                if antiparallel_search(ConnectedFaceNormals):
-                    continue
-
-                VectorMatrix0 = numpy.empty(shape=(row, 3))
-                VectorMatrix1 = numpy.empty(shape=(row, 3))
-
-                ConnectedWeightedNormal = numpy.empty(shape=(row, 3))
-
-                for i, facei in enumerate(FacesConnectedbySameVertex):
-                    vlist = face_verts[facei]
-
-                    vert0p = set(vlist) & vertex_group
-
-                    for vert0 in vert0p:
-                        v0 = vertex_round_pos[vert0]
-                        vn = [vertex_round_pos[x] for x in vlist if x != vert0]
-                        VectorMatrix0[i] = vn[0] - v0
-                        VectorMatrix1[i] = vn[1] - v0
-                    ConnectedWeightedNormal[i] = faces_normal[facei]
-
-                    influence_restriction: int = len(vert0p)
-                    if influence_restriction > 1:
-                        numpy.multiply(
-                            ConnectedWeightedNormal[i],
-                            0.5 ** (1 - influence_restriction),
-                        )
-
-                angle = calc_angle(VectorMatrix0, VectorMatrix1)
-                ConnectedWeightedNormal *= angle[:, None]
-
-                wSum = unit_vector(
-                    numpy.nansum(ConnectedWeightedNormal, axis=0)
-                ).tolist()
-
-                if numpy.all(wSum == 0.0):
-                    continue
-                for vertexf in vertex_group:
-                    verts_outline_vector[vertexf] = wSum
-                    IteratedValues.add(vertexf)
+        accumulated_normals: NDArray = numpy.zeros((len(u), 3), dtype=numpy.float32)
+        # Use numpy.add.at to efficiently sum weighted normals for each unique vertex
+        numpy.add.at(accumulated_normals, u_inverse, loops_weighted_normal)
+        accumulated_normals = numpy.where(
+            accumulated_normals == 0,
+            loops_face_normal[u_idx],
+            accumulated_normals,
+        )
+        loops_outline_vector = accumulated_normals[u_inverse]
+        loops_outline_vector /= numpy.linalg.norm(
+            loops_outline_vector, axis=1, keepdims=True
+        )
+        verts_outline_vector[ib_data] = loops_outline_vector
         if self.game in [
             GameEnum.GenshinImpact,
             GameEnum.HonkaiStarRail,

@@ -17,6 +17,7 @@ from .export_ops import (
     Export3DMigotoXXMI,
 )
 from .. import addon_updater_ops
+from .export_ops import XXMIProperties
 
 
 class MIGOTO_UL_semantic_remap_list(UIList):
@@ -205,7 +206,7 @@ class XXMI_PT_Sidebar(Panel):
 
     def draw(self, context):
         layout = self.layout
-        xxmi = context.scene.xxmi
+        xxmi: XXMIProperties = context.scene.xxmi
         split = layout.split(factor=0.85)
         col_1 = split.column()
         col_2 = split.column()
@@ -240,8 +241,8 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
 
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)
-        xxmi = context.scene.xxmi
-        layout:bpy.types.UILayout = self.layout
+        xxmi: XXMIProperties = context.scene.xxmi
+        layout: bpy.types.UILayout = self.layout
         box = layout.box()
         col = box.column(align=True)
         col.prop(xxmi, "ignore_hidden")
@@ -264,23 +265,22 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
             split_child = col_1.split(factor=0.05)
             col_1_1 = split_child.column()
             col_1_2 = split_child.column()
-            col_1_1.prop(xxmi, "use_custom_template", text ="")
+            col_1_1.prop(xxmi, "use_custom_template", text="")
             col_1_2.enabled = xxmi.use_custom_template
             col_2.enabled = xxmi.use_custom_template
             col_1_2.prop(xxmi, "template_path")
             col_2.operator("template.selector", icon="FILE_FOLDER", text="")
             box_ini.prop(xxmi, "credit")
         col = box.column(align=True)
-        if xxmi.outline_optimization == "OFF":
-            col.prop(xxmi, "outline_optimization")
-        else:
-            split = col.split(factor=0.75)
-            col_1 = split.column()
-            col_2 = split.column()
-            col_1.prop(xxmi, "outline_optimization")
-            col_2.prop(xxmi, "outline_rounding_precision")
+        split = col.split(factor=0.25)
+        col_1 = split.column()
+        col_2 = split.column()
+        col_1.prop(xxmi, "outline_optimization")
+        col_2.enabled = xxmi.outline_optimization
+        col_2.prop(xxmi, "outline_rounding_precision")
         # col.prop(xxmi, 'export_shapekeys')
         # col.prop(xxmi, "export_materials")
+
 
 class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
@@ -289,7 +289,7 @@ class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, Panel):
 
     def draw(self, context):
         XXMISidebarOptionsPanelBase.draw(self, context)
-        xxmi = context.scene.xxmi
+        xxmi: XXMIProperties = context.scene.xxmi
         row = self.layout.column(align=True)
         split = row.split(factor=0.5)
         col1 = split.column()
@@ -297,6 +297,7 @@ class XXMI_PT_SidePanelBatchExport(XXMISidebarOptionsPanelBase, Panel):
         if xxmi.write_buffers or xxmi.write_ini or xxmi.copy_textures:
             col1.prop(xxmi, "batch_pattern")
             col2.operator("xxmi.exportadvancedbatched", text="Start Batch export")
+
 
 class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, Panel):
     bl_label = ""
@@ -307,7 +308,7 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, Panel):
         XXMISidebarOptionsPanelBase.draw(self, context)
         layout = self.layout
         row = layout.row()
-        xxmi = context.scene.xxmi
+        xxmi: XXMIProperties = context.scene.xxmi
         if not xxmi.write_buffers and not xxmi.write_ini and not xxmi.copy_textures:
             row.label(text="Nothing to export", icon="ERROR")
         else:
