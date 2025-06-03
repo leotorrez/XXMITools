@@ -27,7 +27,6 @@ class Semantic(str, Enum):
     Binormal = "BINORMAL"
     RawData = "RAWDATA"
 
-   
     def __str__(self) -> str:
         return f"{self.value}"
 
@@ -118,7 +117,6 @@ class BufferLayout:
     stride: int = 0
     force_stride: bool = False
 
-
     def __post_init__(self) -> None:
         # Autofill byte Stride and Offsets
         if self.stride == 0:
@@ -194,16 +192,14 @@ class NumpyBuffer:
     def set_data(self, data: Optional[NDArray], size=0) -> None:
         if data is not None:
             self.data = data
-        elif size > 0:
+        elif size >= 0:
             self.data = numpy.zeros(size, dtype=self.layout.get_numpy_type())
 
     def set_field(self, field: str, data: NDArray) -> None:
         try:
             self.data[field] = data
         except ValueError as e:
-            raise ValueError(
-                f"Failed to set field {field}: {e}"
-            )
+            raise ValueError(f"Failed to set field {field}: {e}")
 
     def get_data(self, indices: Optional[NDArray] = None) -> NDArray:
         if indices is None:
@@ -279,96 +275,16 @@ class NumpyBuffer:
         with open(file, "wb", encoding="utf-8") as f:
             f.write(self.get_bytes())
 
+    def append(self, other: "NumpyBuffer") -> None:
+        """Appends another NumpyBuffer to this one"""
+        if self.layout != other.layout:
+            raise ValueError("Layouts do not match!")
+        self.data = (
+            other.data if len(self.data) == 0 else numpy.append(self.data, other.data)
+        )
 
-class MigotoFmt:
-    vb_strides: list[int]
-    vb_layout: BufferLayout
-    ib_layout: BufferLayout
-
-    def __init__(
-        self,
-        vb_layout: BufferLayout,
-        vb_strides: list[int],
-        ib_layout: BufferLayout,
-    ) -> None:
-        self.vb_layout = vb_layout
-        self.vb_strides = vb_strides
-        self.ib_layout = ib_layout
-
-    @classmethod
-    def from_files(cls, fmt_files: list) -> "MigotoFmt":
-        """Takes a list of fmt files and parses them into a list of BufferLayouts"""
-        vb_strides: list[int] = []
-        ib_layout: BufferLayout = BufferLayout([])
-        vb_semantics: list[BufferSemantic] = []
-        element: Optional[dict] = None
-        converters: dict[str, Callable] = {
-            "SemanticName": lambda value: Semantic(value),
-            "SemanticIndex": lambda value: int(value),
-            "Format": lambda value: DXGIFormat(value),
-            "AlignedByteOffset": lambda value: int(value),
-            "InputSlot": lambda value: int(value),
-            "InputSlotClass": lambda value: int(value),
-            "InstanceDataStepRate": lambda value: str(value),
-        }
-
-        for idx, f in enumerate(fmt_files):
-            for line in map(str.strip, f):
-                data = line.split(":")
-                if len(data) != 2:
-                    continue
-                data = list(map(str.strip, data))
-                key, value = data[0], data[1]
-
-                split_vb_stride = "vb%i stride:" % idx
-                if line.startswith(split_vb_stride):
-                    vb_strides[idx] = int(line[len(split_vb_stride) :])
-                elif line.startswith("stride"):
-                    vb_strides[idx] = int(value)
-                elif line.startswith("format") and element is None:
-                    ib_format = DXGIFormat(value)
-                    if ib_format == DXGIFormat.R16_UINT:
-                        ib_format = DXGIFormat.R32_UINT
-                    ib_layout = BufferLayout(
-                        [BufferSemantic(AbstractSemantic(Semantic.Index), ib_format)]
-                    )
-                elif line.startswith("element["):
-                    if element is not None:
-                        if len(element) == 4:
-                            vb_semantics.append(
-                                BufferSemantic(
-                                    AbstractSemantic(
-                                        Semantic(element["SemanticName"]),
-                                        element["SemanticIndex"],
-                                    ),
-                                    element["Format"],
-                                )
-                            )
-                        elif len(element) > 0:
-                            raise ValueError(
-                                f"malformed buffer element format: {element}"
-                            )
-                    element = {}
-                else:
-                    assert element is not None, f"missing element definition for {key}"
-                    for search_key, converter in converters.items():
-                        if key.startswith(search_key):
-                            element[search_key] = converter(value)
-                            break
-            assert element is not None, "missing element definition for last element"
-            if len(element) == 7:
-                vb_semantics.append(
-                    BufferSemantic(
-                        AbstractSemantic(
-                            Semantic(element["SemanticName"]), element["SemanticIndex"]
-                        ),
-                        element["Format"],
-                    )
-                )
-
-            vb_layout = BufferLayout(vb_semantics)
-            if vb_strides[idx] != vb_layout.stride:
-                raise ValueError(
-                    f"vb{idx} buffer layout format stride mismatch: {vb_strides[idx]} != {vb_layout.stride}"
-                )
-        return cls(vb_layout, vb_strides, ib_layout)
+    def copy(self) -> "NumpyBuffer":
+        """Returns a copy of the buffer"""
+        new_buffer: NumpyBuffer = NumpyBuffer(self.layout)
+        new_buffer.data = self.data.copy()
+        return new_buffer

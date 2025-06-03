@@ -17,6 +17,7 @@ from .data.byte_buffer import (
     BufferSemantic,
     NumpyBuffer,
     Semantic,
+    AbstractSemantic,
 )
 from .data.data_model import DataModelXXMI
 from .data.ini_format import INI_file
@@ -289,20 +290,30 @@ class ModExporter:
         self.files_to_write = {}
         self.files_to_copy = {}
         for component in self.mod_file.components:
+            data_model: DataModelXXMI = DataModelXXMI.from_obj(
+                component.parts[0].objects[0].obj,
+                game=self.game,
+                normalize_weights=self.normalize_weights,
+                is_posed_mesh=component.blend_vb != "",
+            )
             excluded_buffers: list[str] = []
-            output_buffers: dict[str, NDArray] = {
-                "Position": numpy.empty(0, dtype=numpy.uint8),
-                "Blend": numpy.empty(0, dtype=numpy.uint8),
-                "TexCoord": numpy.empty(0, dtype=numpy.uint8),
+            out_buffers: dict[str, NumpyBuffer] = {
+                key: NumpyBuffer(layout=entry)
+                for key, entry in data_model.buffers_format.items()
+                if key != "IB"
             }
-            component_ib: NDArray = numpy.empty(0, dtype=numpy.uint8)
+            component_ib: NumpyBuffer = NumpyBuffer(
+                layout=data_model.buffers_format["IB"]
+            )
             if self.write_buffers is False:
-                for key in output_buffers.keys():
+                for key in out_buffers.keys():
                     excluded_buffers.append(key)
             vb_offset: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname} " + "-" * 10)
-                ib_buffer = None
+                part_ib: NumpyBuffer = NumpyBuffer(
+                    layout=data_model.buffers_format["IB"]
+                )
                 ib_offset: int = 0
                 for t in part.textures:
                     tex_name = part.fullname + t.name + t.extension
@@ -311,19 +322,9 @@ class ModExporter:
                     )
                 if component.draw_vb == "":
                     continue
-                data_model: DataModelXXMI = DataModelXXMI.from_obj(
-                    part.objects[0].obj,
-                    game=self.game,
-                    normalize_weights=self.normalize_weights,
-                    is_posed_mesh=component.blend_vb != "",
-                )
                 for entry in part.objects:
                     print(f"Processing {entry.name}...")
                     v_count: int = 0
-                    gen_buffers: dict[str, NumpyBuffer] = {
-                        key: NumpyBuffer(layout=entry)
-                        for key, entry in data_model.buffers_format.items()
-                    }
                     if len(entry.obj.data.polygons) == 0:
                         continue
                     self.verify_mesh_requirements(
@@ -341,22 +342,12 @@ class ModExporter:
                         excluded_buffers,
                         data_model.mirror_mesh,
                     )
-                    for k in output_buffers:
+                    gen_buffers["IB"].data["INDEX"] += vb_offset
+                    for k, v in out_buffers.items():
                         if k not in gen_buffers:
                             continue
-                        output_buffers[k] = (
-                            gen_buffers[k].data
-                            if len(output_buffers[k]) == 0
-                            else numpy.concatenate(
-                                (output_buffers[k], gen_buffers[k].data)
-                            )
-                        )
-                    gen_buffers["IB"].data["INDEX"] += vb_offset
-                    ib_buffer = (
-                        gen_buffers["IB"].data.copy()
-                        if ib_buffer is None
-                        else numpy.concatenate((ib_buffer, gen_buffers["IB"].data))
-                    )
+                        v.append(gen_buffers[k])
+                    part_ib.append(gen_buffers["IB"])
                     vb_offset += v_count
                     entry.vertex_count = v_count
                     part.vertex_count += v_count
@@ -364,29 +355,25 @@ class ModExporter:
                     entry.index_count = len(gen_buffers["IB"].data)
                     entry.index_offset = ib_offset
                     ib_offset += entry.index_count
-                if ib_buffer is None:
+                if part_ib is None:
                     print(f"Skipping {part.fullname}.ib due to no index data.")
                     continue
-                component_ib = (
-                    ib_buffer.copy()
-                    if len(component_ib) == 0
-                    else numpy.concatenate((component_ib, ib_buffer))
-                )
+                component_ib.append(part_ib.copy())
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
-                    ib_buffer
+                    part_ib.data
                 )
             if self.outline_optimization:
-                self.optimize_outlines(output_buffers, component_ib, data_model)
+                self.optimize_outlines(out_buffers, component_ib)
             if component.blend_vb != "":
                 self.files_to_write[
                     self.destination / (component.fullname + "Position.buf")
-                ] = output_buffers["Position"]
+                ] = out_buffers["Position"].data
                 self.files_to_write[
                     self.destination / (component.fullname + "Blend.buf")
-                ] = output_buffers["Blend"]
+                ] = out_buffers["Blend"].data
                 self.files_to_write[
                     self.destination / (component.fullname + "Texcoord.buf")
-                ] = output_buffers["TexCoord"]
+                ] = out_buffers["TexCoord"].data
                 component.strides = {
                     k.lower(): v.stride
                     for k, v in data_model.buffers_format.items()
@@ -394,9 +381,9 @@ class ModExporter:
                 }
                 continue
             self.files_to_write[self.destination / (component.fullname + ".buf")] = (
-                output_buffers["Position"]
+                out_buffers["Position"].data
             )
-            component.strides = {"position": output_buffers["Position"].itemsize}
+            component.strides = {"position": out_buffers["Position"].data.itemsize}
 
     def verify_mesh_requirements(
         self,
@@ -493,39 +480,27 @@ class ModExporter:
         self.files_to_write[self.destination / (self.mod_name + ".ini")] = ini_body
 
     def optimize_outlines(
-        self,
-        output_buffs: dict[str, NDArray],
-        ib_buf: NDArray,
-        data_model: DataModelXXMI,
+        self, output_buffs: dict[str, NumpyBuffer], ib_buf: NumpyBuffer
     ) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
 
-        # TODO: add encoder/decoder
         def unit_vector(vector: NDArray) -> NDArray:
-            norm = numpy.linalg.norm(vector, axis=1, keepdims=True)
-            return numpy.abs(vector / norm)
+            return numpy.abs(vector / numpy.linalg.norm(vector, axis=1, keepdims=True))
 
         def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
-            unit_a = unit_vector(edge_a)
-            unit_b = unit_vector(edge_b)
-
-            ein_sum = numpy.einsum(
-                "ij, ij->i",
-                unit_a,
-                unit_b,
+            return numpy.arccos(numpy.clip(
+                numpy.einsum("ij, ij->i", unit_vector(edge_a), unit_vector(edge_b)),-1,1)
             )
-            result = numpy.arccos(ein_sum)
 
-            return result
-
-        pos_buf: NDArray = output_buffs["Position"]
+        pos_buf: NumpyBuffer = output_buffs["Position"]
         if len(pos_buf) == 0:
             return
-        ib_data: NDArray = ib_buf["INDEX"]
+        tex_buf: NumpyBuffer = output_buffs["TexCoord"]
+        ib_data: NDArray = ib_buf.data["INDEX"]
 
         start_time: int | float = time.time()
 
-        loops_coord: NDArray = pos_buf["POSITION"][ib_data, 0:3]
+        loops_coord: NDArray = pos_buf.data["POSITION"][ib_data, 0:3]
         triangles: NDArray = loops_coord.reshape(-1, 3, 3)
         edge0: NDArray = triangles[:, 1] - triangles[:, 2]
         edge1: NDArray = triangles[:, 2] - triangles[:, 0]
@@ -574,34 +549,74 @@ class ModExporter:
             loops_outline_vector, axis=1, keepdims=True
         )
         verts_outline_vector[ib_data] = loops_outline_vector
+
         if self.game in [
             GameEnum.GenshinImpact,
             GameEnum.HonkaiStarRail,
             GameEnum.HonkaiImpact3rd,
         ]:
-            pos_buf["TANGENT"][:, 0:3] = verts_outline_vector[:, 0:3]
+            tangent_element: BufferSemantic | None = pos_buf.layout.get_element(
+                AbstractSemantic(Semantic.Tangent)
+            )
+            if tangent_element is None:
+                raise Fatal("Tangent semantic not found in the buffer layout. ")
+            pos_buf.import_semantic_data(
+                verts_outline_vector[:, 0:3],
+                tangent_element,
+                [tangent_element.format.type_encoder],
+            )
         elif self.game == GameEnum.HonkaiImpactPart2:
-            pos_buf["COLOR"][:, 0:3] = verts_outline_vector[:, 0:3]
+            color_element: BufferSemantic | None = pos_buf.layout.get_element(
+                AbstractSemantic(Semantic.Color)
+            )
+            if color_element is None:
+                raise Fatal("Color semantic not found in the position buffer layout. ")
+            pos_buf.import_semantic_data(
+                verts_outline_vector[:, 0:3],
+                color_element,
+                [color_element.format.type_encoder],
+            )
         elif self.game == GameEnum.ZenlessZoneZero:
             norm: NDArray = numpy.empty_like(verts_outline_vector)
             norm[ib_data] = loops_face_normal
-            tan: NDArray = pos_buf["TANGENT"]
+            tan: NDArray = pos_buf.data["TANGENT"]
             tan /= numpy.linalg.norm(tan, axis=1, keepdims=True)
-            bitan: NDArray = pos_buf["BITANGENTSIGN"][:, numpy.newaxis] * numpy.cross(
-                norm, tan
+            bitan: NDArray = pos_buf.data["BITANGENTSIGN"][
+                :, numpy.newaxis
+            ] * numpy.cross(norm, tan)
+            texcoord1_element = tex_buf.layout.get_element(
+                AbstractSemantic(Semantic.TexCoord, 1)
+            )
+            texcoord2_element = tex_buf.layout.get_element(
+                AbstractSemantic(Semantic.TexCoord, 2)
+            )
+            if texcoord1_element is None or texcoord2_element is None:
+                # TODO: might want to force add anyways
+                raise Fatal(
+                    "TEXCOORD1 or TEXCOORD2 semantic not found in the texcoord buffer layout."
+                )
+            dot_prods: NDArray = numpy.zeros(
+                (len(verts_outline_vector), 2), dtype=numpy.float32
+            )
+            dot_prods[:, 0] = numpy.einsum("ij,ij->i", tan, verts_outline_vector)
+            dot_prods[:, 1] = numpy.einsum("ij,ij->i", bitan, verts_outline_vector) + 1
+            # TODO: prolly gotta flip again based on custom props
+            dot_prods[:, 1] *= -1.0
+            dot_prods[:, 1] += 1.0
+            generated_texcoord2: NDArray = pos_buf.data["POSITION"][ib_data, 0:2]
+            generated_texcoord2[:, 1] *= -1
+            # TODO: GENERATE TEXCOORD2.xy as an ortogonal front view of the mesh
+            tex_buf.import_semantic_data(
+                dot_prods,
+                texcoord1_element,
+                [texcoord1_element.format.type_encoder],
+            )
+            tex_buf.import_semantic_data(
+                generated_texcoord2,
+                texcoord2_element,
+                [texcoord2_element.format.type_encoder],
             )
 
-            # Dot products
-            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 0] = numpy.einsum(
-                "ij,ij->i", tan, verts_outline_vector
-            )
-            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] = (
-                numpy.einsum("ij,ij->i", bitan, verts_outline_vector) + 1
-            )
-            # TODO: prolly gotta flip again based on custom props
-            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] *= -1.0
-            output_buffs["TexCoord"]["TEXCOORD1.xy"][:, 1] += 1.0
-            # TODO: GENERATE TEXCOORD2.xy as an ortogonal front view of the mesh
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
     def write_files(self) -> None:
