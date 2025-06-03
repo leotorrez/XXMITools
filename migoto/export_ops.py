@@ -15,7 +15,6 @@ from bpy.props import (
 )
 from bpy.types import Context, Mesh, Object, Operator, PropertyGroup
 from bpy_extras.io_utils import ExportHelper
-
 from .data.byte_buffer import (
     AbstractSemantic,
     BufferLayout,
@@ -235,191 +234,6 @@ def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     return mesh
 
 
-class Export3DMigoto(Operator, ExportHelper):
-    """Export a mesh for re-injection into a game with 3DMigoto"""
-
-    bl_idname = "export_mesh.migoto"
-    bl_label = "Export 3DMigoto Vertex & Index Buffers"
-
-    filename_ext = ".vb0"
-    filter_glob: StringProperty(
-        default="*.vb*",
-        options={"HIDDEN"},
-    )
-
-    def invoke(self, context, event):
-        return ExportHelper.invoke(self, context, event)
-
-    def execute(self, context):
-        try:
-            file_path = Path(self.filepath)
-            vb_path = file_path.parent / (file_path.stem + ".vb")
-            ib_path = file_path.parent / (file_path.stem + ".ib")
-            fmt_path = file_path.parent / (file_path.stem + ".fmt")
-            ini_path = file_path.parent / (file_path.stem + "_generated.ini")
-            obj = context.object
-            self.flip_normal = obj.get("3DMigoto:FlipNormal", False)
-            self.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
-            self.flip_winding = obj.get("3DMigoto:FlipWinding", False)
-            self.flip_mesh = obj.get("3DMigoto:FlipMesh", False)
-            # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
-            export_3dmigoto(self, context, vb_path, ib_path, fmt_path, ini_path)
-        except Fatal as e:
-            self.report({"ERROR"}, str(e))
-        return {"FINISHED"}
-
-
-class Export3DMigotoXXMI(Operator, ExportHelper):
-    """Export a mesh for re-injection into a game with 3DMigoto"""
-
-    bl_idname = "export_mesh_xxmi.migoto"
-    bl_label = "Export mod folder"
-    bl_options = {"PRESET", "UNDO"}
-
-    filename_ext = ".vb*"
-    filter_glob: StringProperty(
-        default="*.vb*",
-        options={"HIDDEN"},
-    )
-
-    ignore_hidden: BoolProperty(
-        name="Ignore hidden objects",
-        description="Does not use objects in the Blender window that are hidden while exporting mods",
-        default=True,
-    )
-
-    only_selected: BoolProperty(
-        name="Only export selected",
-        description="Uses only the selected objects when deciding which meshes to export",
-        default=False,
-    )
-
-    no_ramps: BoolProperty(
-        name="Ignore shadow ramps/metal maps/diffuse guide",
-        description="Skips exporting shadow ramps, metal maps and diffuse guides",
-        default=True,
-    )
-
-    copy_textures: BoolProperty(
-        name="Mod textures",
-        description="ENABLED: Writes to the INI file and copy missing texture files to the export folder.\nDISABLED: The INI file will not contain entries that mod the textures. i.e. Mod uses vanilla textures.",
-        default=True,
-    )
-
-    ignore_duplicate_textures: BoolProperty(
-        name="Ignore duplicated textures",
-        description="Ignore new textures with the same hash as already copied ones.",
-        default=False,
-    )
-
-    credit: StringProperty(
-        name="Credit",
-        description="Name that pops up on screen when mod is loaded. If left blank, will result in no pop up",
-        default="",
-    )
-
-    game: EnumProperty(
-        name="Game to mod",
-        description="Select the game you are modding to optimize the mod for that game",
-        items=game_enum,
-    )
-    apply_modifiers_and_shapekeys: BoolProperty(
-        name="Apply modifiers and shapekeys",
-        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
-        default=False,
-    )
-    normalize_weights: BoolProperty(
-        name="Normalize weights to format",
-        description="Limits weights to match export format. Also normalizes the remaining weights",
-        default=False,
-    )
-    outline_optimization: EnumProperty(
-        name="Outline Optimization",
-        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
-        items=[
-            ("OFF", "Deactivate", "No outline optimization"),
-            (
-                "ON",
-                "Traditional",
-                "Traditional outline optimization, used in old script. May be slow for high vertex count meshes",
-            ),
-            (
-                "EXPERIMENTAL",
-                "Fast Experimental",
-                "Experimental fast outline optimization, may produce artifacts",
-            ),
-        ],
-        default="OFF",
-    )
-    outline_rounding_precision: IntProperty(
-        name="Outline decimal rounding precision",
-        description="Higher values merge farther away vertices into a single outline vertex. Lower values produce more accurate outlines, but may result in split edges",
-        default=4,
-        min=1,
-        max=10,
-    )
-    export_shapekeys: BoolProperty(
-        name="Export shape keys",
-        description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
-        default=False,
-    )
-    write_buffers: BoolProperty(
-        name="Write buffers",
-        description="Writes the vertex and index buffers to disk. Disabling this won't refresh the buffers in the mod folder, useful for debugging.",
-        default=True,
-    )
-    write_ini: BoolProperty(
-        name="Write ini",
-        description="Writes the ini file to disk. Disabling this won't refresh the ini file in the mod folder, useful for debugging.",
-        default=True,
-    )
-
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column(align=True)
-        col.prop(self, "game")
-        col.prop(self, "ignore_hidden")
-        col.prop(self, "only_selected")
-        col.prop(self, "apply_modifiers_and_shapekeys")
-        col.prop(self, "normalize_weights")
-        # col.prop(self, 'export_shapekeys')
-        col.prop(self, "outline_optimization")
-        if self.outline_optimization != "OFF":
-            col.prop(self, "outline_rounding_precision")
-        col.prop(self, "copy_textures")
-        if self.copy_textures:
-            col.prop(self, "no_ramps")
-            col.prop(self, "ignore_duplicate_textures")
-        col.prop(self, "write_buffers")
-        col.prop(self, "write_ini")
-        col.prop(self, "credit")
-
-    def execute(self, context):
-        try:
-            mod_exporter: ModExporter = ModExporter(
-                context=context,
-                operator=self,
-                dump_path=Path(self.filepath),
-                destination=Path(""),
-                game=GameEnum[self.properties.game],
-                ignore_hidden=self.ignore_hidden,
-                only_selected=self.only_selected,
-                no_ramps=self.no_ramps,
-                copy_textures=self.copy_textures,
-                ignore_duplicate_textures=self.ignore_duplicate_textures,
-                credit=self.credit,
-                outline_optimization=self.outline_optimization,
-                apply_modifiers=self.apply_modifiers_and_shapekeys,
-                normalize_weights=self.normalize_weights,
-                write_ini=self.write_ini,
-                write_buffers=self.write_buffers,
-            )
-            mod_exporter.export()
-        except Fatal as e:
-            self.report({"ERROR"}, str(e))
-        return {"FINISHED"}
-
-
 class XXMIProperties(PropertyGroup):
     """Properties for XXMITools"""
 
@@ -541,6 +355,122 @@ class XXMIProperties(PropertyGroup):
         description="Writes the ini file to disk. Disabling this won't refresh the ini file in the mod folder, useful for debugging.",
         default=True,
     )
+
+
+class Export3DMigoto(Operator, ExportHelper):
+    """Export a mesh for re-injection into a game with 3DMigoto"""
+
+    bl_idname = "export_mesh.migoto"
+    bl_label = "Export 3DMigoto Vertex & Index Buffers"
+
+    filename_ext = ".vb0"
+    filter_glob: StringProperty(
+        default="*.vb*",
+        options={"HIDDEN"},
+    )
+
+    def invoke(self, context, event):
+        return ExportHelper.invoke(self, context, event)
+
+    def execute(self, context):
+        try:
+            file_path = Path(self.filepath)
+            vb_path = file_path.parent / (file_path.stem + ".vb")
+            ib_path = file_path.parent / (file_path.stem + ".ib")
+            fmt_path = file_path.parent / (file_path.stem + ".fmt")
+            ini_path = file_path.parent / (file_path.stem + "_generated.ini")
+            obj = context.object
+            self.flip_normal = obj.get("3DMigoto:FlipNormal", False)
+            self.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
+            self.flip_winding = obj.get("3DMigoto:FlipWinding", False)
+            self.flip_mesh = obj.get("3DMigoto:FlipMesh", False)
+            # FIXME: ExportHelper will check for overwriting vb_path, but not ib_path
+            export_3dmigoto(self, context, vb_path, ib_path, fmt_path, ini_path)
+        except Fatal as e:
+            self.report({"ERROR"}, str(e))
+        return {"FINISHED"}
+
+
+class Export3DMigotoXXMI(Operator, ExportHelper):
+    """Export a mesh for re-injection into a game with 3DMigoto"""
+
+    bl_idname = "export_mesh_xxmi.migoto"
+    bl_label = "Export mod folder"
+    bl_options = {"PRESET", "UNDO"}
+
+    filename_ext = ".vb*"
+    filter_glob: StringProperty(
+        default="*.vb*",
+        options={"HIDDEN"},
+    )
+    xxmi: PointerProperty(
+        type=XXMIProperties,
+        name="XXMI Properties",
+        description="Properties for XXMI export",
+    )
+
+    def draw(self, context):
+        xxmi: XXMIProperties = self.xxmi
+        layout: bpy.types.UILayout = self.layout
+        box = layout.box()
+        col = box.column(align=True)
+        col.prop(xxmi, "game")
+        col.prop(xxmi, "ignore_hidden")
+        col.prop(xxmi, "only_selected")
+        col.prop(xxmi, "apply_modifiers_and_shapekeys")
+        col.prop(xxmi, "normalize_weights")
+        col.separator()
+        col.prop(xxmi, "copy_textures")
+        if xxmi.copy_textures:
+            box_tex = col.box()
+            box_tex.prop(xxmi, "no_ramps")
+            box_tex.prop(xxmi, "ignore_duplicate_textures")
+        col.prop(xxmi, "write_buffers")
+        col.prop(xxmi, "write_ini")
+        if xxmi.write_ini:
+            box_ini = col.box()
+            box_ini.prop(xxmi, "credit")
+        col = box.column(align=True)
+        split = col.split(factor=0.25)
+        col_1 = split.column()
+        col_2 = split.column()
+        col_1.prop(xxmi, "outline_optimization")
+        col_2.enabled = xxmi.outline_optimization
+        col_2.prop(xxmi, "outline_rounding_precision")
+        # col.prop(xxmi, 'export_shapekeys')
+        # col.prop(xxmi, "export_materials")
+
+    def execute(self, context):
+        try:
+            xxmi: XXMIProperties = self.xxmi
+            if xxmi.game == "":
+                self.report(
+                    {"ERROR"},
+                    "Please select a valid game before continuing.",
+                )
+                return {"CANCELLED"}
+            mod_exporter: ModExporter = ModExporter(
+                context=context,
+                operator=self,
+                dump_path=Path(self.filepath),
+                destination=Path(""),
+                game=GameEnum[xxmi.game],
+                ignore_hidden=xxmi.ignore_hidden,
+                only_selected=xxmi.only_selected,
+                no_ramps=xxmi.no_ramps,
+                copy_textures=xxmi.copy_textures,
+                ignore_duplicate_textures=xxmi.ignore_duplicate_textures,
+                credit=xxmi.credit,
+                outline_optimization=xxmi.outline_optimization,
+                apply_modifiers=xxmi.apply_modifiers_and_shapekeys,
+                normalize_weights=xxmi.normalize_weights,
+                write_ini=xxmi.write_ini,
+                write_buffers=xxmi.write_buffers,
+            )
+            mod_exporter.export()
+        except Fatal as e:
+            self.report({"ERROR"}, str(e))
+        return {"FINISHED"}
 
 
 class DestinationSelector(Operator, ExportHelper):

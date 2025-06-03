@@ -5,10 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
 
-import addon_utils
 import bpy
 import numpy
-from bpy.types import Collection, Context, Depsgraph, Mesh, Object, Operator
+from bpy.types import Collection, Context, Depsgraph, Mesh, Object, Operator, Scene
 from numpy.typing import NDArray
 
 from .. import bl_info
@@ -112,7 +111,7 @@ class ModExporter:
         print("Initializing data for export...")
         if self.dump_path == Path(""):
             raise Fatal("Dump path not set")
-        if self.dump_path.is_file():
+        if not self.dump_path.is_dir() or self.dump_path.suffix != "":
             self.dump_path = self.dump_path.parent
 
         self.mod_name = self.dump_path.stem
@@ -129,11 +128,11 @@ class ModExporter:
             raise Fatal("Destination path can't be the same as Dump path")
         self.destination.mkdir(parents=True, exist_ok=True)
 
-        self.hash_data = self.load_hashes(self.dump_path, self.dump_path.stem)
+        self.hash_data = self.load_hashes(self.dump_path / "hash.json")
         if not self.hash_data:
             raise Fatal("ERROR", "Hash data is empty or invalid!")
 
-        scene = bpy.context.scene
+        scene: Scene = bpy.context.scene
         if not [
             obj for obj in scene.objects if self.mod_name.lower() in obj.name.lower()
         ] or not [
@@ -162,7 +161,7 @@ class ModExporter:
             game=self.game,
             credit=self.credit,
         )
-        seen_hashes = set()
+        seen_hashes: set[str] = set()
         for i, component in enumerate(self.hash_data):
             current_name: str = f"{self.mod_name}{component['component_name']}"
             component_entry: Component = Component(
@@ -273,7 +272,9 @@ class ModExporter:
     def process_mesh(self, main_obj: Object, obj: Object, depsgraph: Depsgraph) -> Mesh:
         """Process the mesh of the object."""
         # TODO: Add moddifier application for SK'd meshes here
-        final_mesh: Mesh = obj.evaluated_get(depsgraph).to_mesh()
+        final_mesh: Mesh = (
+            obj.evaluated_get(depsgraph).to_mesh() if self.apply_modifiers else obj.data
+        )
         if main_obj != obj:
             # Matrix world seems to be the summatory of all transforms parents included
             # Might need to test for more edge cases and to confirm these suspicious,
@@ -287,7 +288,6 @@ class ModExporter:
         """Generate buffers for the objects."""
         self.files_to_write = {}
         self.files_to_copy = {}
-        repeated_textures = {}
         for component in self.mod_file.components:
             excluded_buffers: list[str] = []
             output_buffers: dict[str, NDArray] = {
@@ -305,11 +305,6 @@ class ModExporter:
                 ib_buffer = None
                 ib_offset: int = 0
                 for t in part.textures:
-                    if self.ignore_duplicate_textures:
-                        if t.hash in repeated_textures:
-                            repeated_textures[t.hash].append(t)
-                            continue
-                        repeated_textures[t.hash] = [t]
                     tex_name = part.fullname + t.name + t.extension
                     self.files_to_copy[self.dump_path / tex_name] = (
                         self.destination / tex_name
@@ -504,7 +499,8 @@ class ModExporter:
         data_model: DataModelXXMI,
     ) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
-        # TODO: add encoder/decoder 
+
+        # TODO: add encoder/decoder
         def unit_vector(vector: NDArray) -> NDArray:
             norm = numpy.linalg.norm(vector, axis=1, keepdims=True)
             return numpy.abs(vector / norm)
@@ -638,6 +634,8 @@ class ModExporter:
     def export(self) -> None:
         """Export the mod file."""
         start: float = time.time()
+        if len(self.mod_file.components) == 0:
+            raise Fatal("No components found to export. Aborting export.")
         print(f"Exporting {self.mod_name} to {self.destination}")
         self.generate_buffers()
         self.generate_ini()
@@ -652,10 +650,11 @@ class ModExporter:
         """Cleanup the objects."""
         pass
 
-    def load_hashes(
-        self, path: Path, name: str, hashfile: str = "hash.json"
-    ) -> list[dict]:
-        with open(path / hashfile, "r") as f:
+    def load_hashes(self, path: Path) -> list[dict]:
+        """Load the hash data from the hash.json file."""
+        if not path.exists() or not path.is_file():
+            raise Fatal(f"Hash file {path} does not exist or is not a file.")
+        with open(path, "r") as f:
             char_hashes = json.load(f)
         # TODO: Check for hash.json integrity
         return char_hashes
