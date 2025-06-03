@@ -82,7 +82,7 @@
             {% for texture in part.textures %}
                 ps-t{{ loop.index0 }} = Resource{{ part.fullname }}{{ texture.name }}
             {% endfor %}
-            {% if (part.textures|first).name|lower == "normalmap" %}
+            {% if part.textures|first and (part.textures|first).name|lower == "normalmap" %}
                 run = CommandList\global\ORFix\ORFix
             {% endif %}
             {% for entry in part.objects if entry.vertex_count > 0 %}
