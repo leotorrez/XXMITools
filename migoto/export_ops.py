@@ -265,12 +265,6 @@ class XXMIProperties(PropertyGroup):
         maxlen=1024,
     )
 
-    flip_winding: BoolProperty(
-        name="Flip Winding Order",
-        description="Flip winding order during export (automatically set to match the import option)",
-        default=False,
-    )
-
     ignore_hidden: BoolProperty(
         name="Ignore hidden objects",
         description="Does not use objects in the Blender window that are hidden while exporting mods",
@@ -283,15 +277,16 @@ class XXMIProperties(PropertyGroup):
         default=False,
     )
 
-    no_ramps: BoolProperty(
-        name="Ignore shadow ramps/metal maps/diffuse guide",
-        description="Skips exporting shadow ramps, metal maps and diffuse guides",
+    copy_textures: BoolProperty(
+        name="Mod textures",
+        description="ENABLED: Writes to the INI file and copy missing texture files to the export folder.\n"
+        + "DISABLED: The INI file will not contain entries that mod the textures. i.e. Mod uses vanilla textures.",
         default=True,
     )
 
-    copy_textures: BoolProperty(
-        name="Mod textures",
-        description="ENABLED: Writes to the INI file and copy missing texture files to the export folder.\nDISABLED: The INI file will not contain entries that mod the textures. i.e. Mod uses vanilla textures.",
+    no_ramps: BoolProperty(
+        name="Ignore shadow ramps/metal maps/diffuse guide",
+        description="Skips exporting shadow ramps, metal maps and diffuse guides",
         default=True,
     )
 
@@ -309,7 +304,7 @@ class XXMIProperties(PropertyGroup):
 
     outline_optimization: BoolProperty(
         name="Outline Optimization",
-        description="Recalculate outlines. Recommended for final export. Check more options below to improve quality",
+        description="Recalculate outlines data to optimize outline shape for the game. Somewhat slow. Recommended for final export.",
         default=False,
     )
     outline_rounding_precision: IntProperty(
@@ -327,13 +322,13 @@ class XXMIProperties(PropertyGroup):
     )
     apply_modifiers_and_shapekeys: BoolProperty(
         name="Apply modifiers and shapekeys",
-        description="Applies shapekeys and modifiers(unless marked MASK); then joins meshes to a single object. The criteria to join is as follows, the objects imported from dump are considered containers; collections starting with their same name are going to be joint into said containers",
-        default=False,
+        description="Applies shapekeys and modifiers before exporting",
+        default=True,
     )
     normalize_weights: BoolProperty(
         name="Normalize weights to format",
-        description="Limits weights to match export format. Also normalizes the remaining weights",
-        default=False,
+        description="Limits weights to match export format then normalizes them.",
+        default=True,
     )
     export_shapekeys: BoolProperty(
         name="Export shape keys",

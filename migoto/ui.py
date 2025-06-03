@@ -1,5 +1,5 @@
 import bpy
-from bpy.types import Panel, UIList, Menu
+from bpy.types import Panel, UIList, Menu, UILayout
 import addon_utils
 from bl_ui.generic_ui_list import draw_ui_list
 from .operators import (
@@ -193,16 +193,18 @@ class XXMI_PT_Sidebar(Panel):
     bl_context = "objectmode"
 
     def draw_header(self, context):
-        layout = self.layout
-        row = layout.row()
         version = ""
         for module in addon_utils.modules():
             if module.bl_info.get("name") == "XXMI_Tools":
                 version = module.bl_info.get("version", (-1, -1, -1))
                 break
-        version = ".".join(str(i) for i in version)
-        row.alignment = "RIGHT"
-        row.label(text="v " + version)
+        version: str = ".".join(str(i) for i in version)
+        layout: UILayout = self.layout
+        row = layout.row()
+        row.operator(
+            "wm.url_open", text="", icon="HELP"
+        ).url = "https://leotorrez.github.io/modding/guides/xxmi_tools"
+        row.label(text=f"v{version}")
 
     def draw(self, context):
         layout = self.layout
