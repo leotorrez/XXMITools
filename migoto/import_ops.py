@@ -45,6 +45,7 @@ from .datastructures import (
 )
 from .export_ops import XXMIProperties
 
+
 def load_3dmigoto_mesh_bin(operator: Operator, vb_paths, ib_paths, pose_path):
     if len(vb_paths) != 1 or len(ib_paths) > 1:
         raise Fatal("Cannot merge meshes loaded from binary files")
@@ -189,10 +190,16 @@ def import_normals_step2(mesh: Mesh, flip_mesh: bool):
 
 
 def import_vertex_groups(mesh: Mesh, obj: Object, blend_indices, blend_weights):
-    assert len(blend_indices) == len(blend_weights), (
-        "Mismatched blend indices and weights"
-    )
+    # assert len(blend_indices) == len(blend_weights), (
+    #     "Mismatched blend indices and weights"
+    # )
     if blend_indices:
+        if len(blend_weights) == 0:
+            # If no blend weights are provided, assume uniform weights
+            blend_weights = {
+                sem_idx: [[1] * len(verts[0])] * len(verts)
+                for sem_idx, verts in blend_indices.items()
+            }
         # We will need to make sure we re-export the same blend indices later -
         # that they haven't been renumbered. Not positive whether it is better
         # to use the vertex group index, vertex group name or attach some extra
@@ -1094,7 +1101,7 @@ class Import3DMigotoFrameAnalysis(Operator, ImportHelper, IOOBJOrientationHelper
             paths = self.get_vb_ib_paths()
 
             import_3dmigoto(self, context, paths, **keywords)
-            xxmi:XXMIProperties = context.scene.xxmi
+            xxmi: XXMIProperties = context.scene.xxmi
             if not xxmi.dump_path:
                 if os.path.exists(
                     os.path.join(os.path.dirname(self.filepath), "hash.json")
