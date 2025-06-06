@@ -603,20 +603,11 @@ class ModExporter:
             # TODO: prolly gotta flip again based on custom props
             dot_prods[:, 1] *= -1.0
             dot_prods[:, 1] += 1.0
-            generated_texcoord2: NDArray = pos_buf.data["POSITION"][ib_data, 0:2]
-            generated_texcoord2[:, 1] *= -1
-            # TODO: GENERATE TEXCOORD2.xy as an ortogonal front view of the mesh
             tex_buf.import_semantic_data(
                 dot_prods,
                 texcoord1_element,
                 [texcoord1_element.format.type_encoder],
             )
-            tex_buf.import_semantic_data(
-                generated_texcoord2,
-                texcoord2_element,
-                [texcoord2_element.format.type_encoder],
-            )
-
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
     def write_files(self) -> None:
