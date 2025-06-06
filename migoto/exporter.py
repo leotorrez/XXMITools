@@ -163,7 +163,7 @@ class ModExporter:
             credit=self.credit,
         )
         seen_hashes: set[str] = set()
-        for i, component in enumerate(self.hash_data):
+        for component in self.hash_data:
             current_name: str = f"{self.mod_name}{component['component_name']}"
             component_entry: Component = Component(
                 fullname=current_name,
@@ -204,7 +204,7 @@ class ModExporter:
                                 "diffuseguide",
                             ]
                         ]
-                matching_objs: list[Collection] = [
+                matching_objs: list[Object] = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
                 if component["draw_vb"] != "":
@@ -355,7 +355,7 @@ class ModExporter:
                     entry.index_count = len(gen_buffers["IB"].data)
                     entry.index_offset = ib_offset
                     ib_offset += entry.index_count
-                if part_ib is None:
+                if len(part_ib) == 0:
                     print(f"Skipping {part.fullname}.ib due to no index data.")
                     continue
                 component_ib.append(part_ib.copy())
@@ -488,8 +488,12 @@ class ModExporter:
             return numpy.abs(vector / numpy.linalg.norm(vector, axis=1, keepdims=True))
 
         def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
-            return numpy.arccos(numpy.clip(
-                numpy.einsum("ij, ij->i", unit_vector(edge_a), unit_vector(edge_b)),-1,1)
+            return numpy.arccos(
+                numpy.clip(
+                    numpy.einsum("ij, ij->i", unit_vector(edge_a), unit_vector(edge_b)),
+                    -1,
+                    1,
+                )
             )
 
         pos_buf: NumpyBuffer = output_buffs["Position"]
