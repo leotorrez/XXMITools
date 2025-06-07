@@ -485,7 +485,9 @@ class ModExporter:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
 
         def unit_vector(vector: NDArray) -> NDArray:
-            return numpy.abs(vector / numpy.linalg.norm(vector, axis=1, keepdims=True))
+            norm = numpy.linalg.norm(vector, axis=1, keepdims=True)
+            norm = numpy.where(norm == 0, 1, norm)
+            return vector / norm
 
         def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
             return numpy.arccos(
@@ -510,18 +512,17 @@ class ModExporter:
         edge1: NDArray = triangles[:, 2] - triangles[:, 0]
         edge2: NDArray = triangles[:, 0] - triangles[:, 1]
         angle0: NDArray = calc_angle(edge2, edge1)
-        angle1: NDArray = calc_angle(edge2, edge0)
+        angle1: NDArray = calc_angle(edge0, edge2)
         angle2: NDArray = calc_angle(edge1, edge0)
         loops_angle: NDArray = numpy.zeros((len(triangles), 3), dtype=numpy.float32)
         loops_angle[:, 0] = angle0
         loops_angle[:, 1] = angle1
         loops_angle[:, 2] = angle2
 
-        faces_normal: NDArray = numpy.cross(edge1, edge2)
+        faces_normal: NDArray = numpy.cross(edge0, edge1)
         faces_normal /= numpy.linalg.norm(faces_normal, axis=1)[:, numpy.newaxis]
 
         loops_face_normal: NDArray = faces_normal.repeat(3, axis=0)
-        loops_outline_vector: NDArray = loops_face_normal.copy()
 
         verts_outline_vector: NDArray = numpy.zeros(
             (len(pos_buf), 3), dtype=numpy.float32
@@ -548,11 +549,7 @@ class ModExporter:
             loops_face_normal[u_idx],
             accumulated_normals,
         )
-        loops_outline_vector = accumulated_normals[u_inverse]
-        loops_outline_vector /= numpy.linalg.norm(
-            loops_outline_vector, axis=1, keepdims=True
-        )
-        verts_outline_vector[ib_data] = loops_outline_vector
+        verts_outline_vector[ib_data] = unit_vector(accumulated_normals[u_inverse])
 
         if self.game in [
             GameEnum.GenshinImpact,
