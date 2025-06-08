@@ -3,16 +3,12 @@
 {% block constantscredit %}
     {% if credit != "" %}
         [Constants]
-        global $_blend_ = 0
         global $active = 0
         global $creditinfo = 0
 
         [Present]
         post $active = 0
         run = CommandListCreditInfo
-    {% else %}
-        [Constants]
-        global $_blend_ = 0
     {% endif %}
 {% endblock %}
 
@@ -43,17 +39,12 @@
         handling = skip
         vb2 = Resource{{ component.fullname }}Blend
         if DRAW_TYPE == 1
-            draw = {{ component.vertex_count }}, 0
             vb0 = Resource{{ component.fullname }}Position
-        endif
-        Resource{{component.fullname}}DrawCS = copy Resource{{component.fullname}}DrawCS
-        if DRAW_TYPE == 8
+            draw = {{ component.vertex_count }}, 0
+        elif DRAW_TYPE == 8
             Resource\SRMI\PositionBuffer = ref Resource{{ component.fullname }}PositionCS
             Resource\SRMI\BlendBuffer = ref Resource{{ component.fullname }}BlendCS
-            Resource\SRMI\DrawBuffer = ref Resource{{component.fullname}}DrawCS
-            $\SRMI\vertcount = {{ component.vertex_count }}
-        elif DRAW_TYPE != 1
-            $_blend_ = 2
+            $\SRMI\vertex_count = {{ component.vertex_count }}
         endif
         {% if credit != "" %}
             $active = 1
@@ -65,16 +56,15 @@
 
         [TextureOverride{{ component.fullname }}Draw]
         hash = {{ component.draw_vb }}
-        if DRAW_TYPE != 8 && DRAW_TYPE != 1 && $_blend_ > 0
-            $_blend_ = $_blend_ - 1
-            this = ref Resource{{ component.fullname }}DrawCS
-        endif
+		override_vertex_count = {{ component.vertex_count }}
+        override_byte_stride = {{ component.strides.position }}
+		uav_byte_stride = 4
 
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" %}
         [TextureOverride{{ component.fullname }}]
         hash = {{ component.position_vb }}
-        vb0 = Resource{{ component.fullname }}
+        this = Resource{{ component.fullname }}
         {% if credit != "" %}
             $active = 1
         {% endif %}
@@ -142,11 +132,6 @@
             type = StructuredBuffer
             stride = {{ component.strides.blend }}
             filename = {{ component.fullname }}Blend.buf
-            
-            [Resource{{ component.fullname }}DrawCS]
-            type = RWStructuredBuffer
-            array = {{ component.vertex_count }}
-            data = R32_FLOAT 0 1 2 3 4 5 6 7 8 9
         {% endif %}
 
         {% for part in component.parts %}
