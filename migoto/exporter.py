@@ -144,7 +144,6 @@ class ModExporter:
             raise Fatal(
                 "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
             )
-
         candidate_objs: list[Object] = (
             [obj for obj in bpy.context.selected_objects]
             if self.only_selected
@@ -485,14 +484,18 @@ class ModExporter:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
 
         def unit_vector(vector: NDArray) -> NDArray:
+            """ Normalize the input vector to unit length."""
             norm = numpy.linalg.norm(vector, axis=1, keepdims=True)
             norm = numpy.where(norm == 0, 1, norm)
             return vector / norm
 
         def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
+            """Calculate the angle between two edges in radians."""
+            vector_a = numpy.abs(unit_vector(edge_a))
+            vector_b = numpy.abs(unit_vector(edge_b))
             return numpy.arccos(
                 numpy.clip(
-                    numpy.einsum("ij, ij->i", unit_vector(edge_a), unit_vector(edge_b)),
+                    numpy.einsum("ij, ij->i", vector_a, vector_b),
                     -1,
                     1,
                 )
@@ -519,9 +522,7 @@ class ModExporter:
         loops_angle[:, 1] = angle1
         loops_angle[:, 2] = angle2
 
-        faces_normal: NDArray = numpy.cross(edge0, edge1)
-        faces_normal /= numpy.linalg.norm(faces_normal, axis=1)[:, numpy.newaxis]
-
+        faces_normal: NDArray = unit_vector(numpy.cross(edge0, edge1))
         loops_face_normal: NDArray = faces_normal.repeat(3, axis=0)
 
         verts_outline_vector: NDArray = numpy.zeros(
@@ -544,8 +545,11 @@ class ModExporter:
         accumulated_normals: NDArray = numpy.zeros((len(u), 3), dtype=numpy.float32)
         # Use numpy.add.at to efficiently sum weighted normals for each unique vertex
         numpy.add.at(accumulated_normals, u_inverse, loops_weighted_normal)
+        magnitudes: NDArray = numpy.linalg.norm(
+            accumulated_normals, axis=1, keepdims=True
+        )
         accumulated_normals = numpy.where(
-            accumulated_normals == 0,
+            magnitudes < 1e-6,
             loops_face_normal[u_idx],
             accumulated_normals,
         )
@@ -580,21 +584,17 @@ class ModExporter:
         elif self.game == GameEnum.ZenlessZoneZero:
             norm: NDArray = numpy.empty_like(verts_outline_vector)
             norm[ib_data] = loops_face_normal
-            tan: NDArray = pos_buf.data["TANGENT"]
-            tan /= numpy.linalg.norm(tan, axis=1, keepdims=True)
+            tan: NDArray = unit_vector(pos_buf.data["TANGENT"])
             bitan: NDArray = pos_buf.data["BITANGENTSIGN"][
                 :, numpy.newaxis
             ] * numpy.cross(norm, tan)
             texcoord1_element = tex_buf.layout.get_element(
                 AbstractSemantic(Semantic.TexCoord, 1)
             )
-            texcoord2_element = tex_buf.layout.get_element(
-                AbstractSemantic(Semantic.TexCoord, 2)
-            )
-            if texcoord1_element is None or texcoord2_element is None:
+            if texcoord1_element is None: 
                 # TODO: might want to force add anyways
                 raise Fatal(
-                    "TEXCOORD1 or TEXCOORD2 semantic not found in the texcoord buffer layout."
+                    "TEXCOORD1 semantic not found in the texcoord buffer layout."
                 )
             dot_prods: NDArray = numpy.zeros(
                 (len(verts_outline_vector), 2), dtype=numpy.float32
