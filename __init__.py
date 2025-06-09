@@ -2,7 +2,8 @@
 import sys
 from pathlib import Path
 from . import auto_load
-sys.path.insert(0, str(Path(__file__).parent / 'libs'))
+
+sys.path.insert(0, str(Path(__file__).parent / "libs"))
 # Original plugin by DarkStarSword (https://github.com/DarkStarSword/3d-fixes/blob/master/blender_3dmigoto.py)
 # Updated to support 3.0 by MicroKnightmare from the DOA modding discord
 
@@ -19,15 +20,19 @@ bl_info = {
     "blender": (2, 93, 0),
     "author": "LeoTorreZ",
     "location": "File > Import-Export",
-    "description": "Imports meshes dumped with 3DMigoto's frame analysis and exports meshes suitable for re-injection. Author of original plugin: DarkStarSword. Contributors: SilentNightSound#7430, HazrateGolabi#1364, HummyR#8131, SinsOfSeven, SpectrumQT",
+    "description": "Imports meshes dumped with 3DMigoto's frame analysis and exports meshes suitable for re-injection. "
+    + "Author of original plugin: DarkStarSword. "
+    + "Contributors: SilentNightSound#7430, HazrateGolabi#1364, HummyR#8131, SinsOfSeven, SpectrumQT ",
     "category": "Import-Export",
     "tracker_url": "https://github.com/leotorrez/XXMITools",
-    "version" : (1, 4, 4),
+    "version": (1, 5, 0),
 }
 auto_load.init()
 
+
 def register():
     auto_load.register()
+
 
 def unregister():
     auto_load.unregister()
