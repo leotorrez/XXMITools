@@ -20,12 +20,10 @@ bl_info = {
     "blender": (2, 93, 0),
     "author": "LeoTorreZ",
     "location": "File > Import-Export",
-    "description": "Imports meshes dumped with 3DMigoto's frame analysis and exports meshes suitable for re-injection. "
-    + "Author of original plugin: DarkStarSword. "
-    + "Contributors: SilentNightSound#7430, HazrateGolabi#1364, HummyR#8131, SinsOfSeven, SpectrumQT ",
+    "description": "Imports meshes dumped with 3DMigoto's frame analysis and exports meshes suitable for re-injection.     Author of original plugin: DarkStarSword.    Contributors: SilentNightSound#7430, HazrateGolabi#1364, HummyR#8131, SinsOfSeven, SpectrumQT ",
     "category": "Import-Export",
     "tracker_url": "https://github.com/leotorrez/XXMITools",
-    "version": (1, 5, 0),
+    "version": (1, 5, 1),
 }
 auto_load.init()
 
