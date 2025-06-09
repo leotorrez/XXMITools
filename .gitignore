@@ -5,3 +5,4 @@ xxmitools_updater/
 pyproject.toml
 uv.lock
 .python-version
+TODO.md
