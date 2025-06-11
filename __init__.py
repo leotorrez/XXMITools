@@ -23,7 +23,7 @@ bl_info = {
     "description": "Imports meshes dumped with 3DMigoto's frame analysis and exports meshes suitable for re-injection.     Author of original plugin: DarkStarSword.    Contributors: SilentNightSound#7430, HazrateGolabi#1364, HummyR#8131, SinsOfSeven, SpectrumQT ",
     "category": "Import-Export",
     "tracker_url": "https://github.com/leotorrez/XXMITools",
-    "version": (1, 5, 2),
+    "version": (1, 5, 3),
 }
 auto_load.init()
 

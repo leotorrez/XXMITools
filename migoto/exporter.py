@@ -282,6 +282,15 @@ class ModExporter:
             final_mesh.transform(obj.matrix_world)
             final_mesh.transform(main_obj.matrix_world.inverted())
         mesh_triangulate(final_mesh)
+        masked_vgs = [
+            vg.index for vg in obj.vertex_groups if vg.name.startswith("MASK")
+        ]
+        _ = [
+            vg.__setattr__("weight", 0.0)
+            for vert in final_mesh.vertices
+            for vg in vert.groups
+            if vg.group in masked_vgs
+        ]
         return final_mesh
 
     def generate_buffers(self) -> None:
@@ -484,7 +493,7 @@ class ModExporter:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
 
         def unit_vector(vector: NDArray) -> NDArray:
-            """ Normalize the input vector to unit length."""
+            """Normalize the input vector to unit length."""
             norm = numpy.linalg.norm(vector, axis=1, keepdims=True)
             norm = numpy.where(norm == 0, 1, norm)
             return vector / norm
@@ -591,7 +600,7 @@ class ModExporter:
             texcoord1_element = tex_buf.layout.get_element(
                 AbstractSemantic(Semantic.TexCoord, 1)
             )
-            if texcoord1_element is None: 
+            if texcoord1_element is None:
                 # TODO: might want to force add anyways
                 raise Fatal(
                     "TEXCOORD1 semantic not found in the texcoord buffer layout."
