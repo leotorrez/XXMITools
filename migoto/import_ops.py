@@ -6,7 +6,7 @@ import re
 import numpy
 from pathlib import Path
 from typing import Callable
-from glob import glob
+from glob import glob, escape as glob_escape
 
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, StringProperty
@@ -1157,7 +1157,7 @@ class Import3DMigotoRaw(Operator, ImportHelper, IOOBJOrientationHelper):
     )
 
     def get_vb_ib_paths(self, filename):
-        vb_bin_path = glob(os.path.splitext(filename)[0] + ".vb*")
+        vb_bin_path = glob(glob_escape(os.path.splitext(filename)[0]) + ".vb*")
         ib_bin_path = os.path.splitext(filename)[0] + ".ib"
         fmt_path = os.path.splitext(filename)[0] + ".fmt"
         vgmap_path = os.path.splitext(filename)[0] + ".vgmap"
