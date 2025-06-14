@@ -1,6 +1,6 @@
 import time
 from typing import Callable, Optional, Union
-
+import copy
 import numpy
 from bpy.types import Collection, Context, Mesh, Object
 from numpy.typing import NDArray
@@ -56,8 +56,8 @@ class DataModel(object):
     ) -> None:
         # Copy default converters
         semantic_converters, format_converters = {}, {}
-        semantic_converters.update(self.semantic_converters)
-        format_converters.update(self.format_converters)
+        semantic_converters.update(copy.deepcopy(self.semantic_converters))
+        format_converters.update(copy.deepcopy(self.format_converters))
 
         # Add generic converters
 
@@ -235,7 +235,8 @@ class DataModel(object):
         fetch_loop_data: bool,
         mirror_mesh: bool = False,
     ) -> tuple[NDArray, NumpyBuffer]:
-        vertex_ids_cache, cache_vertex_ids = None, False
+        # vertex_ids_cache, cache_vertex_ids = None, False
+        vertex_ids_cache = None
 
         flip_winding = self.flip_winding if not mirror_mesh else not self.flip_winding
         flip_bitangent_sign = (
@@ -270,8 +271,8 @@ class DataModel(object):
 
         # Copy default converters
         semantic_converters, format_converters = {}, {}
-        semantic_converters.update(self.semantic_converters)
-        format_converters.update(self.format_converters)
+        semantic_converters.update(copy.deepcopy(self.semantic_converters))
+        format_converters.update(copy.deepcopy(self.format_converters))
 
         # Add generic converters
         for semantic in export_layout.semantics:
@@ -426,16 +427,16 @@ class DataModel(object):
 
 class DataModelXXMI(DataModel):
     game: GameEnum
+    flip_texcoords_vertical: dict[str, bool]
+    buffers_format: dict[str, BufferLayout]
+    format_converters: dict[AbstractSemantic, list[Callable]]
+    semantic_converters: dict[AbstractSemantic, list[Callable]]
     mirror_mesh: bool = False
     flip_winding: bool = False
     flip_normal: bool = False
     flip_tangent: bool = False
     flip_bitangent_sign: bool = False
     normalize_weights: bool = False
-    flip_texcoords_vertical: dict[str, bool] = {}
-    buffers_format: dict[str, BufferLayout] = {}
-    format_converters: dict[AbstractSemantic, list[Callable]] = {}
-    semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
 
     @classmethod
     def from_obj(
@@ -446,6 +447,10 @@ class DataModelXXMI(DataModel):
         is_posed_mesh: bool = False,
     ) -> "DataModelXXMI":
         cls = super().__new__(cls)
+        cls.format_converters = {}
+        cls.semantic_converters = {}
+        cls.flip_texcoords_vertical = {}
+        cls.buffers_format = {}
         cls.game = game
         cls.normalize_weights = normalize_weights
         for prop in [
@@ -597,7 +602,7 @@ class DataModelXXMI(DataModel):
             raise Fatal(
                 f"Object({obj.name}) doesn't count with the custom properties required for export! Reimport the mesh from dump folder."
             )
-        if cls.game ==  GameEnum.ZenlessZoneZero:
+        if cls.game == GameEnum.ZenlessZoneZero:
             bitan_abstract: AbstractSemantic = AbstractSemantic(Semantic.BitangentSign)
             if cls.buffers_format["Position"].get_element(bitan_abstract) is not None:
                 cls.format_converters[bitan_abstract] = [
@@ -642,8 +647,8 @@ class DataModelXXMI(DataModel):
         # Copy default converters
         semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
         format_converters: dict[AbstractSemantic, list[Callable]] = {}
-        semantic_converters.update(self.semantic_converters)
-        format_converters.update(self.format_converters)
+        semantic_converters.update(copy.deepcopy(self.semantic_converters))
+        format_converters.update(copy.deepcopy(self.format_converters))
 
         # Add generic converters
         for semantic in export_layout.semantics:
