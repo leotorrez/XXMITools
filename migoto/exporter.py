@@ -624,28 +624,28 @@ class ModExporter:
         """Write the files to the destination."""
         self.destination.mkdir(parents=True, exist_ok=True)
         print("Writen files: ")
-        try:
-            for file_path, content in self.files_to_write.items():
+        for file_path, content in self.files_to_write.items():
+            try:
                 print(f" - {file_path.name}")
                 if isinstance(content, str) and self.write_ini:
                     with open(file_path, "w", encoding="utf-8") as file:
                         file.write(content)
                 elif isinstance(content, numpy.ndarray) and self.write_buffers:
                     content.tofile(file_path)
-        except (OSError, IOError) as e:
-            raise Fatal(f"Error writing file {file_path}: {e}")
+            except (OSError, IOError) as e:
+                raise Fatal(f"Error writing file {file_path}: {e}")
         if not self.copy_textures:
             return
-        try:
-            for src, dest in self.files_to_copy.items():
+        for src, dest in self.files_to_copy.items():
+            try:
                 print(f" - {dest.name}")
                 if not dest.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
                 if dest.exists():
                     continue
                 shutil.copy(src, dest)
-        except (OSError, IOError) as e:
-            raise Fatal(f"Error copying file {src} to {dest}: {e}")
+            except (OSError, IOError) as e:
+                raise Fatal(f"Error copying file {src} to {dest}: {e}")
 
     def export(self) -> None:
         """Export the mod file."""
