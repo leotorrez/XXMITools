@@ -632,18 +632,17 @@ class ExportAdvancedBatchedOperator(Operator):
             for frame in range(scene.frame_start, scene.frame_end + 1):
                 context.scene.frame_set(frame)
                 for w in wildcards:
-                    frame_folder = Path(
-                        xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
-                    )
-                    if frame_folder != xxmi.batch_pattern:
+                    if w in xxmi.batch_pattern:
+                        folder_name = xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
                         break
                 else:
                     self.report(
                         {"ERROR"},
                         "Batch pattern must contain any number of # wildcard characters for the frame number to be written into it. Example name_### -> name_001",
                     )
-                    return False
-                xxmi.destination_path = base_dir / frame_folder
+                    return {"CANCELLED"}
+                frame_folder = Path(folder_name)
+                xxmi.destination_path = str(base_dir / frame_folder)
                 bpy.ops.xxmi.exportadvanced()
                 print(
                     f"Exported frame {frame + 1 - scene.frame_start}/{scene.frame_end + 1 - scene.frame_start}"
@@ -651,7 +650,7 @@ class ExportAdvancedBatchedOperator(Operator):
             print(f"Batch export took {time.time() - start_time} seconds")
         except Fatal as e:
             self.report({"ERROR"}, str(e))
-        xxmi.destination_path = base_dir
+        xxmi.destination_path = str(base_dir)
         return {"FINISHED"}
 
 
