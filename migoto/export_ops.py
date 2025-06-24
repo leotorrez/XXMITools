@@ -39,18 +39,24 @@ from .datastructures import (
 from .exporter import ModExporter
 
 
+
 def normal_export_translation(
     layouts: list[BufferLayout], semantic: Semantic, flip: bool
 ) -> Callable:
     unorm = False
     for layout in layouts:
-        try:
-            unorm = layout.get_element(AbstractSemantic(semantic)).format.dxgi_type in [
-                DXGIType.UNORM8,
-                DXGIType.UNORM16,
-            ]
-        except ValueError:
-            continue
+        # Ensure layout is iterable; if not, wrap it in a list
+        if not hasattr(layout, '__iter__') or isinstance(layout, (str, bytes)):
+            elements = [layout]
+        else:
+            elements = layout
+        for elem in elements:
+            if hasattr(elem, "semantic") and elem.semantic == semantic:
+                if getattr(elem.format, "dxgi_type", None) in [DXGIType.UNORM8, DXGIType.UNORM16]:
+                    unorm = True
+                    break
+        if unorm:
+            break
     if unorm:
         # Scale normal range -1:+1 to UNORM range 0:+1
         if flip:
@@ -59,7 +65,6 @@ def normal_export_translation(
     if flip:
         return lambda x: -x
     return lambda x: x
-
 
 def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     """Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform"""
