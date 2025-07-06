@@ -39,18 +39,24 @@ from .datastructures import (
 from .exporter import ModExporter
 
 
+
 def normal_export_translation(
     layouts: list[BufferLayout], semantic: Semantic, flip: bool
 ) -> Callable:
     unorm = False
     for layout in layouts:
-        try:
-            unorm = layout.get_element(AbstractSemantic(semantic)).format.dxgi_type in [
-                DXGIType.UNORM8,
-                DXGIType.UNORM16,
-            ]
-        except ValueError:
-            continue
+        # Ensure layout is iterable; if not, wrap it in a list
+        if not hasattr(layout, '__iter__') or isinstance(layout, (str, bytes)):
+            elements = [layout]
+        else:
+            elements = layout
+        for elem in elements:
+            if hasattr(elem, "semantic") and elem.semantic == semantic:
+                if getattr(elem.format, "dxgi_type", None) in [DXGIType.UNORM8, DXGIType.UNORM16]:
+                    unorm = True
+                    break
+        if unorm:
+            break
     if unorm:
         # Scale normal range -1:+1 to UNORM range 0:+1
         if flip:
@@ -59,7 +65,6 @@ def normal_export_translation(
     if flip:
         return lambda x: -x
     return lambda x: x
-
 
 def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     """Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform"""
@@ -632,18 +637,17 @@ class ExportAdvancedBatchedOperator(Operator):
             for frame in range(scene.frame_start, scene.frame_end + 1):
                 context.scene.frame_set(frame)
                 for w in wildcards:
-                    frame_folder = Path(
-                        xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
-                    )
-                    if frame_folder != xxmi.batch_pattern:
+                    if w in xxmi.batch_pattern:
+                        folder_name = xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
                         break
                 else:
                     self.report(
                         {"ERROR"},
                         "Batch pattern must contain any number of # wildcard characters for the frame number to be written into it. Example name_### -> name_001",
                     )
-                    return False
-                xxmi.destination_path = base_dir / frame_folder
+                    return {"CANCELLED"}
+                frame_folder = Path(folder_name)
+                xxmi.destination_path = str(base_dir / frame_folder)
                 bpy.ops.xxmi.exportadvanced()
                 print(
                     f"Exported frame {frame + 1 - scene.frame_start}/{scene.frame_end + 1 - scene.frame_start}"
@@ -651,7 +655,7 @@ class ExportAdvancedBatchedOperator(Operator):
             print(f"Batch export took {time.time() - start_time} seconds")
         except Fatal as e:
             self.report({"ERROR"}, str(e))
-        xxmi.destination_path = base_dir
+        xxmi.destination_path = str(base_dir)
         return {"FINISHED"}
 
 

@@ -677,7 +677,7 @@ class VertexBufferGroup(object):
 
     def write(self, output_prefix, strides, operator=None):
         for vbuf_idx, stride in strides.items():
-            with open(output_prefix + vbuf_idx, "wb") as output:
+            with open(str(output_prefix) + str(vbuf_idx), "wb") as output:
                 for vertex in self.vertices:
                     output.write(self.layout.encode(vertex, vbuf_idx, stride))
 
