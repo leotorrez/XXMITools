@@ -573,23 +573,35 @@ class ModExporter:
                 AbstractSemantic(Semantic.Tangent)
             )
             if tangent_element is None:
-                raise Fatal("Tangent semantic not found in the buffer layout. ")
-            pos_buf.import_semantic_data(
-                verts_outline_vector[:, 0:3],
-                tangent_element,
-                [tangent_element.format.type_encoder],
-            )
+                self.operator.report(
+                    {"WARNING"},
+                    "Tangent semantic not found in the buffer layout. Skipping outline optimization.",
+                )
+            else:
+                pos_buf.import_semantic_data(
+                    verts_outline_vector[:, 0:3],
+                    tangent_element,
+                    [tangent_element.format.type_encoder],
+                )
         elif self.game == GameEnum.HonkaiImpactPart2:
             color_element: BufferSemantic | None = pos_buf.layout.get_element(
                 AbstractSemantic(Semantic.Color)
             )
             if color_element is None:
-                raise Fatal("Color semantic not found in the position buffer layout. ")
-            pos_buf.import_semantic_data(
-                verts_outline_vector[:, 0:3],
-                color_element,
-                [color_element.format.type_encoder],
-            )
+                self.operator.report(
+                    {"WARNING"},
+                    "Color semantic not found in the position buffer layout. Skipping outline optimization.",
+                )
+            else:
+                copy = pos_buf.data["COLOR"].copy()
+                filled_outline = numpy.zeros_like(copy)
+                filled_outline = verts_outline_vector[:, 0:3]
+                pos_buf.import_semantic_data(
+                    filled_outline,
+                    color_element,
+                    [color_element.format.type_encoder],
+                )
+                pos_buf.data["COLOR"][:, 3] = copy[:, 3]
         elif self.game == GameEnum.ZenlessZoneZero:
             norm: NDArray = numpy.empty_like(verts_outline_vector)
             norm[ib_data] = loops_face_normal
@@ -602,22 +614,26 @@ class ModExporter:
             )
             if texcoord1_element is None:
                 # TODO: might want to force add anyways
-                raise Fatal(
-                    "TEXCOORD1 semantic not found in the texcoord buffer layout."
+                self.operator.report(
+                    {"WARNING"},
+                    "TEXCOORD1 semantic not found in the texcoord buffer layout. Skipping outline optimization.",
                 )
-            dot_prods: NDArray = numpy.zeros(
-                (len(verts_outline_vector), 2), dtype=numpy.float32
-            )
-            dot_prods[:, 0] = numpy.einsum("ij,ij->i", tan, verts_outline_vector)
-            dot_prods[:, 1] = numpy.einsum("ij,ij->i", bitan, verts_outline_vector) + 1
-            # TODO: prolly gotta flip again based on custom props
-            dot_prods[:, 1] *= -1.0
-            dot_prods[:, 1] += 1.0
-            tex_buf.import_semantic_data(
-                dot_prods,
-                texcoord1_element,
-                [texcoord1_element.format.type_encoder],
-            )
+            else:
+                dot_prods: NDArray = numpy.zeros(
+                    (len(verts_outline_vector), 2), dtype=numpy.float32
+                )
+                dot_prods[:, 0] = numpy.einsum("ij,ij->i", tan, verts_outline_vector)
+                dot_prods[:, 1] = (
+                    numpy.einsum("ij,ij->i", bitan, verts_outline_vector) + 1
+                )
+                # TODO: prolly gotta flip again based on custom props
+                dot_prods[:, 1] *= -1.0
+                dot_prods[:, 1] += 1.0
+                tex_buf.import_semantic_data(
+                    dot_prods,
+                    texcoord1_element,
+                    [texcoord1_element.format.type_encoder],
+                )
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
     def write_files(self) -> None:
