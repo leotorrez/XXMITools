@@ -595,7 +595,7 @@ class ModExporter:
             else:
                 copy = pos_buf.data["COLOR"].copy()
                 filled_outline = numpy.zeros_like(copy)
-                filled_outline = verts_outline_vector[:, 0:3]
+                filled_outline[:, 0:3] = verts_outline_vector[:, 0:3]
                 pos_buf.import_semantic_data(
                     filled_outline,
                     color_element,
