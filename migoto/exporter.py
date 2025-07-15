@@ -110,6 +110,8 @@ class ModExporter:
 
     def __post_init__(self) -> None:
         print("Initializing data for export...")
+        self.__objs_to_cleanup: list[Object] = []
+        self.__depsgraph: Depsgraph = bpy.context.evaluated_depsgraph_get()
         if self.dump_path == Path(""):
             raise Fatal("Dump path not set")
         if not self.dump_path.is_dir() or self.dump_path.suffix != "":
@@ -245,9 +247,8 @@ class ModExporter:
         depth: int = 0,
     ) -> None:
         """Recursively get all objects from a collection and its sub-collections."""
-        depsgraph = bpy.context.evaluated_depsgraph_get()
         if destination == []:
-            final_mesh: Mesh = self.process_mesh(main_obj, main_obj, depsgraph)
+            final_mesh: Mesh = self.process_mesh(main_obj, main_obj)
             destination.append(SubObj("", depth, main_obj.name, main_obj, final_mesh))
         if collection is None:
             return
@@ -262,18 +263,20 @@ class ModExporter:
             objs = [obj for obj in objs if obj in selected_objs]
         sorted_objs = sorted(objs, key=lambda x: x.name)
         for obj in sorted_objs:
-            final_mesh = self.process_mesh(main_obj, obj, depsgraph)
+            final_mesh = self.process_mesh(main_obj, obj)
             destination.append(
                 SubObj(collection.name, depth, obj.name, obj, final_mesh)
             )
         for child in collection.children:
             self.obj_from_col(main_obj, child, destination, depth + 1)
 
-    def process_mesh(self, main_obj: Object, obj: Object, depsgraph: Depsgraph) -> Mesh:
+    def process_mesh(self, main_obj: Object, obj: Object) -> Mesh:
         """Process the mesh of the object."""
         # TODO: Add moddifier application for SK'd meshes here
         final_mesh: Mesh = (
-            obj.evaluated_get(depsgraph).to_mesh() if self.apply_modifiers else obj.data
+            obj.evaluated_get(self.__depsgraph).to_mesh()
+            if self.apply_modifiers
+            else obj.to_mesh()
         )
         if main_obj != obj:
             # Matrix world seems to be the summatory of all transforms parents included
@@ -291,6 +294,7 @@ class ModExporter:
             for vg in vert.groups
             if vg.group in masked_vgs
         ]
+        self.__objs_to_cleanup.append(obj)
         return final_mesh
 
     def generate_buffers(self) -> None:
@@ -663,6 +667,14 @@ class ModExporter:
             except (OSError, IOError) as e:
                 raise Fatal(f"Error copying file {src} to {dest}: {e}")
 
+    def cleanup(self) -> None:
+        """Cleanup after the exporter."""
+        for obj in self.__objs_to_cleanup:
+            obj.to_mesh_clear()
+            if not isinstance(obj.data, Mesh):
+                continue
+            obj.data.update()
+
     def export(self) -> None:
         """Export the mod file."""
         start: float = time.time()
@@ -672,15 +684,12 @@ class ModExporter:
         self.generate_buffers()
         self.generate_ini()
         self.write_files()
+        self.cleanup()
         print()
         self.operator.report(
             {"INFO"},
             f"Exported {self.mod_name} to {self.destination} in {(time.time() - start):2f} seconds",
         )
-
-    def cleanup(self) -> None:
-        """Cleanup the objects."""
-        pass
 
     def load_hashes(self, path: Path) -> list[dict]:
         """Load the hash data from the hash.json file."""
