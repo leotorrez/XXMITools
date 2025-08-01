@@ -80,11 +80,9 @@
             match_first_index = {{ part.first_index }}
             ib = Resource{{ part.fullname }}IB
             {% for texture in part.textures %}
-                ps-t{{ loop.index0 }} = Resource{{ part.fullname }}{{ texture.name }}
+                Resource\GIMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
             {% endfor %}
-            {% if part.textures|first and (part.textures|first).name|lower == "normalmap" %}
-                run = CommandList\global\ORFix\ORFix
-            {% endif %}
+            run = CommandList\GIMI\SetTextures
             {% for entry in part.objects if entry.vertex_count > 0 %}
                 {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}
                     ; {{ entry.collection_name }}
@@ -101,7 +99,6 @@
                 [TextureOverride{{part.fullname}}{{ texture.name }}]
                 hash = {{ texture.hash }}
                 this = Resource{{part.fullname}}{{ texture.name }}
-
             {% endfor %}
         {% endfor %}
     {% endfor %}
