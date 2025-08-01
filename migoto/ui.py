@@ -190,7 +190,7 @@ class XXMI_PT_Sidebar(Panel):
     bl_category = "XXMI Tools"
     bl_idname = "XXMI_PT_Sidebar"
     bl_label = "XXMI Tools"
-    bl_context = "objectmode"
+    # bl_context = "objectmode"
 
     def draw_header(self, context):
         version = ""
@@ -201,9 +201,9 @@ class XXMI_PT_Sidebar(Panel):
         version: str = ".".join(str(i) for i in version)
         layout: UILayout = self.layout
         row = layout.row()
-        row.operator(
-            "wm.url_open", text="", icon="HELP"
-        ).url = "https://leotorrez.github.io/modding/guides/xxmi_tools"
+        row.operator("wm.url_open", text="", icon="HELP").url = (
+            "https://leotorrez.github.io/modding/guides/xxmi_tools"
+        )
         row.label(text=f"v{version}")
 
     def draw(self, context):
@@ -324,7 +324,7 @@ class UpdaterPanel(Panel):
     bl_idname = "XXMI_PT_UpdaterPanel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_context = "objectmode"
+    # bl_context = "objectmode"
     bl_category = "XXMI Tools"
     bl_order = 99
     bl_options = {"DEFAULT_CLOSED"}
