@@ -19,7 +19,7 @@
             pre Resource\ShaderFixes\help.ini\Notification = ResourceCreditInfo
             pre run = CustomShader\ShaderFixes\help.ini\FormatText
             pre $\ShaderFixes\help.ini\notification_timeout = time + 5.0
-            $creditinfo = 1
+            $creditinfo = 2
         endif
     {% endif %}
 {% endblock %}
@@ -69,7 +69,7 @@
 {% endblock %}
 
 {% block overridesibs %}
-     {% for component in mod_file.components if component.draw_vb != "" %}
+    {% for component in mod_file.components if component.draw_vb != "" %}
         [TextureOverride{{component.fullname}}IB]
         hash = {{ component.ib }}
         handling = skip
@@ -79,10 +79,30 @@
             hash = {{ component.ib }}
             match_first_index = {{ part.first_index }}
             ib = Resource{{ part.fullname }}IB
+            {% set normalmap_index = None %}
             {% for texture in part.textures %}
-                Resource\GIMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
+                {% if texture.name|lower == "normalmap" %}
+                    {% set normalmap_index = loop.index0 %}
+                {% endif %}
             {% endfor %}
-            run = CommandList\GIMI\SetTextures
+            {% if normalmap_index is not none %}
+                {% set normalmap_texture = part.textures[normalmap_index] %}
+                ps-t0 = Resource{{ part.fullname }}{{ normalmap_texture.name }}
+                {% set ps_t_counter = 1 %}
+                {% for texture in part.textures %}
+                    {% if texture.name|lower != "normalmap" %}
+                        ps-t{{ ps_t_counter }} = Resource{{ part.fullname }}{{ texture.name }}
+                        {% set ps_t_counter = ps_t_counter + 1 %}
+                    {% endif %}
+                {% endfor %}
+            {% else %}
+                {% for texture in part.textures %}
+                    ps-t{{ loop.index0 }} = Resource{{ part.fullname }}{{ texture.name }}
+                {% endfor %}
+            {% endif %}
+            {% if normalmap_index and part.textures[normalmap_index].name|lower == "normalmap" %}
+                run = CommandList\global\ORFix\ORFix
+            {% endif %}
             {% for entry in part.objects if entry.vertex_count > 0 %}
                 {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}
                     ; {{ entry.collection_name }}
@@ -99,6 +119,7 @@
                 [TextureOverride{{part.fullname}}{{ texture.name }}]
                 hash = {{ texture.hash }}
                 this = Resource{{part.fullname}}{{ texture.name }}
+
             {% endfor %}
         {% endfor %}
     {% endfor %}
