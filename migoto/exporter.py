@@ -236,7 +236,7 @@ class ModExporter:
                         objects=objects,
                         textures=textures,
                         first_index=component["object_indexes"][j],
-                        index_count=component["object_index_counts"][j]
+                        index_count=component["object_index_counts"][j] if "object_index_counts" in component else 0
                     )
                 )
             self.mod_file.components.append(component_entry)
