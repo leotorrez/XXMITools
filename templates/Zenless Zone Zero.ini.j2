@@ -34,18 +34,18 @@
 
 {% block overridesbuffers %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 %}
-		[TextureOverride{{ component.fullname }}Blend]
-		hash = {{ component.blend_vb }}
-		handling = skip
-		vb2 = Resource{{ component.fullname }}Blend
-		if DRAW_TYPE == 1
-			vb0 = Resource{{ component.fullname }}Position
-			draw = {{ component.vertex_count }}, 0
-			{% if credit != "" %}
+        [TextureOverride{{ component.fullname }}Blend]
+        hash = {{ component.blend_vb }}
+        handling = skip
+        vb2 = Resource{{ component.fullname }}Blend
+        if DRAW_TYPE == 1
+            vb0 = Resource{{ component.fullname }}Position
+            draw = {{ component.vertex_count }}, 0
+            {% if credit != "" %}
 
-				$active = 1
-			{% endif %}
-		endif
+                $active = 1
+            {% endif %}
+        endif
 
         [TextureOverride{{ component.fullname }}Texcoord]
         hash = {{ component.texcoord_vb }}
@@ -69,7 +69,7 @@
 {% endblock %}
 
 {% block overridesibs %}
-     {% for component in mod_file.components if component.draw_vb != "" %}
+    {% for component in mod_file.components if component.draw_vb != "" %}
         [TextureOverride{{component.fullname}}IB]
         hash = {{ component.ib }}
         handling = skip
@@ -78,11 +78,16 @@
             [TextureOverride{{ part.fullname }}]
             hash = {{ component.ib }}
             match_first_index = {{ part.first_index }}
+            {% if part.index_count > 0 %}
+                match_index_count = {{part.index_count}}
+            {% endif %}
             ib = Resource{{ part.fullname }}IB
-            {% for texture in part.textures %}
-                Resource\ZZMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
-            {% endfor %}
-            run = CommandList\ZZMI\SetTextures
+            {% if part.textures|length > 0%}
+                {% for texture in part.textures %}
+                    Resource\ZZMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
+                {% endfor %}
+                run = CommandList\ZZMI\SetTextures
+            {% endif %}
             {% for entry in part.objects if entry.vertex_count > 0 %}
                 {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}
                     ; {{ entry.collection_name }}
@@ -93,14 +98,25 @@
 
         {% endfor %}
     {% endfor %}
-    {% for component in mod_file.components if component.draw_vb == "" %}
-        {% for part in component.parts %}
-            {% for texture in part.textures %}
-                [TextureOverride{{part.fullname}}{{ texture.name }}]
-                hash = {{ texture.hash }}
-                this = Resource{{part.fullname}}{{ texture.name }}
 
-            {% endfor %}
+    {% for data in mod_file.hash_data if data.draw_vb == "" and data.position_vb == "" and copy_textures%}
+        {% set i = 0 %}
+        {% for textures in data.texture_hashes %}
+            {% if textures|length > 0 %}
+                {% set i = loop.index0 %}
+                [TextureOverride{{character_name}}{{data.component_name}}{{data.object_classifications[i]}}]
+                hash = {{data.ib}}
+                match_first_index = {{data.object_indexes[i]}}
+                {% set index_counts = data.get("object_index_counts", []) %}
+                {% if index_counts|length > 0%}
+                    match_index_count = {{index_counts[i]}}
+                {% endif %}
+                {% for texture in textures if texture|length > 0 %}
+                    Resource\ZZMI\{{texture[0]}} = ref Resource{{character_name}}{{data.component_name}}{{data.object_classifications[i]}}{{texture[0]}}
+                {% endfor %}
+                run = CommandList\ZZMI\SetTextures
+
+            {%endif%}
         {% endfor %}
     {% endfor %}
 {% endblock  %}
@@ -123,7 +139,7 @@
             stride = {{ component.strides.texcoord }}
             filename = {{ component.fullname }}Texcoord.buf
         {% endif %}
-        
+
         {% for part in component.parts %}
             [Resource{{ part.fullname }}IB]
             type = Buffer
@@ -139,7 +155,7 @@
             stride = {{ component.strides.position }}
             filename = {{ component.fullname }}.buf
         {% endif %}
-        
+
         {% for part in component.parts %}
             [Resource{{ part.fullname }}IB]
             type = Buffer
