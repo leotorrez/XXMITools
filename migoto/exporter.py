@@ -485,6 +485,11 @@ class ModExporter:
                 credit=self.credit,
                 game=self.game,
                 character_name=self.mod_name,
+                apply_modifiers=self.apply_modifiers,
+                copy_textures=self.copy_textures,
+                ignore_duplicate_textures=self.copy_textures and self.ignore_duplicate_textures,
+                no_ramps=self.no_ramps,
+                write_buffers=self.write_buffers
             )
         )
         ini_file.clean_up_indentation()
