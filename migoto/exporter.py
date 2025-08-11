@@ -51,6 +51,7 @@ class Part:
     objects: list[SubObj]
     textures: list[TextureData]
     first_index: int
+    index_count: int = 0
     vertex_count: int = 0
 
 
