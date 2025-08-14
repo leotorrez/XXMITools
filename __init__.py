@@ -17,13 +17,13 @@ sys.path.insert(0, str(Path(__file__).parent / "libs"))
 
 bl_info = {
     "name": "XXMI_Tools",
-    "blender": (2, 93, 0),
+    "blender": (3, 6, 0),
     "author": "LeoTorreZ",
     "location": "File > Import-Export",
     "description": "Imports meshes dumped with 3DMigoto's frame analysis and exports meshes suitable for re-injection.     Author of original plugin: DarkStarSword.    Contributors: SilentNightSound#7430, HazrateGolabi#1364, HummyR#8131, SinsOfSeven, SpectrumQT ",
     "category": "Import-Export",
     "tracker_url": "https://github.com/leotorrez/XXMITools",
-    "version": (1, 6, 1),
+    "version": (1, 6, 2),
 }
 auto_load.init()
 
