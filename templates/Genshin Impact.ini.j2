@@ -55,7 +55,6 @@
         hash = {{ component.draw_vb }}
         override_vertex_count = {{ component.vertex_count }}
         override_byte_stride = {{ component.strides.position }}
-
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" %}
         [TextureOverride{{ component.fullname }}]
@@ -64,7 +63,6 @@
         {% if credit != "" %}
             $active = 1
         {% endif %}
-
     {% endfor %}
 {% endblock %}
 
@@ -79,29 +77,20 @@
             hash = {{ component.ib }}
             match_first_index = {{ part.first_index }}
             ib = Resource{{ part.fullname }}IB
-            {% set normalmap_index = None %}
-            {% for texture in part.textures %}
-                {% if texture.name|lower == "normalmap" %}
-                    {% set normalmap_index = loop.index0 %}
-                {% endif %}
-            {% endfor %}
-            {% if normalmap_index is not none %}
-                {% set normalmap_texture = part.textures[normalmap_index] %}
-                ps-t0 = Resource{{ part.fullname }}{{ normalmap_texture.name }}
-                {% set ps_t_counter = 1 %}
-                {% for texture in part.textures %}
-                    {% if texture.name|lower != "normalmap" %}
-                        ps-t{{ ps_t_counter }} = Resource{{ part.fullname }}{{ texture.name }}
-                        {% set ps_t_counter = ps_t_counter + 1 %}
-                    {% endif %}
+            {% set temp_list = part.textures|map(attribute="name")|lower %}
+            {% set normalmap_found = temp_list|selectattr("name", "equalto", "normalmap")|list %}
+            {% if normalmap_found|length > 0 %}
+                {% for texture in part.textures if texture.name == "NormalMap" %}
+                    ps-t0 = Resource{{ part.fullname }}{{ texture.name }}
                 {% endfor %}
+                {% for texture in part.textures if texture.name != "NormalMap" %}
+                    ps-t{{ loop.index  }} = Resource{{ part.fullname }}{{ texture.name }}
+                {% endfor %}
+                run = CommandList\global\ORFix\ORFix
             {% else %}
                 {% for texture in part.textures %}
                     ps-t{{ loop.index0 }} = Resource{{ part.fullname }}{{ texture.name }}
                 {% endfor %}
-            {% endif %}
-            {% if normalmap_index and part.textures[normalmap_index].name|lower == "normalmap" %}
-                run = CommandList\global\ORFix\ORFix
             {% endif %}
             {% for entry in part.objects if entry.vertex_count > 0 %}
                 {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}
@@ -110,7 +99,6 @@
                 ; {{ entry.name }} ({{ entry.vertex_count }})
                 drawindexed = {{ entry.index_count}}, {{ entry.index_offset }}, 0
             {% endfor %}
-
         {% endfor %}
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb == "" %}
@@ -119,11 +107,11 @@
                 [TextureOverride{{part.fullname}}{{ texture.name }}]
                 hash = {{ texture.hash }}
                 this = Resource{{part.fullname}}{{ texture.name }}
-
             {% endfor %}
         {% endfor %}
     {% endfor %}
-{% endblock  %}
+{% endblock %}
+
 
 {% block resourcebuffers %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != ""  and component.vertex_count > 0 %}
@@ -165,7 +153,6 @@
             type = Buffer
             format = DXGI_FORMAT_R32_UINT
             filename = {{ part.fullname }}.ib
-
         {% endfor %}
     {% endfor %}
 {% endblock %}
@@ -176,7 +163,6 @@
             {% for texture in part.textures %}
                 [Resource{{ part.fullname }}{{ texture.name }}]
                 filename = {{ part.fullname }}{{ texture.name }}{{ texture.extension }}
-
             {% endfor %}
         {% endfor %}
     {% endfor %}
