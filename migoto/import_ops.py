@@ -172,11 +172,10 @@ def import_normals_step1(
     return []
 
 
-def import_normals_step2(mesh: Mesh, flip_mesh: bool):
+def import_normals_step2(mesh: Mesh):
     clnors = numpy.zeros(len(mesh.loops) * 3, dtype=numpy.float32)
     mesh.loops.foreach_get("normal", clnors)
     clnors = clnors.reshape((-1, 3))
-    clnors[:, 0] *= -(2 * flip_mesh - 1)
     # Not sure this is still required with use_auto_smooth, but the other
     # importers do it, and at the very least it shouldn't hurt...
     mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
@@ -592,7 +591,7 @@ def import_3dmigoto_vb_ib(
         if bpy.app.version >= (4, 1):
             mesh.normals_split_custom_set_from_vertices(normals)
         else:
-            import_normals_step2(mesh, flip_mesh)
+            import_normals_step2(mesh)
     elif hasattr(mesh, "calc_normals"):  # Dropped in Blender 4.0
         mesh.calc_normals()
 
