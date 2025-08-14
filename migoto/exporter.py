@@ -303,6 +303,13 @@ class ModExporter:
         self.files_to_copy = {}
         for component in self.mod_file.components:
             if component.draw_vb == "":
+                for part in component.parts:
+                    print(f"Processing {part.fullname} " + "-" * 10)
+                    for t in part.textures:
+                        tex_name = part.fullname + t.name + t.extension
+                        self.files_to_copy[self.dump_path / tex_name] = (
+                            self.destination / tex_name
+                        )
                 continue
             data_model: DataModelXXMI = DataModelXXMI.from_obj(
                 component.parts[0].objects[0].obj,
