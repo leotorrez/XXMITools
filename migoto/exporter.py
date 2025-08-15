@@ -51,6 +51,7 @@ class Part:
     objects: list[SubObj]
     textures: list[TextureData]
     first_index: int
+    index_count: int = 0
     vertex_count: int = 0
 
 
@@ -235,6 +236,7 @@ class ModExporter:
                         objects=objects,
                         textures=textures,
                         first_index=component["object_indexes"][j],
+                        index_count=component["object_index_counts"][j] if "object_index_counts" in component else 0
                     )
                 )
             self.mod_file.components.append(component_entry)
@@ -494,6 +496,11 @@ class ModExporter:
                 credit=self.credit,
                 game=self.game,
                 character_name=self.mod_name,
+                apply_modifiers=self.apply_modifiers,
+                copy_textures=self.copy_textures,
+                ignore_duplicate_textures=self.ignore_duplicate_textures,
+                no_ramps=self.no_ramps,
+                write_buffers=self.write_buffers
             )
         )
         ini_file.clean_up_indentation()
