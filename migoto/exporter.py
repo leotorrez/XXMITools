@@ -47,15 +47,18 @@ class TextureData:
 
 @dataclass
 class Part:
+    name: str
     fullname: str
     objects: list[SubObj]
     textures: list[TextureData]
     first_index: int
     vertex_count: int = 0
+    index_count: int = 0
 
 
 @dataclass
 class Component:
+    name: str
     fullname: str
     parts: list[Part]
     root_vs: str
@@ -167,6 +170,7 @@ class ModExporter:
         for component in self.hash_data:
             current_name: str = f"{self.mod_name}{component['component_name']}"
             component_entry: Component = Component(
+                name=component["component_name"],
                 fullname=current_name,
                 parts=[],
                 root_vs=component.get("root_vs", ""),
@@ -229,12 +233,29 @@ class ModExporter:
                         self.obj_from_col(obj, None, objects)
                     else:
                         self.obj_from_col(obj, collection[0], objects)
+                index_count: int = 0
+                if len(objects) > 0:
+                    index_count = objects[0].obj.get("3DMigoto:IndexCount", 0)
+                else:
+                    try:
+                        index_count = component.get("object_index_counts", [0] * 10)[j]
+                    except IndexError:
+                        self.operator.report(
+                            {"WARNING"},
+                            f"Index count for part {part_name} not found in hash.json. Defaulting to 0.",
+                        )
                 component_entry.parts.append(
                     Part(
+                        name=part,
                         fullname=part_name,
                         objects=objects,
                         textures=textures,
                         first_index=component["object_indexes"][j],
+                        # TODO: pre process hash.json data and obj properties to adquire proper export format and
+                        # not have to juggle values around in this stage. Will help to sanitize data before this stage as well
+                        # Proper behaviour would be to get custom properties whne available and fallback to hash.json data when not
+                        # lastly fail completly when necesary information is missing
+                        index_count=index_count,
                     )
                 )
             self.mod_file.components.append(component_entry)
