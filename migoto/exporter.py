@@ -424,7 +424,7 @@ class ModExporter:
                             continue
                         v.append(gen_buffers[k])
 
-                    if component.sk_deltas_vb != "":
+                    if "SKDeltas" in gen_buffers:
                         sk_buffers.setdefault(
                             vb_offset,
                             {
@@ -451,7 +451,7 @@ class ModExporter:
             if self.outline_optimization:
                 self.optimize_outlines(out_buffers, component_ib)
             print("##### SK DEBUGGING #####")
-            if component.sk_deltas_vb != "":
+            if len(sk_buffers) > 0:
                 sk_deltas, sk_offsets = self.combine_sk_data(sk_buffers)
                 component.sk_deltas_count = sk_deltas.data.size
                 component.sk_count = sk_offsets.data.size // 4
@@ -574,6 +574,7 @@ class ModExporter:
                 credit=self.credit,
                 game=self.game,
                 character_name=self.mod_name,
+                scene=bpy.context.scene,
             )
         )
         ini_file.clean_up_indentation()

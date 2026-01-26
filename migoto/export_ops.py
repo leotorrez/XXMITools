@@ -39,20 +39,22 @@ from .datastructures import (
 from .exporter import ModExporter
 
 
-
 def normal_export_translation(
     layouts: list[BufferLayout], semantic: Semantic, flip: bool
 ) -> Callable:
     unorm = False
     for layout in layouts:
         # Ensure layout is iterable; if not, wrap it in a list
-        if not hasattr(layout, '__iter__') or isinstance(layout, (str, bytes)):
+        if not hasattr(layout, "__iter__") or isinstance(layout, (str, bytes)):
             elements = [layout]
         else:
             elements = layout
         for elem in elements:
             if hasattr(elem, "semantic") and elem.semantic == semantic:
-                if getattr(elem.format, "dxgi_type", None) in [DXGIType.UNORM8, DXGIType.UNORM16]:
+                if getattr(elem.format, "dxgi_type", None) in [
+                    DXGIType.UNORM8,
+                    DXGIType.UNORM16,
+                ]:
                     unorm = True
                     break
         if unorm:
@@ -66,35 +68,92 @@ def normal_export_translation(
         return lambda x: -x
     return lambda x: x
 
+
 def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     """Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform"""
     start_timer = time.time()
-    deform_SKs = []
+    sk_to_export = []
     total_applied = 0
     desgraph = context.evaluated_depsgraph_get()
     modifiers_to_apply = [mod for mod in obj.modifiers if mod.show_viewport]
     if obj.data.shape_keys is not None:
-        deform_SKs = [
+        sk_to_export = [
             sk.name
             for sk in obj.data.shape_keys.key_blocks
-            if "deform" in sk.name.lower()
+            if "deform" not in sk.name.lower() and "custom" not in sk.name.lower()
         ]
-        total_applied = len(obj.data.shape_keys.key_blocks) - len(deform_SKs)
+        total_applied = len(obj.data.shape_keys.key_blocks) - len(sk_to_export)
 
-    if len(deform_SKs) == 0:
-        mesh = obj.evaluated_get(desgraph).to_mesh()
-    else:
-        mesh = obj.to_mesh()
-        result_obj = obj.copy()
-        result_obj.data = mesh.copy()
-        context.collection.objects.link(result_obj)
-        for sk in obj.data.shape_keys.key_blocks:
-            if sk.name not in deform_SKs:
-                result_obj.shape_key_remove(sk)
-        list_properties = []
-        vert_count = -1
-        bpy.ops.object.select_all(action="DESELECT")
-        result_obj.select_set(True)
+    if len(sk_to_export) == 0:
+        return obj.evaluated_get(desgraph).to_mesh()
+
+    mesh: Mesh = obj.to_mesh()
+    result_obj = obj.copy()
+    result_obj.data = mesh.copy()
+    context.collection.objects.link(result_obj)
+    for sk in obj.data.shape_keys.key_blocks:
+        if sk.name not in sk_to_export:
+            result_obj.shape_key_remove(sk)
+    list_properties = []
+    vert_count = -1
+    bpy.ops.object.select_all(action="DESELECT")
+    result_obj.select_set(True)
+    bpy.ops.object.duplicate_move(
+        OBJECT_OT_duplicate={"linked": False, "mode": "TRANSLATION"},
+        TRANSFORM_OT_translate={
+            "value": (0, 0, 0),
+            "orient_type": "GLOBAL",
+            "orient_matrix": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+            "orient_matrix_type": "GLOBAL",
+            "constraint_axis": (False, False, False),
+            "mirror": True,
+            "use_proportional_edit": False,
+            "proportional_edit_falloff": "SMOOTH",
+            "proportional_size": 1,
+            "use_proportional_connected": False,
+            "use_proportional_projected": False,
+            "snap": False,
+            "snap_target": "CLOSEST",
+            "snap_point": (0, 0, 0),
+            "snap_align": False,
+            "snap_normal": (0, 0, 0),
+            "gpencil_strokes": False,
+            "cursor_transform": False,
+            "texture_space": False,
+            "remove_on_cancel": False,
+            "release_confirm": False,
+            "use_accurate": False,
+        },
+    )
+    copy_obj = context.view_layer.objects.active
+    copy_obj.select_set(False)
+    context.view_layer.objects.active = result_obj
+    result_obj.select_set(True)
+    # Store key shape properties
+    for key_b in obj.data.shape_keys.key_blocks:
+        properties_object = {}
+        properties_object["name"] = key_b.name
+        properties_object["mute"] = key_b.mute
+        properties_object["interpolation"] = key_b.interpolation
+        properties_object["relative_key"] = key_b.relative_key.name
+        properties_object["slider_max"] = key_b.slider_max
+        properties_object["slider_min"] = key_b.slider_min
+        properties_object["value"] = key_b.value
+        properties_object["vertex_group"] = key_b.vertex_group
+        list_properties.append(properties_object)
+        result_obj.shape_key_remove(key_b)
+    # Set up Basis
+    result_obj = result_obj.evaluated_get(desgraph)
+    # bpy.ops.object.shape_key_add(from_mix=False)
+    # for mod in modifiers_to_apply:
+    #     bpy.ops.object.modifier_apply(modifier=mod.name)
+    mesh = result_obj.to_mesh()
+    vert_count = len(result_obj.data.vertices)
+    result_obj.select_set(False)
+    # Create a temp object to apply modifiers into once per SK
+    for i in range(1, obj.data.shape_keys.key_blocks):
+        context.view_layer.objects.active = copy_obj
+        copy_obj.select_set(True)
         bpy.ops.object.duplicate_move(
             OBJECT_OT_duplicate={"linked": False, "mode": "TRANSLATION"},
             TRANSFORM_OT_translate={
@@ -122,119 +181,61 @@ def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
                 "use_accurate": False,
             },
         )
-        copy_obj = context.view_layer.objects.active
+        temp_obj = context.view_layer.objects.active
+        for k in temp_obj.data.shape_keys.key_blocks:
+            temp_obj.shape_key_remove(k)
+
+        copy_obj.select_set(True)
+        copy_obj.active_shape_key_index = i
+
+        bpy.ops.object.shape_key_transfer(use_clamp=True)
+        context.object.active_shape_key_index = 0
+        bpy.ops.object.shape_key_remove()
+        bpy.ops.object.shape_key_remove(all=True)
+        for mod in modifiers_to_apply:
+            bpy.ops.object.modifier_apply(modifier=mod.name)
+        if vert_count != len(temp_obj.data.vertices):
+            raise Fatal(
+                f"After modifier application, object {obj.name} has a different vertex count in shape key {i} than in the basis shape key. Manual resolution required."
+            )
         copy_obj.select_set(False)
         context.view_layer.objects.active = result_obj
         result_obj.select_set(True)
-        # Store key shape properties
-        for key_b in obj.data.shape_keys.key_blocks:
-            properties_object = {}
-            properties_object["name"] = key_b.name
-            properties_object["mute"] = key_b.mute
-            properties_object["interpolation"] = key_b.interpolation
-            properties_object["relative_key"] = key_b.relative_key.name
-            properties_object["slider_max"] = key_b.slider_max
-            properties_object["slider_min"] = key_b.slider_min
-            properties_object["value"] = key_b.value
-            properties_object["vertex_group"] = key_b.vertex_group
-            list_properties.append(properties_object)
-            result_obj.shape_key_remove(key_b)
-        # Set up Basis
-        result_obj = result_obj.evaluated_get(desgraph)
-        # bpy.ops.object.shape_key_add(from_mix=False)
-        # for mod in modifiers_to_apply:
-        #     bpy.ops.object.modifier_apply(modifier=mod.name)
-        mesh = result_obj.to_mesh()
-        vert_count = len(result_obj.data.vertices)
+        bpy.ops.object.join_shapes()
         result_obj.select_set(False)
-        # Create a temp object to apply modifiers into once per SK
-        for i in range(1, obj.data.shape_keys.key_blocks):
-            context.view_layer.objects.active = copy_obj
-            copy_obj.select_set(True)
-            bpy.ops.object.duplicate_move(
-                OBJECT_OT_duplicate={"linked": False, "mode": "TRANSLATION"},
-                TRANSFORM_OT_translate={
-                    "value": (0, 0, 0),
-                    "orient_type": "GLOBAL",
-                    "orient_matrix": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
-                    "orient_matrix_type": "GLOBAL",
-                    "constraint_axis": (False, False, False),
-                    "mirror": True,
-                    "use_proportional_edit": False,
-                    "proportional_edit_falloff": "SMOOTH",
-                    "proportional_size": 1,
-                    "use_proportional_connected": False,
-                    "use_proportional_projected": False,
-                    "snap": False,
-                    "snap_target": "CLOSEST",
-                    "snap_point": (0, 0, 0),
-                    "snap_align": False,
-                    "snap_normal": (0, 0, 0),
-                    "gpencil_strokes": False,
-                    "cursor_transform": False,
-                    "texture_space": False,
-                    "remove_on_cancel": False,
-                    "release_confirm": False,
-                    "use_accurate": False,
-                },
-            )
-            temp_obj = context.view_layer.objects.active
-            for k in temp_obj.data.shape_keys.key_blocks:
-                temp_obj.shape_key_remove(k)
-
-            copy_obj.select_set(True)
-            copy_obj.active_shape_key_index = i
-
-            bpy.ops.object.shape_key_transfer(use_clamp=True)
-            context.object.active_shape_key_index = 0
-            bpy.ops.object.shape_key_remove()
-            bpy.ops.object.shape_key_remove(all=True)
-            for mod in modifiers_to_apply:
-                bpy.ops.object.modifier_apply(modifier=mod.name)
-            if vert_count != len(temp_obj.data.vertices):
-                raise Fatal(
-                    f"After modifier application, object {obj.name} has a different vertex count in shape key {i} than in the basis shape key. Manual resolution required."
-                )
-            copy_obj.select_set(False)
-            context.view_layer.objects.active = result_obj
-            result_obj.select_set(True)
-            bpy.ops.object.join_shapes()
-            result_obj.select_set(False)
-            context.view_layer.objects.active = temp_obj
-            bpy.ops.object.delete(use_global=False)
-        # Restore shape key properties like name, mute etc.
-        context.view_layer.objects.active = result_obj
-        for i in range(0, obj.data.shape_keys.key_blocks):
-            key_b = context.view_layer.objects.active.data.shape_keys.key_blocks[i]
-            key_b.name = list_properties[i]["name"]
-            key_b.interpolation = list_properties[i]["interpolation"]
-            key_b.mute = list_properties[i]["mute"]
-            key_b.slider_max = list_properties[i]["slider_max"]
-            key_b.slider_min = list_properties[i]["slider_min"]
-            key_b.value = list_properties[i]["value"]
-            key_b.vertex_group = list_properties[i]["vertex_group"]
-            rel_key = list_properties[i]["relative_key"]
-
-            for j in range(0, obj.data.shape_keys.key_blocks):
-                key_brel = context.view_layer.objects.active.data.shape_keys.key_blocks[
-                    j
-                ]
-                if rel_key == key_brel.name:
-                    key_b.relative_key = key_brel
-                    break
-            context.view_layer.objects.active.data.update()
-        result_obj.select_set(False)
-        context.view_layer.objects.active = copy_obj
-        copy_obj.select_set(True)
+        context.view_layer.objects.active = temp_obj
         bpy.ops.object.delete(use_global=False)
-        bpy.ops.object.select_all(action="DESELECT")
-        context.view_layer.objects.active = result_obj
-        context.view_layer.objects.active.select_set(True)
-        mesh = result_obj.data
-        bpy.ops.object.delete(use_global=False)
+    # Restore shape key properties like name, mute etc.
+    context.view_layer.objects.active = result_obj
+    for i in range(0, obj.data.shape_keys.key_blocks):
+        key_b = context.view_layer.objects.active.data.shape_keys.key_blocks[i]
+        key_b.name = list_properties[i]["name"]
+        key_b.interpolation = list_properties[i]["interpolation"]
+        key_b.mute = list_properties[i]["mute"]
+        key_b.slider_max = list_properties[i]["slider_max"]
+        key_b.slider_min = list_properties[i]["slider_min"]
+        key_b.value = list_properties[i]["value"]
+        key_b.vertex_group = list_properties[i]["vertex_group"]
+        rel_key = list_properties[i]["relative_key"]
+
+        for j in range(0, obj.data.shape_keys.key_blocks):
+            key_brel = context.view_layer.objects.active.data.shape_keys.key_blocks[j]
+            if rel_key == key_brel.name:
+                key_b.relative_key = key_brel
+                break
+        context.view_layer.objects.active.data.update()
+    result_obj.select_set(False)
+    context.view_layer.objects.active = copy_obj
+    copy_obj.select_set(True)
+    bpy.ops.object.delete(use_global=False)
+    bpy.ops.object.select_all(action="DESELECT")
+    context.view_layer.objects.active = result_obj
+    context.view_layer.objects.active.select_set(True)
+    mesh = result_obj.data
+    bpy.ops.object.delete(use_global=False)
 
     print(
-        f"\tApplied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(deform_SKs)} shapekeys in {time.time() - start_timer:.5f} seconds"
+        f"\tApplied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(sk_to_export)} shapekeys in {time.time() - start_timer:.5f} seconds"
     )
     return mesh
 
@@ -518,7 +519,7 @@ class TemplateSelector(Operator, ExportHelper):
     """Export single mod based on current frame"""
 
     bl_idname = "template.selector"
-    bl_label = "Tempalte file selector"
+    bl_label = "Template file selector"
     filename_ext = ".j2"
     use_filter_folder = True
     filter_glob: StringProperty(
@@ -638,7 +639,9 @@ class ExportAdvancedBatchedOperator(Operator):
                 context.scene.frame_set(frame)
                 for w in wildcards:
                     if w in xxmi.batch_pattern:
-                        folder_name = xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
+                        folder_name = xxmi.batch_pattern.replace(
+                            w, str(frame).zfill(len(w))
+                        )
                         break
                 else:
                     self.report(

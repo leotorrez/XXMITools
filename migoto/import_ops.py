@@ -630,7 +630,9 @@ def import_3dmigoto_vb_ib(
 
 def import_shapekeys(mesh: Mesh, obj: Object, paths: ImportPaths, flip_mesh: bool):
     first_vertex: int = int(obj["3DMigoto:FirstVertex"])
-
+    if len(paths) == 0 or len(paths[0].vb_paths) == 0:
+        print("No vertex buffer paths found, skipping shapekey import")
+        return
     vb_path: Path = Path(paths[0].vb_paths[0])  # FIXME: There can be multiple
     basename: str = str(vb_path.stem).split("-")[0][:-1]
     sk_filename: str = basename + "SKDeltas.buf"
@@ -671,16 +673,15 @@ def import_shapekeys(mesh: Mesh, obj: Object, paths: ImportPaths, flip_mesh: boo
     mesh.vertices.foreach_get("co", vb)
     shapekey = obj.shape_key_add(name="Basis")
     shapekey.data.foreach_set("co", vb.ravel())
-    print(sk_offsets)
     for i, chunk in enumerate(sk_offsets):
         shapekey = obj.shape_key_add(name=f"DEFORM_{i:03}")
+        shapekey.value = 0.0
         co = numpy.zeros(len(mesh.vertices), dtype=(numpy.float32, 3))
         for j in range(chunk["count"]):
             vertindex = sk_buffer[chunk["offset"] + j - first_vertex]["VINDEX"]
             co[vertindex] = sk_buffer[chunk["offset"] + j - first_vertex]["POSITION"]
         shapekey.data.foreach_set("co", co.ravel() + vb.ravel())
     print("Finished applying shapekeys")
-    print("############SKTESTING########################")
 
 
 def import_3dmigoto(
