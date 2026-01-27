@@ -39,20 +39,22 @@ from .datastructures import (
 from .exporter import ModExporter
 
 
-
 def normal_export_translation(
     layouts: list[BufferLayout], semantic: Semantic, flip: bool
 ) -> Callable:
     unorm = False
     for layout in layouts:
         # Ensure layout is iterable; if not, wrap it in a list
-        if not hasattr(layout, '__iter__') or isinstance(layout, (str, bytes)):
+        if not hasattr(layout, "__iter__") or isinstance(layout, (str, bytes)):
             elements = [layout]
         else:
             elements = layout
         for elem in elements:
             if hasattr(elem, "semantic") and elem.semantic == semantic:
-                if getattr(elem.format, "dxgi_type", None) in [DXGIType.UNORM8, DXGIType.UNORM16]:
+                if getattr(elem.format, "dxgi_type", None) in [
+                    DXGIType.UNORM8,
+                    DXGIType.UNORM16,
+                ]:
                     unorm = True
                     break
         if unorm:
@@ -65,6 +67,7 @@ def normal_export_translation(
     if flip:
         return lambda x: -x
     return lambda x: x
+
 
 def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
     """Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform"""
@@ -518,7 +521,7 @@ class TemplateSelector(Operator, ExportHelper):
     """Export single mod based on current frame"""
 
     bl_idname = "template.selector"
-    bl_label = "Tempalte file selector"
+    bl_label = "Template file selector"
     filename_ext = ".j2"
     use_filter_folder = True
     filter_glob: StringProperty(
@@ -638,7 +641,9 @@ class ExportAdvancedBatchedOperator(Operator):
                 context.scene.frame_set(frame)
                 for w in wildcards:
                     if w in xxmi.batch_pattern:
-                        folder_name = xxmi.batch_pattern.replace(w, str(frame).zfill(len(w)))
+                        folder_name = xxmi.batch_pattern.replace(
+                            w, str(frame).zfill(len(w))
+                        )
                         break
                 else:
                     self.report(
