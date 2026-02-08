@@ -619,9 +619,7 @@ class ModExporter:
             norm: NDArray = numpy.empty_like(verts_outline_vector)
             norm[ib_data] = loops_face_normal
             tan: NDArray = unit_vector(pos_buf.data["TANGENT"])
-            bitan: NDArray = pos_buf.data["BITANGENTSIGN"][
-                :, numpy.newaxis
-            ] * numpy.cross(norm, tan)
+            bitan: NDArray = numpy.cross(norm, tan)
             texcoord1_element = tex_buf.layout.get_element(
                 AbstractSemantic(Semantic.TexCoord, 1)
             )
