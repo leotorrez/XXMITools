@@ -5,6 +5,12 @@ from bl_ui.generic_ui_list import draw_ui_list
 from .operators import (
     Import3DMigotoPose,
     ApplyVGMap,
+    VGROUP_SN_fill,
+    VGROUP_SN_merge,
+    VGROUP_SN_merge_ONE,
+    VGROUP_SN_remove,
+    CLEAN_UV_NAMES,
+    RESET_VERTEX_COLORS,
 )
 from .import_ops import (
     ClearSemanticRemapList,
@@ -191,6 +197,7 @@ class XXMI_PT_Sidebar(Panel):
     bl_idname = "XXMI_PT_Sidebar"
     bl_label = "XXMI Tools"
     # bl_context = "objectmode"
+    bl_order = 0
 
     def draw_header(self, context):
         version = ""
@@ -201,9 +208,9 @@ class XXMI_PT_Sidebar(Panel):
         version: str = ".".join(str(i) for i in version)
         layout: UILayout = self.layout
         row = layout.row()
-        row.operator("wm.url_open", text="", icon="HELP").url = (
-            "https://leotorrez.github.io/modding/guides/xxmi_tools"
-        )
+        row.operator(
+            "wm.url_open", text="", icon="HELP"
+        ).url = "https://leotorrez.github.io/modding/guides/xxmi_tools"
         row.label(text=f"v{version}")
 
     def draw(self, context):
@@ -315,6 +322,39 @@ class XXMI_PT_SidePanelExport(XXMISidebarOptionsPanelBase, Panel):
             row.label(text="Nothing to export", icon="ERROR")
         else:
             row.operator("xxmi.exportadvanced", text="Export Mod")
+
+
+class XXMI_PT_Toolbox(Panel):
+    """Toolbox Panel"""
+
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "XXMI Tools"
+    bl_idname = "XXMI_PT_Toolbox"
+    bl_label = "XXMI Toolbox"
+    # bl_context = "objectmode"
+    bl_order = 98
+
+    def draw(self, context):
+        layout = self.layout
+        if layout is None:
+            return
+        layout.operator(VGROUP_SN_remove.bl_idname, text=VGROUP_SN_remove.bl_label)
+        layout.operator(VGROUP_SN_merge.bl_idname, text=VGROUP_SN_merge.bl_label)
+        layout.operator(
+            VGROUP_SN_merge_ONE.bl_idname, text=VGROUP_SN_merge_ONE.bl_label
+        )
+        layout.operator(VGROUP_SN_fill.bl_idname, text=VGROUP_SN_fill.bl_label)
+        layout.operator(CLEAN_UV_NAMES.bl_idname, text=CLEAN_UV_NAMES.bl_label)
+        layout.operator(
+            RESET_VERTEX_COLORS.bl_idname, text=RESET_VERTEX_COLORS.bl_label
+        )
+
+
+# TODO:
+# - Apply modifier to mesh with shapekeys
+# - Create collections on import
+# - Import materials
 
 
 class UpdaterPanel(Panel):

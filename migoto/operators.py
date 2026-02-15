@@ -241,3 +241,340 @@ class Preferences(AddonPreferences):
         # col.scale_y = 2
         # ops = col.operator("wm.url_open","Open webpage ")
         # ops.url=addon_updater_ops.updater.website
+
+
+class VGROUP_SN_merge(bpy.types.Operator):
+    bl_description = "Merge the vertex groups with shared name"
+    bl_idname = "mesh.merge_shared_name_vgs"
+    bl_label = "Merge shared name Vertex Groups"
+    bl_options = {"UNDO"}
+    selected = []
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.object
+            and context.object.type == "MESH"
+            and context.object.vertex_groups
+        )
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.selected = [*{context.object, *context.selected_objects}]
+        return self.execute(context)
+
+    def execute(self, context):
+        if not self.selected:
+            self.selected = [context.object]
+
+        for ob in self.selected:
+            if not getattr(ob, "type", None) == "MESH":
+                continue
+
+            # myyy
+            vgroup_names = [x.name.split(".")[0] for x in ob.vertex_groups]
+            for vname in vgroup_names:
+                relevant = [
+                    x.name
+                    for x in ob.vertex_groups
+                    if x.name.split(".")[0] == f"{vname}"
+                ]
+                if relevant:
+                    vgroup = ob.vertex_groups.new(name=f"x{vname}")
+                    for vert_id, vert in enumerate(ob.data.vertices):
+                        available_groups = [
+                            v_group_elem.group for v_group_elem in vert.groups
+                        ]
+
+                        combined = 0
+                        for v in relevant:
+                            if ob.vertex_groups[v].index in available_groups:
+                                combined += ob.vertex_groups[v].weight(vert_id)
+                                if combined > 0:
+                                    vgroup.add([vert_id], combined, "ADD")
+                    for vg in [
+                        x
+                        for x in ob.vertex_groups
+                        if x.name.split(".")[0] == f"{vname}"
+                    ]:
+                        ob.vertex_groups.remove(vg)
+                    for vg in ob.vertex_groups:
+                        if vg.name[0].lower() == "x":
+                            vg.name = vg.name[1:]
+
+            bpy.ops.object.vertex_group_sort()
+
+        return {"FINISHED"}
+
+
+class VGROUP_SN_merge_ONE(bpy.types.Operator):
+    bl_description = "Merge the vertex groups with shared name with the active VG"
+    bl_idname = "mesh.merge_shared_name_vgs_one"
+    bl_label = "Merge shared name VGs with the active Vertex Group"
+    bl_options = {"UNDO"}
+    selected = []
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.object
+            and context.object.type == "MESH"
+            and context.object.vertex_groups
+        )
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.selected = [*{context.object, *context.selected_objects}]
+        return self.execute(context)
+
+    def execute(self, context):
+        if not self.selected:
+            self.selected = [context.object]
+        for ob in self.selected:
+            if not getattr(ob, "type", None) == "MESH":
+                continue
+
+            # myyy
+            vname = ob.vertex_groups.active.name
+            if "." in vname:
+                vname = vname.split(".")[0]
+            vgroup_names = [x.name.split(".")[0] for x in ob.vertex_groups]
+            relevant = [
+                x.name for x in ob.vertex_groups if x.name.split(".")[0] == f"{vname}"
+            ]
+
+            if relevant:
+                vgroup = ob.vertex_groups.new(name=f"x{vname}")
+                for vert_id, vert in enumerate(ob.data.vertices):
+                    available_groups = [
+                        v_group_elem.group for v_group_elem in vert.groups
+                    ]
+                    combined = 0
+                    for v in relevant:
+                        if ob.vertex_groups[v].index in available_groups:
+                            combined += ob.vertex_groups[v].weight(vert_id)
+                            if combined > 0:
+                                vgroup.add([vert_id], combined, "ADD")
+                for vg in [
+                    x for x in ob.vertex_groups if x.name.split(".")[0] == f"{vname}"
+                ]:
+                    ob.vertex_groups.remove(vg)
+                for vg in ob.vertex_groups:
+                    if vg.name[0].lower() == "x":
+                        vg.name = vg.name[1:]
+
+            bpy.ops.object.vertex_group_sort()
+
+        return {"FINISHED"}
+
+
+class VGROUP_SN_fill(bpy.types.Operator):
+    bl_description = "Fill VGs from the lowest to highest existing one "
+    bl_idname = "mesh.fill_vg"
+    bl_label = "Fill gaps in Vertex Groups"
+    bl_options = {"UNDO"}
+
+    selected = []
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.object
+            and context.object.type == "MESH"
+            and context.object.vertex_groups
+        )
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.selected = [*{context.object, *context.selected_objects}]
+        return self.execute(context)
+
+    def execute(self, context):
+        if not self.selected:
+            self.selected = [context.object]
+        for ob in self.selected:
+            if not getattr(ob, "type", None) == "MESH":
+                continue
+
+            # myyy
+            largest = 0
+            for vg in ob.vertex_groups:
+                try:
+                    if int(vg.name.split(".")[0]) > largest:
+                        largest = int(vg.name.split(".")[0])
+                except ValueError:
+                    print("Vertex group not named as integer, skipping")
+
+            missing = set([f"{i}" for i in range(largest + 1)]) - set(
+                [x.name.split(".")[0] for x in ob.vertex_groups]
+            )
+            for number in missing:
+                ob.vertex_groups.new(name=f"{number}")
+
+            bpy.ops.object.vertex_group_sort()
+
+        return {"FINISHED"}
+
+
+class VGROUP_SN_remove(bpy.types.Operator):
+    bl_description = (
+        "Remove unused VGs checks ONLY the weight paints, not shapekeys and others"
+    )
+    bl_idname = "mesh.remove_vg"
+    bl_label = "Remove unused Vertex Groups"
+    bl_options = {"UNDO"}
+
+    selected = []
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.object
+            and context.object.type == "MESH"
+            and context.object.vertex_groups
+        )
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.selected = [*{context.object, *context.selected_objects}]
+        return self.execute(context)
+
+    def execute(self, context):
+        if not self.selected:
+            self.selected = [context.object]
+        for ob in self.selected:
+            if not getattr(ob, "type", None) == "MESH":
+                continue
+
+            # myyy
+            used_groups = set()
+
+            # Used groups from weight paint
+            for id, vert in enumerate(ob.data.vertices):
+                for vg in vert.groups:
+                    vgi = vg.group
+                    used_groups.add(vgi)
+            # removing
+            for vg in list(reversed(ob.vertex_groups)):
+                if vg.index not in used_groups:
+                    ob.vertex_groups.remove(vg)
+
+        # bpy.ops.object.vertex_group_sort()
+
+        return {"FINISHED"}
+
+
+class CLEAN_UV_NAMES(bpy.types.Operator):
+    bl_description = (
+        "Ensures the format TEXCOORD[n].xy for UV names, as expected by 3DMigoto"
+    )
+    bl_idname = "mesh.clean_uv_names"
+    bl_label = "Clean UV Names"
+    bl_options = {"UNDO"}
+
+    selected = []
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.selected = [*{context.object, *context.selected_objects}]
+        return self.execute(context)
+
+    def execute(self, context):
+        if not self.selected:
+            self.selected = [context.object]
+        for ob in self.selected:
+            if not getattr(ob, "type", None) == "MESH":
+                continue
+
+            for id, uv_layer in enumerate(ob.data.uv_layers):
+                if id == 0:
+                    expected_name = "TEXCOORD.xy"
+                else:
+                    expected_name = f"TEXCOORD{id}.xy"
+                if uv_layer.name != expected_name:
+                    uv_layer.name = expected_name
+            return {"FINISHED"}
+
+
+class RESET_VERTEX_COLORS(bpy.types.Operator):
+    bl_description = "Resets vertex colors to a color selected by the user"
+    bl_idname = "mesh.reset_vertex_colors"
+    bl_label = "Reset Vertex Colors"
+    bl_options = {"UNDO"}
+
+    color: bpy.props.FloatVectorProperty(
+        name="Color",
+        subtype="COLOR",
+        size=4,
+        min=0.0,
+        max=1.0,
+        default=(1.0, 0.215861, 0.215861, 0.501961),  # RGBA default color
+        description="Select the reset vertex color",
+    )
+    data_type: bpy.props.EnumProperty(
+        name="Data Type",
+        items=[
+            ("BYTE_COLOR", "Byte Color", "Use byte color format (0-255)"),
+            ("FLOAT_COLOR", "Float Color", "Use float color format (0.0-1.0)"),
+        ],
+        default="BYTE_COLOR",
+        description="Choose the data type for vertex colors",
+    )
+    domain: bpy.props.EnumProperty(
+        name="Domain",
+        items=[
+            ("POINT", "Point", "Apply vertex colors to points"),
+            ("CORNER", "Corner", "Apply vertex colors to corners"),
+            ("FACE", "Face", "Apply vertex colors to faces"),
+        ],
+        default="CORNER",
+        description="Choose the domain for vertex colors",
+    )
+
+    def invoke(self, context, event):
+        # Open a dialog with the color picker UI.
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "color", text="Reset Color")
+        layout.prop(self, "data_type", text="Data Type")
+        layout.prop(self, "domain", text="Domain")
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type != "MESH":
+                continue
+
+            bpy.ops.object.select_all(action="DESELECT")
+            obj.select_set(True)
+            context.view_layer.objects.active = obj
+            if "COLOR" in obj.data.color_attributes:
+                obj.data.color_attributes.remove(obj.data.color_attributes["COLOR"])
+            bpy.ops.geometry.color_attribute_add(
+                name="COLOR",
+                domain="CORNER",
+                data_type="BYTE_COLOR",
+                color=self.color,
+            )
+
+        return {"FINISHED"}
+
+
+def draw_menu(self, context):
+    layout = self.layout
+    layout.separator()
+    layout.operator(VGROUP_SN_merge.bl_idname, icon="BRUSH_GRAB")
+    layout.operator(VGROUP_SN_merge_ONE.bl_idname, icon="BRUSH_INFLATE")
+    layout.operator(VGROUP_SN_fill.bl_idname, icon="BRUSH_FILL")
+    layout.operator(VGROUP_SN_remove.bl_idname, icon="GPBRUSH_ERASE_STROKE")
+
+
+def register():
+    bpy.types.MESH_MT_vertex_group_context_menu.append(draw_menu)
+    bpy.types.VIEW3D_MT_vertex_group.append(draw_menu)
+
+
+def unregister():
+    bpy.types.VIEW3D_MT_vertex_group.remove(draw_menu)
+    bpy.types.MESH_MT_vertex_group_context_menu.remove(draw_menu)
