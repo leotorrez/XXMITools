@@ -1,22 +1,22 @@
 import collections
 import json
+import shutil
 import time
 from pathlib import Path
 from typing import Callable
-import textwrap
-import shutil
+
 import bpy
 from bpy.props import (
     BoolProperty,
     EnumProperty,
+    IntProperty,
     PointerProperty,
     StringProperty,
-    IntProperty,
 )
 from bpy.types import Context, Mesh, Object, Operator, PropertyGroup
 from bpy_extras.io_utils import ExportHelper
+
 from .data.byte_buffer import (
-    AbstractSemantic,
     BufferLayout,
     Semantic,
 )
@@ -67,179 +67,6 @@ def normal_export_translation(
     if flip:
         return lambda x: -x
     return lambda x: x
-
-
-def apply_modifiers_and_shapekeys(context: Context, obj: Object) -> Mesh:
-    """Apply all modifiers to a mesh with shapekeys. Preserves shapekeys named Deform"""
-    start_timer = time.time()
-    deform_SKs = []
-    total_applied = 0
-    desgraph = context.evaluated_depsgraph_get()
-    modifiers_to_apply = [mod for mod in obj.modifiers if mod.show_viewport]
-    if obj.data.shape_keys is not None:
-        deform_SKs = [
-            sk.name
-            for sk in obj.data.shape_keys.key_blocks
-            if "deform" in sk.name.lower()
-        ]
-        total_applied = len(obj.data.shape_keys.key_blocks) - len(deform_SKs)
-
-    if len(deform_SKs) == 0:
-        mesh = obj.evaluated_get(desgraph).to_mesh()
-    else:
-        mesh = obj.to_mesh()
-        result_obj = obj.copy()
-        result_obj.data = mesh.copy()
-        context.collection.objects.link(result_obj)
-        for sk in obj.data.shape_keys.key_blocks:
-            if sk.name not in deform_SKs:
-                result_obj.shape_key_remove(sk)
-        list_properties = []
-        vert_count = -1
-        bpy.ops.object.select_all(action="DESELECT")
-        result_obj.select_set(True)
-        bpy.ops.object.duplicate_move(
-            OBJECT_OT_duplicate={"linked": False, "mode": "TRANSLATION"},
-            TRANSFORM_OT_translate={
-                "value": (0, 0, 0),
-                "orient_type": "GLOBAL",
-                "orient_matrix": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
-                "orient_matrix_type": "GLOBAL",
-                "constraint_axis": (False, False, False),
-                "mirror": True,
-                "use_proportional_edit": False,
-                "proportional_edit_falloff": "SMOOTH",
-                "proportional_size": 1,
-                "use_proportional_connected": False,
-                "use_proportional_projected": False,
-                "snap": False,
-                "snap_target": "CLOSEST",
-                "snap_point": (0, 0, 0),
-                "snap_align": False,
-                "snap_normal": (0, 0, 0),
-                "gpencil_strokes": False,
-                "cursor_transform": False,
-                "texture_space": False,
-                "remove_on_cancel": False,
-                "release_confirm": False,
-                "use_accurate": False,
-            },
-        )
-        copy_obj = context.view_layer.objects.active
-        copy_obj.select_set(False)
-        context.view_layer.objects.active = result_obj
-        result_obj.select_set(True)
-        # Store key shape properties
-        for key_b in obj.data.shape_keys.key_blocks:
-            properties_object = {}
-            properties_object["name"] = key_b.name
-            properties_object["mute"] = key_b.mute
-            properties_object["interpolation"] = key_b.interpolation
-            properties_object["relative_key"] = key_b.relative_key.name
-            properties_object["slider_max"] = key_b.slider_max
-            properties_object["slider_min"] = key_b.slider_min
-            properties_object["value"] = key_b.value
-            properties_object["vertex_group"] = key_b.vertex_group
-            list_properties.append(properties_object)
-            result_obj.shape_key_remove(key_b)
-        # Set up Basis
-        result_obj = result_obj.evaluated_get(desgraph)
-        # bpy.ops.object.shape_key_add(from_mix=False)
-        # for mod in modifiers_to_apply:
-        #     bpy.ops.object.modifier_apply(modifier=mod.name)
-        mesh = result_obj.to_mesh()
-        vert_count = len(result_obj.data.vertices)
-        result_obj.select_set(False)
-        # Create a temp object to apply modifiers into once per SK
-        for i in range(1, obj.data.shape_keys.key_blocks):
-            context.view_layer.objects.active = copy_obj
-            copy_obj.select_set(True)
-            bpy.ops.object.duplicate_move(
-                OBJECT_OT_duplicate={"linked": False, "mode": "TRANSLATION"},
-                TRANSFORM_OT_translate={
-                    "value": (0, 0, 0),
-                    "orient_type": "GLOBAL",
-                    "orient_matrix": ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
-                    "orient_matrix_type": "GLOBAL",
-                    "constraint_axis": (False, False, False),
-                    "mirror": True,
-                    "use_proportional_edit": False,
-                    "proportional_edit_falloff": "SMOOTH",
-                    "proportional_size": 1,
-                    "use_proportional_connected": False,
-                    "use_proportional_projected": False,
-                    "snap": False,
-                    "snap_target": "CLOSEST",
-                    "snap_point": (0, 0, 0),
-                    "snap_align": False,
-                    "snap_normal": (0, 0, 0),
-                    "gpencil_strokes": False,
-                    "cursor_transform": False,
-                    "texture_space": False,
-                    "remove_on_cancel": False,
-                    "release_confirm": False,
-                    "use_accurate": False,
-                },
-            )
-            temp_obj = context.view_layer.objects.active
-            for k in temp_obj.data.shape_keys.key_blocks:
-                temp_obj.shape_key_remove(k)
-
-            copy_obj.select_set(True)
-            copy_obj.active_shape_key_index = i
-
-            bpy.ops.object.shape_key_transfer(use_clamp=True)
-            context.object.active_shape_key_index = 0
-            bpy.ops.object.shape_key_remove()
-            bpy.ops.object.shape_key_remove(all=True)
-            for mod in modifiers_to_apply:
-                bpy.ops.object.modifier_apply(modifier=mod.name)
-            if vert_count != len(temp_obj.data.vertices):
-                raise Fatal(
-                    f"After modifier application, object {obj.name} has a different vertex count in shape key {i} than in the basis shape key. Manual resolution required."
-                )
-            copy_obj.select_set(False)
-            context.view_layer.objects.active = result_obj
-            result_obj.select_set(True)
-            bpy.ops.object.join_shapes()
-            result_obj.select_set(False)
-            context.view_layer.objects.active = temp_obj
-            bpy.ops.object.delete(use_global=False)
-        # Restore shape key properties like name, mute etc.
-        context.view_layer.objects.active = result_obj
-        for i in range(0, obj.data.shape_keys.key_blocks):
-            key_b = context.view_layer.objects.active.data.shape_keys.key_blocks[i]
-            key_b.name = list_properties[i]["name"]
-            key_b.interpolation = list_properties[i]["interpolation"]
-            key_b.mute = list_properties[i]["mute"]
-            key_b.slider_max = list_properties[i]["slider_max"]
-            key_b.slider_min = list_properties[i]["slider_min"]
-            key_b.value = list_properties[i]["value"]
-            key_b.vertex_group = list_properties[i]["vertex_group"]
-            rel_key = list_properties[i]["relative_key"]
-
-            for j in range(0, obj.data.shape_keys.key_blocks):
-                key_brel = context.view_layer.objects.active.data.shape_keys.key_blocks[
-                    j
-                ]
-                if rel_key == key_brel.name:
-                    key_b.relative_key = key_brel
-                    break
-            context.view_layer.objects.active.data.update()
-        result_obj.select_set(False)
-        context.view_layer.objects.active = copy_obj
-        copy_obj.select_set(True)
-        bpy.ops.object.delete(use_global=False)
-        bpy.ops.object.select_all(action="DESELECT")
-        context.view_layer.objects.active = result_obj
-        context.view_layer.objects.active.select_set(True)
-        mesh = result_obj.data
-        bpy.ops.object.delete(use_global=False)
-
-    print(
-        f"\tApplied {len(modifiers_to_apply)} modifiers, {total_applied} shapekeys and stored {len(deform_SKs)} shapekeys in {time.time() - start_timer:.5f} seconds"
-    )
-    return mesh
 
 
 class XXMIProperties(PropertyGroup):
@@ -674,119 +501,6 @@ def write_fmt_file(f, vb: VertexBufferGroup, ib: IndexBuffer, strides: list[int]
     if ib is not None:
         f.write("format: %s\n" % ib.format)
     f.write(vb.layout.to_string())
-
-
-def write_ini_file(
-    f,
-    vb: VertexBufferGroup,
-    vb_path,
-    ib: IndexBuffer,
-    ib_path,
-    strides: list[int],
-    obj: Object,
-    topology: str,
-):
-    backup = True
-    # topology='trianglestrip' # Testing
-    bind_section = ""
-    backup_section = ""
-    restore_section = ""
-    resource_section = ""
-    resource_bak_section = ""
-
-    draw_section = "handling = skip\n"
-    if ib is not None:
-        draw_section += "drawindexed = auto\n"
-    else:
-        draw_section += "draw = auto\n"
-
-    if ib is not None:
-        bind_section += "ib = ResourceIB\n"
-        resource_section += textwrap.dedent("""
-            [ResourceIB]
-            type = buffer
-            format = {}
-            filename = {}
-            """).format(ib.format, ib_path)
-        if backup:
-            resource_bak_section += "[ResourceBakIB]\n"
-            backup_section += "ResourceBakIB = ref ib\n"
-            restore_section += "ib = ResourceBakIB\n"
-
-    for vbuf_idx, stride in strides.items():
-        bind_section += "vb{0} = ResourceVB{0}\n".format(vbuf_idx or 0)
-        resource_section += textwrap.dedent("""
-            [ResourceVB{}]
-            type = buffer
-            stride = {}
-            filename = {}
-            """).format(vbuf_idx, stride, vb_path + vbuf_idx)
-        if backup:
-            resource_bak_section += "[ResourceBakVB{0}]\n".format(vbuf_idx or 0)
-            backup_section += "ResourceBakVB{0} = ref vb{0}\n".format(vbuf_idx or 0)
-            restore_section += "vb{0} = ResourceBakVB{0}\n".format(vbuf_idx or 0)
-
-    # FIXME: Maybe split this into several ini files that the user may or may
-    # not choose to generate? One that just lists resources, a second that
-    # lists the TextureOverrides to replace draw calls, and a third with the
-    # ShaderOverride sections (or a ShaderRegex for foolproof replacements)...?
-    f.write(
-        textwrap.dedent("""
-            ; Automatically generated file, be careful not to overwrite if you
-            ; make any manual changes
-
-            ; Please note - it is not recommended to place the [ShaderOverride]
-            ; here, as you only want checktextureoverride executed once per
-            ; draw call, so it's better to have all the shaders listed in a
-            ; common file instead to avoid doubling up and to allow common code
-            ; to enable/disable the mods, backup/restore buffers, etc. Plus you
-            ; may need to locate additional shaders to take care of shadows or
-            ; other render passes. But if you understand what you are doing and
-            ; need a quick 'n' dirty way to enable the reinjection, fill this in
-            ; and uncomment it:
-            ;[ShaderOverride{suffix}]
-            ;hash = FILL ME IN...
-            ;checktextureoverride = vb0
-
-            [TextureOverride{suffix}]
-            ;hash = FILL ME IN...
-            """)
-        .lstrip()
-        .format(
-            suffix="",
-        )
-    )
-    if ib is not None and "3DMigoto:FirstIndex" in obj:
-        f.write("match_first_index = {}\n".format(obj["3DMigoto:FirstIndex"]))
-    elif ib is None and "3DMigoto:FirstVertex" in obj:
-        f.write("match_first_vertex = {}\n".format(obj["3DMigoto:FirstVertex"]))
-
-    if backup:
-        f.write(backup_section)
-
-    f.write(bind_section)
-
-    if topology == "trianglestrip":
-        f.write("run = CustomShaderOverrideTopology\n")
-    else:
-        f.write(draw_section)
-
-    if backup:
-        f.write(restore_section)
-
-    if topology == "trianglestrip":
-        f.write(
-            textwrap.dedent("""
-            [CustomShaderOverrideTopology]
-            topology = triangle_list
-            """)
-            + draw_section
-        )
-
-    if backup:
-        f.write("\n" + resource_bak_section)
-
-    f.write(resource_section)
 
 
 def blender_vertex_to_3dmigoto_vertex(
