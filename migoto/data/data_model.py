@@ -1,22 +1,26 @@
+import copy
 import time
 from typing import Callable, Optional, Union
-import copy
+
+import bpy
 import numpy
 from bpy.types import Collection, Context, Mesh, Object
 from numpy.typing import NDArray
+import math
+import mathutils
 
+from ..datahandling import Fatal
+from ..datastructures import GameEnum
 from .byte_buffer import (
     AbstractSemantic,
     BufferLayout,
+    BufferSemantic,
     NumpyBuffer,
     Semantic,
-    BufferSemantic,
 )
 from .data_extractor import BlenderDataExtractor
 from .data_importer import BlenderDataImporter
 from .dxgi_format import DXGIFormat
-from ..datahandling import Fatal
-from ..datastructures import GameEnum
 
 
 class DataModel(object):
@@ -25,6 +29,7 @@ class DataModel(object):
     flip_tangent: bool = False
     flip_bitangent_sign: bool = False
     flip_texcoord_v: bool = False
+    legacy_vertex_colors: bool = False
 
     data_extractor: BlenderDataExtractor = BlenderDataExtractor()
     buffers_format: dict[str, BufferLayout] = {}
@@ -51,9 +56,14 @@ class DataModel(object):
         mesh: Mesh,
         index_buffer: NumpyBuffer,
         vertex_buffer: NumpyBuffer,
-        vg_remap: Optional[NDArray],
+        vg_remap: Optional[numpy.ndarray],
         mirror_mesh: bool = False,
-    ) -> None:
+        mesh_scale: float = 1.0,
+        mesh_rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ):
+        if self.data_importer is None:
+            self.data_importer = BlenderDataImporter()
+
         # Copy default converters
         semantic_converters, format_converters = {}, {}
         semantic_converters.update(copy.deepcopy(self.semantic_converters))
@@ -62,9 +72,7 @@ class DataModel(object):
         # Add generic converters
 
         # Swap first and third index for each triangle in index buffer
-        flip_winding: bool = (
-            self.flip_winding if not mirror_mesh else not self.flip_winding
-        )
+        flip_winding = self.flip_winding if not mirror_mesh else not self.flip_winding
         if flip_winding:
             self._insert_converter(
                 semantic_converters,
@@ -76,15 +84,35 @@ class DataModel(object):
             # Skip tangents import, we'll recalc them on export
             if semantic.abstract.enum in [Semantic.Tangent, Semantic.BitangentSign]:
                 continue
-            # Invert X coord of every vector in arrays required to mirror mesh
-            if mirror_mesh and semantic.abstract.enum in [
+            # Modify coordinate (vector-based) semantics
+            if semantic.abstract.enum in [
                 Semantic.Position,
                 Semantic.ShapeKey,
                 Semantic.Normal,
             ]:
-                self._insert_converter(
-                    semantic_converters, semantic.abstract, self.converter_mirror_vector
-                )
+                # Invert X coord of every vector in arrays required to mirror mesh
+                if mirror_mesh:
+                    self._insert_converter(
+                        semantic_converters,
+                        semantic.abstract,
+                        self.converter_mirror_vector,
+                    )
+                # Scale coords of every vector in arrays required to scale mesh
+                if mesh_scale != 1.0:
+                    converter = lambda data: self.converter_scale_vector(
+                        data, mesh_scale
+                    )
+                    self._insert_converter(
+                        semantic_converters, semantic.abstract, converter
+                    )
+                # Rotate coords of every vector in arrays required to rotate mesh
+                if mesh_rotation != (0.0, 0.0, 0.0):
+                    converter = lambda data: self.converter_rotate_vector(
+                        data, mesh_rotation
+                    )
+                    self._insert_converter(
+                        semantic_converters, semantic.abstract, converter
+                    )
             # Flip V component of UV maps
             if self.flip_texcoord_v and semantic.abstract.enum == Semantic.TexCoord:
                 self._insert_converter(
@@ -109,11 +137,16 @@ class DataModel(object):
             if semantic.abstract.enum not in [
                 Semantic.Blendindices,
                 Semantic.Blendweight,
+                Semantic.Attribute,
+                Semantic.EncodedData,
             ]:
                 blender_num_values = self.blender_data_formats[
                     semantic.abstract.enum
                 ].get_num_values()
-                if semantic.get_num_values() != blender_num_values:
+                if (
+                    semantic.get_num_values() != blender_num_values
+                    and semantic.import_format is None
+                ):
                     converter = (
                         lambda data,
                         width=blender_num_values: self.converter_resize_second_dim(
@@ -124,7 +157,7 @@ class DataModel(object):
                         format_converters, semantic.abstract, converter
                     )
 
-        data_importer: BlenderDataImporter = BlenderDataImporter()
+        data_importer = BlenderDataImporter()
 
         data_importer.set_data(
             obj,
@@ -133,6 +166,7 @@ class DataModel(object):
             vertex_buffer,
             semantic_converters,
             format_converters,
+            self.legacy_vertex_colors,
         )
 
     def get_data(
@@ -318,7 +352,7 @@ class DataModel(object):
             vertex_ids_cache,
             flip_winding=flip_winding,
         )
-
+        assert index_buffer is not None and vertex_buffer is not None
         # if cache_vertex_ids:
         #     # As vertex_ids_cache is None, get_data fetched loop data for us and we can cache vertex ids
         #     vertex_ids = vertex_buffer.get_field(
@@ -338,6 +372,24 @@ class DataModel(object):
     @staticmethod
     def converter_mirror_vector(data: NDArray) -> NDArray:
         data[:, 0] *= -1
+        return data
+
+    @staticmethod
+    def converter_rotate_vector(
+        data: numpy.ndarray, rotation: tuple[float, float, float]
+    ) -> numpy.ndarray:
+        rotation_matrix = (
+            mathutils.Euler(tuple(map(math.radians, rotation)), "XYZ")
+            .to_matrix()
+            .to_4x4()
+        )
+        rotation_matrix_array = numpy.array(rotation_matrix)[:3, :3]
+        data = data @ rotation_matrix_array.T
+        return data
+
+    @staticmethod
+    def converter_scale_vector(data: numpy.ndarray, scale: float) -> numpy.ndarray:
+        data *= scale
         return data
 
     @staticmethod
@@ -424,6 +476,37 @@ class DataModel(object):
             converters[abstract_semantic] = []
         converters[abstract_semantic].insert(0, converter)
 
+    @staticmethod
+    def _create_verterx_attribute(
+        attr_name,
+        object_name,
+        vertex_data: numpy.ndarray,
+        vertex_ids: Optional[numpy.ndarray] = None,
+    ):
+        """
+        DEBUG: Creates float colors vertex attribute with provided data
+        """
+        # Pad vertex data to 4
+        attribute_data = numpy.zeros(len(vertex_data), dtype=(numpy.float32, 4))
+        attribute_data[:, 0 : vertex_data.shape[1]] = vertex_data
+        # Resolve object
+        a_obj = bpy.data.objects[object_name]
+        obj_mesh = a_obj.data
+        # Build new mesh data
+        if vertex_ids is not None:
+            # Use vertex_ids as proxy IDs map to set data
+            # Must be used whenever any blender vertex has more than one corner with unique data
+            mesh_data = numpy.zeros(len(obj_mesh.vertices), dtype=(numpy.float32, 4))
+            mesh_data[vertex_ids] = attribute_data
+        else:
+            mesh_data = attribute_data
+        # Create new vertex attribute FLOAT_COLOR with provided data
+        vertex_attribute = obj_mesh.attributes.new(
+            name=attr_name, type="FLOAT_COLOR", domain="POINT"
+        )
+        vertex_attribute.data.foreach_set("color", mesh_data.flatten())
+        obj_mesh.update()
+
 
 class DataModelXXMI(DataModel):
     game: GameEnum
@@ -461,11 +544,11 @@ class DataModelXXMI(DataModel):
         ]:
             if prop not in obj:
                 obj[prop] = False
-        cls.flip_winding = obj.get("3DMigoto:FlipWinding")
-        cls.flip_normal = obj.get("3DMigoto:FlipNormal")
-        cls.flip_tangent = obj.get("3DMigoto:FlipTangent")
-        cls.flip_bitangent_sign = obj.get("3DMigoto:Tangent")
-        cls.mirror_mesh = obj.get("3DMigoto:FlipMesh")
+        cls.flip_winding = obj.get("3DMigoto:FlipWinding", False)
+        cls.flip_normal = obj.get("3DMigoto:FlipNormal", False)
+        cls.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
+        cls.flip_bitangent_sign = obj.get("3DMigoto:Tangent", False)
+        cls.mirror_mesh = obj.get("3DMigoto:FlipMesh", False)
         if obj.get("3DMigoto:VBLayout") is None:
             raise Fatal(
                 f"Object({obj.name}) is missing custom properties required for export! Reimport the mesh from dump folder."
@@ -526,10 +609,8 @@ class DataModelXXMI(DataModel):
             blend_semantics: list[Semantic] = []
             tex_semantics: list[Semantic] = []
         try:
-            for entry in obj.get("3DMigoto:VBLayout"):
+            for entry in obj.get("3DMigoto:VBLayout", []):
                 s_dict = entry.to_dict()
-                if s_dict["SemanticName"] == "BLENDWEIGHTS":
-                    s_dict["SemanticName"] = "BLENDWEIGHT"
                 new_semantic = BufferSemantic(
                     # offset=semantic_dict["AlignedByteOffset"],
                     # semantic_dict["InputSlotClass"],
@@ -540,7 +621,7 @@ class DataModelXXMI(DataModel):
                     ),
                     format=DXGIFormat(s_dict["Format"]),
                     input_slot=s_dict["InputSlot"],
-                    data_step_rate=s_dict["InstanceDataStepRate"],
+                    instance_data_step_rate=s_dict["InstanceDataStepRate"],
                     remapped_abstract=AbstractSemantic(
                         Semantic(
                             s_dict.get(
@@ -572,7 +653,7 @@ class DataModelXXMI(DataModel):
                                 new_semantic.abstract,
                                 DXGIFormat.from_type(new_semantic.format.dxgi_type, 3),
                                 new_semantic.input_slot,
-                                new_semantic.data_step_rate,
+                                new_semantic.instance_data_step_rate,
                                 remapped_abstract=new_semantic.remapped_abstract,
                             )
                         )
@@ -581,7 +662,7 @@ class DataModelXXMI(DataModel):
                                 AbstractSemantic(Semantic.BitangentSign),
                                 DXGIFormat.from_type(new_semantic.format.dxgi_type, 1),
                                 new_semantic.input_slot,
-                                new_semantic.data_step_rate,
+                                new_semantic.instance_data_step_rate,
                                 remapped_abstract=new_semantic.remapped_abstract,
                             )
                         )
@@ -701,4 +782,7 @@ class DataModelXXMI(DataModel):
             format_converters,
             flip_winding=flip_winding,
         )
+
+        assert index_buffer is not None and vertex_buffer is not None
+
         return index_buffer, vertex_buffer
