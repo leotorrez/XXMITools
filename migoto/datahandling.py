@@ -121,6 +121,8 @@ def open_frame_analysis_log_file(dirname: Path) -> FALogFile:
         path = os.path.join(dirname, "..", f"log-0x{context}.txt")
     else:
         path = os.path.join(dirname, "log.txt")
+    if not os.path.isfile(path):
+        return None
     return FALogFile(open(path, "r"))
 
 
