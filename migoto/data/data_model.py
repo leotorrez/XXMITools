@@ -32,6 +32,8 @@ class DataModel(object):
     legacy_vertex_colors: bool = False
 
     data_extractor: BlenderDataExtractor = BlenderDataExtractor()
+    data_importer: Optional[BlenderDataImporter] = None
+
     buffers_format: dict[str, BufferLayout] = {}
     semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
     format_converters: dict[AbstractSemantic, list[Callable]] = {}

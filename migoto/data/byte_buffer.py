@@ -9,6 +9,7 @@ from .dxgi_format import DXGIFormat
 from operator import attrgetter
 import re
 import io
+from ..datahandling import Fatal
 
 
 class Topology(Enum):
@@ -487,7 +488,9 @@ class NumpyBuffer:
 
         matches = pattern.findall(data)
         if not matches:
-            raise ValueError
+            raise ValueError(
+                "Failed to parse any data with the provided layout and remapping!",
+            )
 
         data = numpy.array(matches, dtype=numpy.float32)  # parse floats first
 
@@ -502,6 +505,23 @@ class NumpyBuffer:
                 field_data = field_data.ravel()
             self.set_field(semantic.get_name(), field_data)
             start += n
+
+    def import_txt_data_ib(self, data: str):
+        headless = data.split("\n\n", 1)[-1]
+        faces = headless.split("\n")
+        ibs = [face.split(" ") for face in faces if face.strip()]
+        ibs = [int(index) for face in ibs for index in face]
+        semantic = self.layout.get_element(0)
+        if semantic is None:
+            raise ValueError(
+                "NumpyBuffer is missing semantic for index buffer data import!"
+            )
+        field_data = (
+            numpy.array(ibs, dtype=numpy.uint32)
+            .astype(semantic.format.numpy_base_type)
+            .reshape(-1, semantic.get_num_values())
+        )
+        self.set_field(semantic.get_name(), field_data)
 
     def get_bytes(self):
         return self.data.tobytes()
@@ -565,12 +585,17 @@ class MigotoFormat:
             raise ValueError(
                 f"Failed to resolve format file for VB `{vb_path}` and IB `{ib_path}`"
             )
-        if not fmt_path.is_file():
-            raise FileNotFoundError(f"Format file does not exist: {fmt_path}")
-
-        # Read migoto format from fmt file
-        with open(fmt_path, "r") as fmt_file:
-            fmt = MigotoFormat.from_fmt_file(fmt_file)
+        if fmt_path.is_file():
+            # Read migoto format from fmt file
+            with open(fmt_path, "r") as fmt_file:
+                fmt = MigotoFormat.from_fmt_file(fmt_file)
+        else:
+            if ib_path is None or vb_path is None:
+                raise ValueError(
+                    f"Failed to resolve format file for VB `{vb_path}` and IB `{ib_path}` and auto-detection failed (fmt file not found)!"
+                )
+            with open(ib_path, "r") as ib_file, open(vb_path, "r") as vb_file:
+                fmt = MigotoFormat.from_vb_ib_files(vb_file, ib_file)
 
         return fmt
 
@@ -693,7 +718,19 @@ class MigotoFormat:
         return cls.from_dict(migoto_data)
 
     @classmethod
-    def extract_txt_file_fmt_text(cls, file_data: io.IOBase) -> dict:
+    def from_vb_ib_files(
+        cls, vb_file_data: io.IOBase, ib_file_data: io.IOBase
+    ) -> "MigotoFormat":
+        vb_fmt_data = cls.extract_txt_file_fmt_text(vb_file_data)
+        ib_fmt_data = cls.extract_txt_file_fmt_text(ib_file_data)
+        ib_fmt = cls.parse_fmt_text(ib_fmt_data)
+        vb_fmt = cls.parse_fmt_text(vb_fmt_data)
+        merged_fmt = vb_fmt | ib_fmt
+
+        return cls.from_dict(merged_fmt)
+
+    @classmethod
+    def extract_txt_file_fmt_text(cls, file_data: io.IOBase) -> str:
         lines = ""
         for line in file_data:
             if not line.strip():

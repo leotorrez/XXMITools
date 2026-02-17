@@ -7,7 +7,7 @@ import numpy
 from pathlib import Path
 from typing import Callable
 from glob import glob, escape as glob_escape
-
+from .importer import ObjectImporter, ImporterOptions
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, StringProperty
 from bpy.types import (
@@ -1106,6 +1106,347 @@ class Import3DMigotoFrameAnalysis(Operator, ImportHelper, IOOBJOrientationHelper
                     os.path.join(os.path.dirname(self.filepath), "hash.json")
                 ):
                     xxmi.dump_path = os.path.dirname(self.filepath)
+        except Fatal as e:
+            self.report({"ERROR"}, str(e))
+        return {"FINISHED"}
+
+    def draw(self, context):
+        # Overriding the draw method to disable automatically adding operator
+        # properties to options panel, so we can define sub-panels to group
+        # options and disable grey out mutually exclusive options.
+        pass
+
+
+@orientation_helper(axis_forward="-Z", axis_up="Y")
+class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
+    """Import a mesh dumped with 3DMigoto's material"""
+
+    bl_idname = "import_mesh.migoto_material"
+    bl_label = "Import 3DMigoto material"
+    bl_options = {"PRESET", "UNDO"}
+
+    filename_ext = ".txt"
+    filter_glob: StringProperty(
+        default="*.txt",
+        options={"HIDDEN"},
+    )
+
+    files: CollectionProperty(
+        name="File Path",
+        type=OperatorFileListElement,
+    )
+
+    flip_texcoord_v: BoolProperty(
+        name="Flip TEXCOORD V",
+        description="Flip TEXCOORD V asix during importing",
+        default=True,
+    )
+
+    flip_winding: BoolProperty(
+        name="Flip Winding Order",
+        description="Flip winding order (face orientation) during importing. Try if the model doesn't seem to be shading as expected in Blender and enabling the 'Face Orientation' overlay shows **RED** (if it shows BLUE, try 'Flip Normal' instead). Not quite the same as flipping normals within Blender as this only reverses the winding order without flipping the normals. Recommended for Unreal Engine",
+        default=False,
+    )
+
+    flip_mesh: BoolProperty(
+        name="Flip Mesh",
+        description="Mirrors mesh over the X Axis on import, and invert the winding order.",
+        default=False,
+    )
+
+    flip_normal: BoolProperty(
+        name="Flip Normal",
+        description="Flip Normals during importing. Try if the model doesn't seem to be shading as expected in Blender and enabling 'Face Orientation' overlay shows **BLUE** (if it shows RED, try 'Flip Winding Order' instead). Not quite the same as flipping normals within Blender as this won't reverse the winding order",
+        default=False,
+    )
+
+    load_related: BoolProperty(
+        name="Auto-load related meshes",
+        description="Automatically load related meshes found in the frame analysis dump",
+        default=True,
+    )
+
+    load_related_so_vb: BoolProperty(
+        name="Load pre-SO buffers (EXPERIMENTAL)",
+        description="Scans the frame analysis log file to find GPU pre-skinning Stream Output techniques in prior draw calls, and loads the unposed vertex buffers from those calls that are suitable for editing. Recommended for Unity games to load neutral poses",
+        default=False,
+    )
+
+    load_buf: BoolProperty(
+        name="Load .buf files instead",
+        description="Load the mesh from the binary .buf dumps instead of the .txt files\nThis will load the entire mesh as a single object instead of separate objects from each draw call",
+        default=False,
+    )
+
+    load_buf_limit_range: BoolProperty(
+        name="Limit to draw range",
+        description="Load just the vertices/indices used in the draw call (equivalent to loading the .txt files) instead of the complete buffer",
+        default=False,
+    )
+
+    merge_meshes: BoolProperty(
+        name="Merge meshes together",
+        description="Merge all selected meshes together into one object. Meshes must be related",
+        default=False,
+    )
+
+    pose_cb: StringProperty(
+        name="Bone CB",
+        description='Indicate a constant buffer slot (e.g. "vs-cb2") containing the bone matrices',
+        default="",
+    )
+
+    pose_cb_off: bpy.props.IntVectorProperty(
+        name="Bone CB range",
+        description="Indicate start and end offsets (in multiples of 4 component values) to find the matrices in the Bone CB",
+        default=[0, 0],
+        size=2,
+        min=0,
+    )
+
+    pose_cb_step: bpy.props.IntProperty(
+        name="Vertex group step",
+        description="If used vertex groups are 0,1,2,3,etc specify 1. If they are 0,3,6,9,12,etc specify 3",
+        default=1,
+        min=1,
+    )
+
+    semantic_remap: bpy.props.CollectionProperty(type=SemanticRemapItem)
+    semantic_remap_idx: bpy.props.IntProperty(
+        name="Semantic Remap",
+        description="Enter the SemanticName and SemanticIndex the game is using on the left (e.g. TEXCOORD3), and what type of semantic the script should treat it as on the right",
+    )  # Needed for template_list
+
+    merge_verts: BoolProperty(
+        name="Merge Vertices",
+        description="Merge by distance to remove duplicate vertices",
+        default=False,
+    )
+    tris_to_quads: BoolProperty(
+        name="Tris to Quads",
+        description="Convert all tris to quads",
+        default=False,
+    )
+    clean_loose: BoolProperty(
+        name="Clean Loose",
+        description="Remove loose geometry",
+        default=False,
+    )
+
+    def get_vb_ib_paths(self, load_related=None) -> set[ImportPaths]:
+        buffer_pattern = re.compile(
+            r"""-(?:ib|vb[0-9]+)(?P<hash>=[0-9a-f]+)?(?=[^0-9a-f=])"""
+        )
+        vb_regex = re.compile(
+            r"""^(?P<draw_call>[0-9]+)-vb(?P<slot>[0-9]+)="""
+        )  # TODO: Combine with above? (careful not to break hold type frame analysis)
+
+        dirname = os.path.dirname(self.filepath)
+        ret = set()
+        if load_related is None:
+            load_related = self.load_related
+
+        vb_so_map = {}
+        if self.load_related_so_vb:
+            try:
+                fa_log = open_frame_analysis_log_file(dirname)
+            except FileNotFoundError:
+                self.report(
+                    {"WARNING"},
+                    "Frame Analysis Log File not found, loading unposed meshes from GPU Stream Output pre-skinning passes will be unavailable",
+                )
+            else:
+                vb_so_map = find_stream_output_vertex_buffers(fa_log)
+
+        files = set()
+        if load_related:
+            for filename in self.files:
+                match = buffer_pattern.search(filename.name)
+                if match is None or not match.group("hash"):
+                    continue
+                paths = glob(
+                    os.path.join(
+                        dirname, "*%s*.txt" % filename.name[match.start() : match.end()]
+                    )
+                )
+                files.update([os.path.basename(x) for x in paths])
+        if not files:
+            files = [x.name for x in self.files]
+            if files == [""]:
+                raise Fatal("No files selected")
+
+        done = set()
+        for filename in files:
+            if filename in done:
+                continue
+            match = buffer_pattern.search(filename)
+            if match is None:
+                if (
+                    filename.lower().startswith("log")
+                    or filename.lower() == "shaderusage.txt"
+                ):
+                    # User probably just selected all files including the log
+                    continue
+                # TODO: Perhaps don't warn about extra files that may have been
+                # dumped out that we aren't specifically importing (such as
+                # constant buffers dumped with dump_cb or any buffer dumped
+                # with dump=), maybe provided we are loading other files from
+                # that draw call. Note that this is only applicable if 'load
+                # related' is disabled, as that option effectively filters
+                # these out above. For now just changed this to an error report
+                # rather than a Fatal so other files will still get loaded.
+                self.report(
+                    {"ERROR"},
+                    'Unable to find corresponding buffers from "{}" - filename did not match vertex/index buffer pattern'.format(
+                        filename
+                    ),
+                )
+                continue
+
+            use_bin = self.load_buf
+            if not match.group("hash") and not use_bin:
+                self.report(
+                    {"INFO"},
+                    "Filename did not contain hash - if Frame Analysis dumped a custom resource the .txt file may be incomplete, Using .buf files instead",
+                )
+                use_bin = True  # FIXME: Ask
+
+            ib_pattern = filename[: match.start()] + "-ib*" + filename[match.end() :]
+            vb_pattern = filename[: match.start()] + "-vb*" + filename[match.end() :]
+            ib_paths = glob(os.path.join(dirname, ib_pattern))
+            vb_paths = glob(os.path.join(dirname, vb_pattern))
+            done.update(map(os.path.basename, itertools.chain(vb_paths, ib_paths)))
+
+            if vb_so_map:
+                vb_so_paths = set()
+                for vb_path in vb_paths:
+                    vb_match = vb_regex.match(os.path.basename(vb_path))
+                    if vb_match:
+                        draw_call, slot = map(int, vb_match.group("draw_call", "slot"))
+                        so = vb_so_map.get(VBSOMapEntry(draw_call, slot))
+                        if so:
+                            # No particularly good way to determine which input
+                            # vertex buffers we need from the stream-output
+                            # pass, so for now add them all:
+                            vb_so_pattern = f"{so.draw_call:06}-vb*.txt"
+                            glob_result = glob(os.path.join(dirname, vb_so_pattern))
+                            if not glob_result:
+                                self.report(
+                                    {"WARNING"},
+                                    f"{vb_so_pattern} not found, loading unposed meshes from GPU Stream Output pre-skinning passes will be unavailable",
+                                )
+                            vb_so_paths.update(glob_result)
+                # FIXME: Not sure yet whether the extra vertex buffers from the
+                # stream output pre-skinning passes are best lumped in with the
+                # existing vb_paths or added as a separate set of paths. Advantages
+                # + disadvantages to each, and either way will need work.
+                vb_paths.extend(sorted(vb_so_paths))
+
+            if vb_paths and use_bin:
+                vb_bin_paths = [os.path.splitext(x)[0] + ".buf" for x in vb_paths]
+                ib_bin_paths = [os.path.splitext(x)[0] + ".buf" for x in ib_paths]
+                if all(
+                    [
+                        os.path.exists(x)
+                        for x in itertools.chain(vb_bin_paths, ib_bin_paths)
+                    ]
+                ):
+                    # When loading the binary files, we still need to process
+                    # the .txt files as well, as they indicate the format:
+                    ib_paths = list(zip(ib_bin_paths, ib_paths))
+                    vb_paths = list(zip(vb_bin_paths, vb_paths))
+                else:
+                    self.report(
+                        {"WARNING"},
+                        "Corresponding .buf files not found - using .txt files",
+                    )
+                    use_bin = False
+
+            pose_path = None
+            if self.pose_cb:
+                pose_pattern = (
+                    filename[: match.start()] + "*-" + self.pose_cb + "=*.txt"
+                )
+                try:
+                    pose_path = glob(os.path.join(dirname, pose_pattern))[0]
+                except IndexError:
+                    pass
+
+            if len(ib_paths) > 1:
+                raise Fatal("Error: excess index buffers in dump?")
+            elif len(ib_paths) == 0:
+                if use_bin:
+                    name = os.path.basename(vb_paths[0][0])
+                    ib_paths = [(None, None)]
+                else:
+                    name = os.path.basename(vb_paths[0])
+                    ib_paths = [None]
+                self.report(
+                    {"WARNING"},
+                    "{}: No index buffer present, support for this case is highly experimental".format(
+                        name
+                    ),
+                )
+            ret.add(ImportPaths(tuple(vb_paths), ib_paths[0], use_bin, pose_path))
+        return ret
+
+    def execute(self, context):
+        if self.load_buf:
+            # Is there a way to have the mutual exclusivity reflected in
+            # the UI? Grey out options or use radio buttons or whatever?
+            if self.merge_meshes or self.load_related:
+                self.report(
+                    {"INFO"},
+                    "Loading .buf files selected: Disabled incompatible options",
+                )
+            self.merge_meshes = False
+            self.load_related = False
+
+        try:
+            keywords = self.as_keywords(
+                ignore=(
+                    "filepath",
+                    "files",
+                    "filter_glob",
+                    "load_related",
+                    "load_related_so_vb",
+                    "load_buf",
+                    "pose_cb",
+                    "load_buf_limit_range",
+                    "semantic_remap",
+                    "semantic_remap_idx",
+                )
+            )
+
+            cfg = ImporterOptions(
+                flip_texcoord_v=self.flip_texcoord_v,
+                flip_winding=self.flip_winding,
+                flip_mesh=self.flip_mesh,
+                flip_normal=self.flip_normal,
+                load_related=self.load_related,
+                load_related_so_vb=self.load_related_so_vb,
+                load_buf=self.load_buf,
+                load_buf_limit_range=self.load_buf_limit_range,
+                merge_meshes=self.merge_meshes,
+                pose_cb=self.pose_cb,
+                pose_cb_off=self.pose_cb_off,
+                pose_cb_step=self.pose_cb_step,
+                # semantic_remap=[
+                #     (x.semantic_from, x.semantic_to) for x in self.semantic_remap
+                # ],
+                merge_verts=self.merge_verts,
+                tris_to_quads=self.tris_to_quads,
+                clean_loose=self.clean_loose,
+                import_paths=self.get_vb_ib_paths(),
+            )
+            importer = ObjectImporter()
+            importer.import_object(self, context, cfg)
+
+            xxmi: XXMIProperties = context.scene.xxmi
+            if not xxmi.dump_path:
+                hash_json_path = Path(self.filepath).parent / "hash.json"
+                if hash_json_path.exists():
+                    xxmi.dump_path = str(hash_json_path.parent)
         except Fatal as e:
             self.report({"ERROR"}, str(e))
         return {"FINISHED"}

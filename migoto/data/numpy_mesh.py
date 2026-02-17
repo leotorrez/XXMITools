@@ -30,7 +30,7 @@ class NumpyMesh:
         vb_path: Path | None = None,
         ib_path: Path | None = None,
         fmt_path: Path | None = None,
-        use_binary: bool = True,
+        use_binary: bool = False,
     ) -> "NumpyMesh":
         # Make migoto format from fmt file
         if migoto_format is None:
@@ -47,26 +47,40 @@ class NumpyMesh:
         vb_bytes = None
         if vb_path is None:
             vb_path = cls.resolve_partner_path(ib_path, ".vb")
-        if vb_path is not None:
+        if vb_path is not None and vb_path.suffix == ".vb":
             with open(vb_path, "rb") as vb:
                 vb_bytes = vb.read()
 
         ib_bytes = None
         if ib_path is None:
             ib_path = cls.resolve_partner_path(vb_path, ".ib")
-        if ib_path is not None:
+        if ib_path is not None and ib_path.suffix == ".ib":
             with open(ib_path, "rb") as ib:
                 ib_bytes = ib.read()
+
+        if vb_bytes is None and ib_bytes is None:
+            raise ValueError(
+                "Failed to read binary buffers. Please check the paths and try again."
+            )
+
         return cls.from_bytes(migoto_format, vb_bytes, ib_bytes)
 
     @staticmethod
-    def resolve_partner_path(path: Path | None, partner_suffix: str) -> Path:
+    def resolve_partner_path(path: Path | None, partner_suffix: str) -> Path | None:
         if path is None:
             return None
         partner_path = path.with_suffix(partner_suffix)
         if not partner_path.is_file():
             return None
         return partner_path
+
+    @staticmethod
+    def txt_to_bytes(layout, txt_path: Path) -> bytes:
+        with open(txt_path, "r") as f:
+            txt_data = f.read()
+        buffer = NumpyBuffer(layout)
+        buffer.import_txt_data(txt_data)
+        return buffer.get_bytes()
 
     @classmethod
     def from_bytes(
@@ -105,13 +119,15 @@ class NumpyMesh:
             raise ValueError(
                 "Both vertex and index buffer layouts must be defined in the format."
             )
-        vb_buffer = NumpyBuffer(migoto_format.vb_layout)
-        ib_buffer = NumpyBuffer(migoto_format.ib_layout)
+        vb_buffer = NumpyBuffer(
+            migoto_format.vb_layout, size=migoto_format.vertex_count
+        )
+        ib_buffer = NumpyBuffer(
+            migoto_format.ib_layout, size=migoto_format.index_count // 3
+        )
         with open(vb_path, "r") as vb_file, open(ib_path, "r") as ib_file:
-            vb_txt = vb_file.read()
-            ib_txt = ib_file.read()
-            vb_buffer.import_txt_data(vb_txt)
-            ib_buffer.import_txt_data(ib_txt)
+            vb_buffer.import_txt_data(vb_file.read())
+            ib_buffer.import_txt_data_ib(ib_file.read())
 
         return cls(
             format=migoto_format,

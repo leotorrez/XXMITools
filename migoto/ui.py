@@ -14,6 +14,7 @@ from .operators import (
 )
 from .import_ops import (
     ClearSemanticRemapList,
+    Import3DMigotoMaterial,
     PrefillSemanticRemapList,
     Import3DMigotoFrameAnalysis,
     Import3DMigotoRaw,
@@ -182,6 +183,138 @@ class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, Panel):
 
     def draw(self, context):
         MigotoImportOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "merge_verts")
+        self.layout.prop(operator, "tris_to_quads")
+        self.layout.prop(operator, "clean_loose")
+
+
+class MigotoImportMaterialOptionsPanelBase(object):
+    bl_space_type = "FILE_BROWSER"
+    bl_region_type = "TOOL_PROPS"
+    bl_parent_id = "FILE_PT_operator"
+
+    @classmethod
+    def poll(cls, context):
+        operator = context.space_data.active_operator
+        return operator.bl_idname == "IMPORT_MESH_OT_migoto_material"
+
+    def draw(self, context):
+        self.layout.use_property_split = True
+        self.layout.use_property_decorate = False
+
+
+class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Panel):
+    bl_label = ""
+    bl_options = {"HIDE_HEADER"}
+    bl_order = 0
+
+    def draw(self, context):
+        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "flip_texcoord_v")
+        self.layout.prop(operator, "flip_winding")
+        self.layout.prop(operator, "flip_normal")
+        self.layout.prop(operator, "flip_mesh")
+
+
+class MIGOTO_PT_ImportMaterialRelatedFilesPanel(
+    MigotoImportMaterialOptionsPanelBase, Panel
+):
+    bl_label = ""
+    bl_options = {"HIDE_HEADER"}
+    bl_order = 1
+
+    def draw(self, context):
+        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.enabled = not operator.load_buf
+        self.layout.prop(operator, "load_related")
+        self.layout.prop(operator, "load_related_so_vb")
+        self.layout.prop(operator, "merge_meshes")
+
+
+class MIGOTO_PT_ImportMaterialBufFilesPanel(
+    MigotoImportMaterialOptionsPanelBase, Panel
+):
+    bl_label = "Load .buf files instead"
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 2
+
+    def draw_header(self, context):
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "load_buf", text="")
+
+    def draw(self, context):
+        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.enabled = operator.load_buf
+        self.layout.prop(operator, "load_buf_limit_range")
+
+
+class MIGOTO_PT_ImportMaterialBonePanel(MigotoImportMaterialOptionsPanelBase, Panel):
+    bl_label = ""
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 3
+
+    def draw_header(self, context):
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "pose_cb")
+
+    def draw(self, context):
+        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "pose_cb_off")
+        self.layout.prop(operator, "pose_cb_step")
+
+
+class MIGOTO_PT_ImportMaterialRemapSemanticsPanel(
+    MigotoImportMaterialOptionsPanelBase, Panel
+):
+    bl_label = "Semantic Remap"
+    # bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 4
+
+    def draw(self, context):
+        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        # TODO: Add layout.operator() to read selected file and fill in semantics
+
+        if context.path_resolve is None:
+            # Avoid exceptions in console - seems like draw() is called several
+            # times (not sure why) and sometimes path_resolve isn't available.
+            return
+        draw_ui_list(
+            self.layout,
+            context,
+            class_name="MIGOTO_UL_semantic_remap_list",
+            menu_class_name="MIGOTO_MT_semantic_remap_menu",
+            list_path="active_operator.properties.semantic_remap",
+            active_index_path="active_operator.properties.semantic_remap_idx",
+            unique_id="migoto_import_semantic_remap_list",
+            item_dyntip_propname="tooltip",
+        )
+
+
+class MIGOTO_PT_ImportMaterialManualOrientation(
+    MigotoImportMaterialOptionsPanelBase, Panel
+):
+    bl_label = "Orientation"
+    bl_order = 5
+
+    def draw(self, context):
+        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "axis_forward")
+        self.layout.prop(operator, "axis_up")
+
+
+class MIGOTO_PT_ImportMaterialCleanUp(MigotoImportMaterialOptionsPanelBase, Panel):
+    bl_label = "Clean Up mesh after import"
+    bl_order = 6
+
+    def draw(self, context):
+        MigotoImportMaterialOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         self.layout.prop(operator, "merge_verts")
         self.layout.prop(operator, "tris_to_quads")
@@ -396,6 +529,13 @@ def menu_func_import_fa(self, context):
     )
 
 
+def menu_func_import_mat(self, context):
+    self.layout.operator(
+        Import3DMigotoMaterial.bl_idname,
+        text="3DMigoto material(vb.txt + ib.txt)",
+    )
+
+
 def menu_func_import_raw(self, context):
     self.layout.operator(
         Import3DMigotoRaw.bl_idname, text="3DMigoto raw buffers (.vb + .ib)"
@@ -428,6 +568,7 @@ export_menu = bpy.types.TOPBAR_MT_file_export
 
 
 def register():
+    import_menu.append(menu_func_import_mat)
     import_menu.append(menu_func_import_fa)
     import_menu.append(menu_func_import_raw)
     export_menu.append(menu_func_export)
@@ -437,6 +578,7 @@ def register():
 
 
 def unregister():
+    import_menu.remove(menu_func_import_mat)
     import_menu.remove(menu_func_import_fa)
     import_menu.remove(menu_func_import_raw)
     export_menu.remove(menu_func_export)
