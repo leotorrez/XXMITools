@@ -1,49 +1,50 @@
 import itertools
 import os
-import struct
-
 import re
-import numpy
+import struct
+from glob import escape as glob_escape
+from glob import glob
 from pathlib import Path
 from typing import Callable
-from glob import glob, escape as glob_escape
-from .importer import ObjectImporter, ImporterOptions
+
 import bpy
+import numpy
 from bpy.props import BoolProperty, CollectionProperty, StringProperty
 from bpy.types import (
+    Context,
+    Mesh,
+    Object,
     Operator,
     OperatorFileListElement,
     PropertyGroup,
-    Context,
-    Object,
-    Mesh,
 )
 from bpy_extras.io_utils import (
     ImportHelper,
+    axis_conversion,
     orientation_helper,
     unpack_list,
-    axis_conversion,
 )
 
 from .datahandling import (
-    find_stream_output_vertex_buffers,
-    open_frame_analysis_log_file,
     apply_vgmap,
+    assert_pointlist_ib_is_pointless,
+    find_stream_output_vertex_buffers,
+    import_pose,
     new_custom_attribute_float,
     new_custom_attribute_int,
-    assert_pointlist_ib_is_pointless,
-    import_pose,
+    open_frame_analysis_log_file,
 )
 from .datastructures import (
     Fatal,
     ImportPaths,
+    IndexBuffer,
     IOOBJOrientationHelper,
     VBSOMapEntry,
     VertexBufferGroup,
-    IndexBuffer,
     vertex_color_layer_channels,
 )
 from .export_ops import XXMIProperties
+from .importer import ImporterOptions, ObjectImporter
 
 
 def load_3dmigoto_mesh_bin(operator: Operator, vb_paths, ib_paths, pose_path):
@@ -1438,6 +1439,8 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
                 tris_to_quads=self.tris_to_quads,
                 clean_loose=self.clean_loose,
                 import_paths=self.get_vb_ib_paths(),
+                axis_forward=self.axis_forward,
+                axis_up=self.axis_up,
             )
             importer = ObjectImporter()
             importer.import_object(self, context, cfg)
