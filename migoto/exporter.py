@@ -1,6 +1,6 @@
+import json
 import shutil
 import time
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
@@ -13,11 +13,11 @@ from numpy.typing import NDArray
 from .. import bl_info
 from ..libs.jinja2 import Environment, FileSystemLoader
 from .data.byte_buffer import (
+    AbstractSemantic,
     BufferLayout,
     BufferSemantic,
     NumpyBuffer,
     Semantic,
-    AbstractSemantic,
 )
 from .data.data_model import DataModelXXMI
 from .data.ini_format import INI_file

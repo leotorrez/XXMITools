@@ -12,7 +12,7 @@ import io
 from ..datahandling import Fatal
 
 
-class Topology(Enum):
+class Topology(str, Enum):
     Undefined = "undefined"
     PointList = "pointlist"
     LineList = "linelist"
@@ -65,7 +65,7 @@ class Topology(Enum):
         return f"{self.value}"
 
 
-class Semantic(Enum):
+class Semantic(str, Enum):
     VertexId = "VERTEXID"
     Index = "INDEX"
     Tangent = "TANGENT"
@@ -101,7 +101,7 @@ class Semantic(Enum):
         return f"{self.value}"
 
 
-class InputSlotClass(Enum):
+class InputSlotClass(str, Enum):
     PerVertex = "per-vertex"
     PerInstance = "per-instance"
 
@@ -199,6 +199,17 @@ class BufferSemantic:
         self,
     ) -> int | tuple[numpy.integer | numpy.floating, int]:
         return self.format.get_numpy_type(self.stride)
+
+    def to_dict(self) -> dict:
+        return {
+            "SemanticName": self.abstract.enum.value,
+            "SemanticIndex": self.abstract.index,
+            "Format": self.format.format,
+            "InputSlot": self.input_slot,
+            "AlignedByteOffset": self.offset,
+            "InputSlotClass": self.input_slot_class.value,
+            "InstanceDataStepRate": self.instance_data_step_rate,
+        }
 
 
 @dataclass
@@ -342,6 +353,9 @@ class BufferLayout:
                 offset += semantic.stride
             filtered_semantics += slot_semantics
         self.semantics = filtered_semantics
+
+    def serialise(self):
+        return [x.to_dict() for x in self.semantics]
 
 
 class NumpyBuffer:
@@ -648,6 +662,8 @@ class MigotoFormat:
         # Fill instance with elements data
 
         layout = BufferLayout(semantics=[], auto_stride=False, auto_offsets=False)
+        layout.stride = migoto_data.get("stride", 0)
+        # TODO: add support for "VB%i stride" format for txt and fmt files with multiple VBs per IB
 
         for element in tokenized_elements_data.values():
             buffer_semantic = BufferSemantic(
