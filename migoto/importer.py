@@ -8,7 +8,7 @@ from bpy_extras.io_utils import axis_conversion
 from .data.byte_buffer import AbstractSemantic, MigotoFormat
 from .data.data_model import DataModelXXMI
 from .data.hash_json import HashJsonData
-from .data.numpy_mesh import NumpyMesh
+from .data.numpy_mesh import NumpyMesh, NumpyMeshGroup
 from .datahandling import Fatal
 from .datastructures import ImportPaths
 
@@ -19,6 +19,7 @@ class ImporterOptions:
     flip_winding: bool = False
     flip_mesh: bool = False
     flip_normal: bool = False
+    create_materials: bool = False
     load_related: bool = False
     load_related_so_vb: bool = False
     load_buf: bool = True
@@ -46,8 +47,6 @@ class ObjectImporter:
         start_time = time.time()
         print(f"Object import started for '{import_folder.stem}' folder")
 
-        imported_objects = []
-
         try:
             hash_json_data = HashJsonData(import_folder / "hash.json")
         except FileNotFoundError:
@@ -57,24 +56,9 @@ class ObjectImporter:
         except Exception as e:
             raise Fatal(f"Failed to load hash.json:\n{e}")
 
-        for vb_paths, ib_path, use_bin, pose_path in cfg.import_paths:
-            vb_path = Path(vb_paths[0])
-            ib_path = Path(ib_path)
-            fmt_path = vb_path.with_suffix(".fmt")
-            obj = self.import_component(
-                operator,
-                context,
-                cfg,
-                fmt_path,
-                ib_path,
-                vb_path,
-                hash_json_data,
-                axis_forward=cfg.axis_forward,
-                axis_up=cfg.axis_up,
-            )
-
-            imported_objects.append(obj)
-
+        imported_objects = self.process_objects(
+            operator, context, cfg, hash_json_data, import_folder
+        )
         if len(imported_objects) == 0:
             raise Fatal(
                 "Specified folder is missing files for components!",
@@ -83,41 +67,86 @@ class ObjectImporter:
         assert import_folder is not None
 
         col = bpy.data.collections.new(import_folder.stem)
+        context.scene.collection.children.link(col)
         for obj in imported_objects:
             col.objects.link(obj)
-            context.scene.collection.objects.link(obj)
-            self.cleanup_object(context, obj, cfg)
+            self.cleanup_object(operator, context, obj, cfg)
             # if cfg.skip_empty_vertex_groups and cfg.import_skeleton_type == "MERGED":
             #     remove_unused_vertex_groups(context, obj)
-        context.scene.collection.children.link(col)
 
         print(f"Total import time: {time.time() - start_time:.3f}s")
+
+    def process_objects(
+        self, operator, context, cfg, hash_json_data, import_folder: Path
+    ) -> list[bpy.types.Object]:
+        imported_objects = []
+
+        grouped_paths: dict[str, set[ImportPaths]] = {}
+        if cfg.merge_meshes:
+            for component in reversed(hash_json_data.components):
+                fullname = component.fullname
+                grouped_paths[fullname] = set(
+                    x
+                    for x in cfg.import_paths
+                    if Path(x.ib_paths).stem.startswith(fullname)
+                )
+                if len(grouped_paths[fullname]) == 0:
+                    del grouped_paths[fullname]
+        else:
+            for paths in cfg.import_paths:
+                ib_path = Path(paths.ib_paths)
+                fullname = ib_path.stem.split("-ib")[0]
+                if fullname not in grouped_paths:
+                    grouped_paths[fullname] = set()
+                grouped_paths[fullname].add(paths)
+
+        for fullname, paths in grouped_paths.items():
+            obj = self.import_component(
+                operator,
+                context,
+                cfg,
+                grouped_paths[fullname],
+                hash_json_data,
+                fullname,
+                axis_forward=cfg.axis_forward,
+                axis_up=cfg.axis_up,
+            )
+
+            imported_objects.append(obj)
+
+        return imported_objects
 
     def import_component(
         self,
         operator,
         context,
         cfg,
-        fmt_path: Path,
-        ib_path: Path,
-        vb_path: Path,
+        paths: set[ImportPaths],
         hash_json_data: HashJsonData,
+        name: str,
         axis_forward="Y",
         axis_up="Z",
     ):
         start_time = time.time()
-        migoto_format = MigotoFormat.from_paths(fmt_path, ib_path, vb_path)
-        if migoto_format.vb_layout is None or migoto_format.format is None:
-            raise Fatal(
-                f"Specified .fmt file for {fmt_path.stem} is missing vertex buffer layout!",
-            )
-        numpy_mesh = NumpyMesh.from_paths(migoto_format, vb_path, ib_path, cfg.load_buf)
+        numpy_mesh_group: NumpyMeshGroup = NumpyMeshGroup()
+        migoto_format: MigotoFormat | None = None
 
-        if numpy_mesh.vertex_buffer is None or numpy_mesh.index_buffer is None:
-            raise Fatal(
-                "object_source_folder",
-                f"Specified .fmt file for {fmt_path.stem} is missing vertex or index buffer!",
+        face_counts: dict[ImportPaths, int] = {}
+        for p in paths:
+            vb_paths, ib_path, _, _ = p
+            vb_path = Path(vb_paths[0])
+            fmt_path = vb_path.with_suffix(".fmt")
+            migoto_format = MigotoFormat.from_paths(fmt_path, ib_path, vb_path)
+            if migoto_format.vb_layout is None or migoto_format.format is None:
+                raise Fatal(
+                    f"Specified .fmt file for {fmt_path.stem} is missing vertex buffer layout!",
+                )
+            numpy_mesh_group.add_mesh(
+                NumpyMesh.from_paths(migoto_format, vb_path, ib_path, fmt_path)
             )
+
+        if migoto_format is None:
+            raise Fatal(f"Failed to parse a format for component {name}!")
 
         vg_remap = None
         # if cfg.import_skeleton_type == "MERGED":
@@ -127,7 +156,7 @@ class ObjectImporter:
         #         component = extracted_object.components[int(result[0])]
         #         vg_remap = numpy.array(list(component.vg_map.values()))
 
-        mesh = bpy.data.meshes.new(vb_path.stem)
+        mesh = bpy.data.meshes.new(name)
         obj = bpy.data.objects.new(mesh.name, mesh)
         assert mesh is not None and obj is not None
 
@@ -142,15 +171,15 @@ class ObjectImporter:
         model.legacy_vertex_colors = False
 
         self.set_custom_properties(obj, migoto_format, cfg)
+        if cfg.create_materials:
+            self.set_materials(operator, obj, name, cfg, hash_json_data, vb_path.parent)
         model.set_data(
             obj,
             mesh,
-            numpy_mesh.index_buffer,
-            numpy_mesh.vertex_buffer,
+            numpy_mesh_group,
             vg_remap,
             mirror_mesh=cfg.flip_mesh,
         )
-        self.set_materials(operator, obj, hash_json_data, vb_path.parent)
 
         num_shapekeys = (
             0
@@ -159,11 +188,16 @@ class ObjectImporter:
         )
 
         print(
-            f"{fmt_path.stem} import time: {time.time() - start_time:.3f}s ({len(mesh.vertices)} vertices, {len(mesh.loops)} indices, {num_shapekeys} shapekeys)"
+            f"{name} import time: {time.time() - start_time:.3f}s ({len(mesh.vertices)} vertices, {len(mesh.loops)} indices, {num_shapekeys} shapekeys)"
         )
         return obj
 
-    def cleanup_object(self, context, obj, cfg):
+    def cleanup_object(self, operator, context, obj, cfg):
+        if cfg.merge_meshes and not cfg.clean_loose:
+            operator.report(
+                {"WARNING"},
+                "Mesh merging enabled without loose geometry cleanup! This may result in floating vertex hidden among your mesh. Consider enabling 'Clean Loose' option to remove them.",
+            )
         obj.select_set(True)
         context.view_layer.objects.active = obj
 
@@ -208,9 +242,49 @@ class ObjectImporter:
         obj["3DMigoto:FirstIndex"] = migoto_format.first_index
 
     def set_materials(
-        self, operator, obj, hash_json_data: HashJsonData, import_dir: Path
+        self,
+        operator,
+        obj: bpy.types.Object,
+        name: str,
+        cfg: ImporterOptions,
+        hash_json_data: HashJsonData,
+        import_dir: Path,
     ):
-        name = obj.name.split("-vb")[0]
+        if cfg.merge_meshes:
+            poly_mat_idx = []
+            component = hash_json_data.get_component_by_fullname(name)
+            for part in component.parts:
+                diffuse = next(
+                    (tex for tex in part.textures if tex.name.lower() == "diffuse"),
+                    None,
+                )
+                if diffuse is None:
+                    operator.report(
+                        {"WARNING"},
+                        f"Failed to find diffuse texture for {part.fullname} in dump folder!",
+                    )
+                    continue
+                texture_path = import_dir / (
+                    part.fullname + diffuse.name + diffuse.extension
+                )
+
+                mat_name = part.fullname
+                mat = bpy.data.materials.new(mat_name)
+                mat.use_nodes = True
+                bsdf = mat.node_tree.nodes.get("Principled BSDF")
+                if bsdf:
+                    tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage")
+                    new_image = bpy.data.images.load(str(texture_path))
+                    new_image.alpha_mode = "CHANNEL_PACKED"
+                    tex_image.image = new_image
+                    mat.node_tree.links.new(
+                        bsdf.inputs["Base Color"],
+                        tex_image.outputs["Color"],
+                    )
+
+                obj.data.materials.append(mat)
+            return
+
         part = hash_json_data.get_part_by_fullname(name)
         if part is None:
             operator.report(

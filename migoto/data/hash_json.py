@@ -16,6 +16,13 @@ class Part:
     textures: list[TextureData]
     first_index: int
 
+    def __hash__(self):
+        return hash(
+            self.fullname
+            + "".join(tex.hash for tex in self.textures)
+            + str(self.first_index)
+        )
+
 
 @dataclass
 class Component:
@@ -78,9 +85,15 @@ class HashJsonData:
             )
         return parts
 
-    def get_part_by_fullname(self, fullname: str) -> Part | None:
+    def get_part_by_fullname(self, fullname: str) -> Part:
         for comp in self.components:
             for part in comp.parts:
                 if part.fullname == fullname:
                     return part
-        return None
+        raise ValueError(f"Part with fullname {fullname} not found")
+
+    def get_component_by_fullname(self, fullname: str) -> Component:
+        for comp in self.components:
+            if comp.fullname == fullname:
+                return comp
+        raise ValueError(f"Component with fullname {fullname} not found")

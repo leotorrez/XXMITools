@@ -9,7 +9,12 @@ from typing import Callable
 
 import bpy
 import numpy
-from bpy.props import BoolProperty, CollectionProperty, StringProperty
+from bpy.props import (
+    BoolProperty,
+    CollectionProperty,
+    EnumProperty,
+    StringProperty,
+)
 from bpy.types import (
     Context,
     Mesh,
@@ -36,11 +41,13 @@ from .datahandling import (
 )
 from .datastructures import (
     Fatal,
+    GameEnum,
     ImportPaths,
     IndexBuffer,
     IOOBJOrientationHelper,
     VBSOMapEntry,
     VertexBufferGroup,
+    game_enum,
     vertex_color_layer_channels,
 )
 from .export_ops import XXMIProperties
@@ -1118,7 +1125,6 @@ class Import3DMigotoFrameAnalysis(Operator, ImportHelper, IOOBJOrientationHelper
         pass
 
 
-@orientation_helper(axis_forward="-Z", axis_up="Y")
 class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
     """Import a mesh dumped with 3DMigoto's material"""
 
@@ -1137,27 +1143,117 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
         type=OperatorFileListElement,
     )
 
+    block_update: BoolProperty(default=False)
+
+    def sync_preset_to_settings(self, context):
+        """Triggered when the USER changes the Game Dropdown."""
+        if self.game == "None":
+            return
+
+        hoyoverse_standard = (
+            GameEnum.HonkaiImpact3rd.name,
+            GameEnum.HonkaiImpactPart2.name,
+            GameEnum.GenshinImpact.name,
+            GameEnum.HonkaiStarRail.name,
+        )
+        self.block_update = True
+        if self.game in hoyoverse_standard:
+            self.flip_texcoord_v = True
+            self.flip_mesh = True
+            self.flip_winding = False
+            self.flip_normal = False
+            self.axis_forward = "-Z"
+            self.axis_up = "Y"
+        elif self.game == GameEnum.ZenlessZoneZero.name:
+            self.flip_texcoord_v = True
+            self.flip_mesh = True
+            self.flip_winding = False
+            self.flip_normal = False
+            self.axis_forward = "Y"
+            self.axis_up = "Z"
+        self.block_update = False
+
+    def sync_settings_to_preset(self, context):
+        """Triggered when the USER changes a checkbox or axis."""
+        if self.block_update:
+            return  # Stops circular updates
+        if (
+            self.flip_texcoord_v is True
+            and self.flip_mesh is True
+            and self.flip_winding is False
+            and self.flip_normal is False
+            and self.axis_forward == "-Z"
+            and self.axis_up == "Y"
+        ) or (
+            self.flip_texcoord_v is True
+            and self.flip_mesh is True
+            and self.flip_winding is False
+            and self.flip_normal is False
+            and self.axis_forward == "Y"
+            and self.axis_up == "Z"
+        ):
+            return  # Matches one of the presets, so don't set to None
+        if self.game != "None":
+            print(
+                "Custom settings don't match preset for any supported game, setting preset to NONE"
+            )
+            self.game = "None"
+
+    axis_forward: bpy.props.EnumProperty(
+        name="Forward",
+        items=[
+            ("X", "X Forward", ""),
+            ("Y", "Y Forward", ""),
+            ("Z", "Z Forward", ""),
+            ("-X", "-X Forward", ""),
+            ("-Y", "-Y Forward", ""),
+            ("-Z", "-Z Forward", ""),
+        ],
+        update=sync_settings_to_preset,
+    )
+    axis_up: bpy.props.EnumProperty(
+        name="Up",
+        items=[
+            ("X", "X Up", ""),
+            ("Y", "Y Up", ""),
+            ("Z", "Z Up", ""),
+            ("-X", "-X Up", ""),
+            ("-Y", "-Y Up", ""),
+            ("-Z", "-Z Up", ""),
+        ],
+        update=sync_settings_to_preset,
+    )
     flip_texcoord_v: BoolProperty(
         name="Flip TEXCOORD V",
         description="Flip TEXCOORD V asix during importing",
         default=True,
+        update=sync_settings_to_preset,
     )
 
     flip_winding: BoolProperty(
         name="Flip Winding Order",
         description="Flip winding order (face orientation) during importing. Try if the model doesn't seem to be shading as expected in Blender and enabling the 'Face Orientation' overlay shows **RED** (if it shows BLUE, try 'Flip Normal' instead). Not quite the same as flipping normals within Blender as this only reverses the winding order without flipping the normals. Recommended for Unreal Engine",
         default=False,
+        update=sync_settings_to_preset,
     )
 
     flip_mesh: BoolProperty(
         name="Flip Mesh",
         description="Mirrors mesh over the X Axis on import, and invert the winding order.",
         default=False,
+        update=sync_settings_to_preset,
     )
 
     flip_normal: BoolProperty(
         name="Flip Normal",
         description="Flip Normals during importing. Try if the model doesn't seem to be shading as expected in Blender and enabling 'Face Orientation' overlay shows **BLUE** (if it shows RED, try 'Flip Winding Order' instead). Not quite the same as flipping normals within Blender as this won't reverse the winding order",
+        default=False,
+        update=sync_settings_to_preset,
+    )
+
+    create_materials: BoolProperty(
+        name="Create Materials",
+        description="Create Blender materials based on the material information in the frame analysis dump. This will create one material per unique material in the dump, and assign them to the imported meshes. Note that these materials will not be set up with any textures or shader nodes, they will just be blank materials with the correct names assigned to the meshes",
         default=False,
     )
 
@@ -1232,6 +1328,14 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
         name="Clean Loose",
         description="Remove loose geometry",
         default=False,
+    )
+
+    game: EnumProperty(
+        name="Game preset",
+        description="Select the game you are modding to present configuration according to that game",
+        items=game_enum + [("None", "", "No preset, using custom settings")],
+        default="None",
+        update=sync_preset_to_settings,
     )
 
     def get_vb_ib_paths(self, load_related=None) -> set[ImportPaths]:
@@ -1404,26 +1508,12 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
             self.load_related = False
 
         try:
-            keywords = self.as_keywords(
-                ignore=(
-                    "filepath",
-                    "files",
-                    "filter_glob",
-                    "load_related",
-                    "load_related_so_vb",
-                    "load_buf",
-                    "pose_cb",
-                    "load_buf_limit_range",
-                    "semantic_remap",
-                    "semantic_remap_idx",
-                )
-            )
-
             cfg = ImporterOptions(
                 flip_texcoord_v=self.flip_texcoord_v,
                 flip_winding=self.flip_winding,
                 flip_mesh=self.flip_mesh,
                 flip_normal=self.flip_normal,
+                create_materials=self.create_materials,
                 load_related=self.load_related,
                 load_related_so_vb=self.load_related_so_vb,
                 load_buf=self.load_buf,

@@ -4,6 +4,7 @@ import numpy
 
 from .byte_buffer import AbstractSemantic, BufferSemantic, NumpyBuffer, Semantic
 from .dxgi_format import DXGIType
+from ..data.numpy_mesh import NumpyMesh, NumpyMeshGroup
 
 
 class BlenderDataImporter:
@@ -11,12 +12,13 @@ class BlenderDataImporter:
         self,
         obj: bpy.types.Object,
         mesh: bpy.types.Mesh,
-        index_buffer: NumpyBuffer,
-        vertex_buffer: NumpyBuffer,
+        numpy_mesh: NumpyMesh | NumpyMeshGroup,
         semantic_converters: dict[AbstractSemantic, list[Callable]],
         format_converters: dict[AbstractSemantic, list[Callable]],
         legacy_vertex_colors: bool = False,
     ):
+        index_buffer = numpy_mesh.index_buffer
+        vertex_buffer = numpy_mesh.vertex_buffer
         buffer_semantic = index_buffer.layout.get_element(
             AbstractSemantic(Semantic.Index)
         )
@@ -25,7 +27,12 @@ class BlenderDataImporter:
             index_buffer, buffer_semantic, format_converters, semantic_converters
         )
         assert index_data is not None, "Failed to get index data from index buffer!"
-        self.import_faces(mesh, index_data)
+        index_offsets = (
+            numpy_mesh.get_index_offsets()
+            if isinstance(numpy_mesh, NumpyMeshGroup)
+            else [0]
+        )
+        self.import_faces(mesh, index_data, index_offsets)
 
         vertex_ids = index_data.flatten()
 
@@ -78,8 +85,7 @@ class BlenderDataImporter:
         self.import_vertex_groups(obj, vg_indices, vg_weights)
         self.import_shapekeys(obj, shapekeys)
 
-        # Create edges and other missing metadata
-        mesh.validate(verbose=False, clean_customdata=False)
+        # Create edges and other missing metadata mesh.validate(verbose=False, clean_customdata=False)
         mesh.update()
 
         if normals is not None:
@@ -122,7 +128,9 @@ class BlenderDataImporter:
 
         return data
 
-    def import_faces(self, mesh: bpy.types.Mesh, index_data: numpy.ndarray):
+    def import_faces(
+        self, mesh: bpy.types.Mesh, index_data: numpy.ndarray, index_offsets: list[int]
+    ):
         mesh.loops.add(len(index_data) * 3)
         mesh.polygons.add(len(index_data))
 
@@ -130,6 +138,13 @@ class BlenderDataImporter:
 
         mesh.polygons.foreach_set("loop_start", [x * 3 for x in range(len(index_data))])
         mesh.polygons.foreach_set("loop_total", [3] * len(index_data))
+
+        if len(index_offsets) == 1:
+            return
+        mat_idx_per_polygon = numpy.zeros(index_data.size, dtype=numpy.int32)
+        for i, offset in enumerate(index_offsets):
+            mat_idx_per_polygon[offset:] = i
+        mesh.polygons.foreach_set("material_index", mat_idx_per_polygon)
 
     def import_positions(self, mesh: bpy.types.Mesh, position_data: numpy.ndarray):
         mesh.vertices.foreach_set("co", position_data.ravel())
@@ -201,9 +216,9 @@ class BlenderDataImporter:
         assert issubclass(dtype, numpy.integer) or issubclass(dtype, numpy.floating)
 
         if issubclass(dtype, numpy.integer):
-            assert attribute_data.dtype.itemsize <= 2, (
-                "32-bit integers are not supported!"
-            )
+            assert (
+                attribute_data.dtype.itemsize <= 2
+            ), "32-bit integers are not supported!"
             divisors = {
                 numpy.int8: 127.0,
                 numpy.uint8: 255.0,
