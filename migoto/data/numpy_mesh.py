@@ -111,6 +111,56 @@ class NumpyMesh:
 
         return mesh
 
+    def merge(self, other: "NumpyMesh"):
+        if (
+            self.format is None
+            or self.vertex_buffer is None
+            or self.index_buffer is None
+        ):
+            self.format = other.format
+            self.vertex_buffer = other.vertex_buffer
+            self.index_buffer = other.index_buffer
+            return
+
+        if self.vertex_buffer is None or self.index_buffer is None:
+            raise ValueError("Current mesh is missing vertex or index buffer")
+        if other.vertex_buffer is None or other.index_buffer is None:
+            raise ValueError("Other mesh is missing vertex or index buffer")
+        if self.format is None or other.format is None:
+            raise ValueError("Mesh format must be defined to merge meshes")
+        if self.format.vb_layout is None or self.format.ib_layout is None:
+            raise ValueError(
+                "Both vertex and index buffer layouts must be defined in the format."
+            )
+
+        if self.format.format != other.format.format:
+            raise ValueError(
+                "Cannot merge meshes with different formats"
+                + f" (self: {self.format.format}, other: {other.format.format})"
+            )
+
+        merged_vb_bytes = (
+            self.vertex_buffer.get_bytes() + other.vertex_buffer.get_bytes()
+        )
+        merged_ib_bytes = self.index_buffer.get_bytes() + other.index_buffer.get_bytes()
+        if merged_vb_bytes is None or merged_ib_bytes is None:
+            raise ValueError("Failed to get bytes from vertex or index buffer")
+
+        merged_vertex_buffer = NumpyBuffer(self.format.vb_layout)
+        merged_vertex_buffer.import_raw_data(
+            numpy.frombuffer(merged_vb_bytes, dtype=numpy.float32)
+        )
+        merged_index_buffer = NumpyBuffer(self.format.ib_layout)
+        merged_index_buffer.import_raw_data(
+            numpy.frombuffer(merged_ib_bytes, dtype=numpy.uint16)
+        )
+
+        self.format = self.format
+        self.format.vertex_count += other.format.vertex_count
+        self.format.index_count += other.format.index_count
+        self.vertex_buffer = merged_vertex_buffer
+        self.index_buffer = merged_index_buffer
+
     @classmethod
     def from_txt(
         cls, migoto_format: MigotoFormat, vb_path: Path, ib_path: Path
@@ -134,6 +184,31 @@ class NumpyMesh:
             vertex_buffer=vb_buffer,
             index_buffer=ib_buffer,
         )
+
+
+class NumpyMeshGroup:
+    def __init__(self):
+        self.meshes: list[NumpyMesh] = []
+        self.numpy_mesh: NumpyMesh = NumpyMesh()
+        self.index_buffer: NumpyBuffer = self.numpy_mesh.index_buffer
+        self.vertex_buffer: NumpyBuffer = self.numpy_mesh.vertex_buffer
+
+    def add_mesh(self, mesh: NumpyMesh):
+        self.meshes.append(mesh)
+        self.numpy_mesh.merge(mesh)
+        self.index_buffer = self.numpy_mesh.index_buffer
+        self.vertex_buffer = self.numpy_mesh.vertex_buffer
+
+    def get_index_offsets(self) -> list[int]:
+        # We are assuming valid import formats.
+        # Might be wise to recalculate in case they are missing
+        # return [x.format.first_index for x in self.meshes]
+        offsets = []
+        current_offset = 0
+        for mesh in self.meshes:
+            offsets.append(current_offset)
+            current_offset += mesh.index_buffer.data.size
+        return offsets
 
 
 class ChamferMixin:

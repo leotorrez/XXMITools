@@ -1,30 +1,32 @@
-import bpy
-from bpy.types import Panel, UIList, Menu, UILayout
 import addon_utils
+import bpy
 from bl_ui.generic_ui_list import draw_ui_list
+from bpy.types import Menu, Panel, UILayout, UIList
+
+from .. import addon_updater_ops
+from .datastructures import GameEnum
+from .export_ops import (
+    Export3DMigoto,
+    Export3DMigotoXXMI,
+    XXMIProperties,
+)
+from .import_ops import (
+    ClearSemanticRemapList,
+    Import3DMigotoFrameAnalysis,
+    Import3DMigotoMaterial,
+    Import3DMigotoRaw,
+    PrefillSemanticRemapList,
+)
 from .operators import (
-    Import3DMigotoPose,
+    CLEAN_UV_NAMES,
+    RESET_VERTEX_COLORS,
     ApplyVGMap,
+    Import3DMigotoPose,
     VGROUP_SN_fill,
     VGROUP_SN_merge,
     VGROUP_SN_merge_ONE,
     VGROUP_SN_remove,
-    CLEAN_UV_NAMES,
-    RESET_VERTEX_COLORS,
 )
-from .import_ops import (
-    ClearSemanticRemapList,
-    Import3DMigotoMaterial,
-    PrefillSemanticRemapList,
-    Import3DMigotoFrameAnalysis,
-    Import3DMigotoRaw,
-)
-from .export_ops import (
-    Export3DMigoto,
-    Export3DMigotoXXMI,
-)
-from .. import addon_updater_ops
-from .export_ops import XXMIProperties
 
 
 class MIGOTO_UL_semantic_remap_list(UIList):
@@ -205,24 +207,24 @@ class MigotoImportMaterialOptionsPanelBase(object):
 
 
 class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Panel):
-    bl_label = ""
-    bl_options = {"HIDE_HEADER"}
+    bl_label = "Basic Options"
     bl_order = 0
 
     def draw(self, context):
         MigotoImportMaterialOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
+        self.layout.prop(operator, "game")
         self.layout.prop(operator, "flip_texcoord_v")
         self.layout.prop(operator, "flip_winding")
         self.layout.prop(operator, "flip_normal")
         self.layout.prop(operator, "flip_mesh")
+        self.layout.prop(operator, "create_materials")
 
 
 class MIGOTO_PT_ImportMaterialRelatedFilesPanel(
     MigotoImportMaterialOptionsPanelBase, Panel
 ):
-    bl_label = ""
-    bl_options = {"HIDE_HEADER"}
+    bl_label = "Related Files"
     bl_order = 1
 
     def draw(self, context):
@@ -272,7 +274,7 @@ class MIGOTO_PT_ImportMaterialRemapSemanticsPanel(
     MigotoImportMaterialOptionsPanelBase, Panel
 ):
     bl_label = "Semantic Remap"
-    # bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {"DEFAULT_CLOSED"}
     bl_order = 4
 
     def draw(self, context):
