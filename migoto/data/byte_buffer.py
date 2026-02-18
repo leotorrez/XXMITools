@@ -70,6 +70,7 @@ class Semantic(str, Enum):
     Index = "INDEX"
     Tangent = "TANGENT"
     BitangentSign = "BITANGENTSIGN"
+    # Binormal = "BINORMAL"
     Normal = "NORMAL"
     TexCoord = "TEXCOORD"
     Color = "COLOR"

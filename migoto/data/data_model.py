@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 import math
 import mathutils
 
+
+from ..data.numpy_mesh import NumpyMesh, NumpyMeshGroup
 from ..datahandling import Fatal
 from ..datastructures import GameEnum
 from .byte_buffer import (
@@ -56,8 +58,7 @@ class DataModel(object):
         self,
         obj: Object,
         mesh: Mesh,
-        index_buffer: NumpyBuffer,
-        vertex_buffer: NumpyBuffer,
+        numpy_mesh: NumpyMesh | NumpyMeshGroup,
         vg_remap: Optional[numpy.ndarray],
         mirror_mesh: bool = False,
         mesh_scale: float = 1.0,
@@ -82,7 +83,7 @@ class DataModel(object):
                 self.converter_rgb_to_bgr_vector,
             )
 
-        for semantic in vertex_buffer.layout.semantics:
+        for semantic in numpy_mesh.vertex_buffer.layout.semantics:
             # Skip tangents import, we'll recalc them on export
             if semantic.abstract.enum in [Semantic.Tangent, Semantic.BitangentSign]:
                 continue
@@ -149,11 +150,8 @@ class DataModel(object):
                     semantic.get_num_values() != blender_num_values
                     and semantic.import_format is None
                 ):
-                    converter = (
-                        lambda data,
-                        width=blender_num_values: self.converter_resize_second_dim(
-                            data, width
-                        )
+                    converter = lambda data, width=blender_num_values: (
+                        self.converter_resize_second_dim(data, width)
                     )
                     self._insert_converter(
                         format_converters, semantic.abstract, converter
@@ -164,8 +162,7 @@ class DataModel(object):
         data_importer.set_data(
             obj,
             mesh,
-            index_buffer,
-            vertex_buffer,
+            numpy_mesh,
             semantic_converters,
             format_converters,
             self.legacy_vertex_colors,
