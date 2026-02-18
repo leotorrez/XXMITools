@@ -53,8 +53,6 @@ class ObjectImporter:
             raise Fatal(
                 f"Specified folder is missing hash.json! Expected at: {import_folder / 'hash.json'}",
             )
-        except Exception as e:
-            raise Fatal(f"Failed to load hash.json:\n{e}")
 
         imported_objects = self.process_objects(
             operator, context, cfg, hash_json_data, import_folder
@@ -172,7 +170,7 @@ class ObjectImporter:
 
         self.set_custom_properties(obj, migoto_format, cfg)
         if cfg.create_materials:
-            self.set_materials(operator, obj, name, cfg, hash_json_data, vb_path.parent)
+            self.set_materials(operator, obj, name, cfg, hash_json_data)
         model.set_data(
             obj,
             mesh,
@@ -248,7 +246,6 @@ class ObjectImporter:
         name: str,
         cfg: ImporterOptions,
         hash_json_data: HashJsonData,
-        import_dir: Path,
     ):
         if cfg.merge_meshes:
             poly_mat_idx = []
@@ -264,9 +261,12 @@ class ObjectImporter:
                         f"Failed to find diffuse texture for {part.fullname} in dump folder!",
                     )
                     continue
-                texture_path = import_dir / (
-                    part.fullname + diffuse.name + diffuse.extension
-                )
+                if not diffuse.path.exists():
+                    operator.report(
+                        {"WARNING"},
+                        f"Diffuse texture file for {part.fullname} not found at expected path: {diffuse.path}",
+                    )
+                    continue
 
                 mat_name = part.fullname
                 mat = bpy.data.materials.new(mat_name)
@@ -274,9 +274,15 @@ class ObjectImporter:
                 bsdf = mat.node_tree.nodes.get("Principled BSDF")
                 if bsdf:
                     tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage")
-                    new_image = bpy.data.images.load(str(texture_path))
-                    new_image.alpha_mode = "CHANNEL_PACKED"
-                    tex_image.image = new_image
+
+                    for img in bpy.data.images:
+                        if img.filepath == str(diffuse.path):
+                            material_img = img
+                            break
+                    else:
+                        material_img = bpy.data.images.load(str(diffuse.path))
+                        material_img.alpha_mode = "CHANNEL_PACKED"
+                    tex_image.image = material_img
                     mat.node_tree.links.new(
                         bsdf.inputs["Base Color"],
                         tex_image.outputs["Color"],
@@ -302,7 +308,6 @@ class ObjectImporter:
                 f"Failed to find diffuse texture for {name} in dump folder!!",
             )
             return
-        texture_path = import_dir / (name + diffuse.name + diffuse.extension)
 
         mat_name = part.fullname
         mat = bpy.data.materials.new(mat_name)
@@ -310,9 +315,15 @@ class ObjectImporter:
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf:
             tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage")
-            new_image = bpy.data.images.load(str(texture_path))
-            new_image.alpha_mode = "CHANNEL_PACKED"
-            tex_image.image = new_image
+            for img in bpy.data.images:
+                if img.filepath == str(diffuse.path):
+                    material_img = img
+                    break
+            else:
+                material_img = bpy.data.images.load(str(diffuse.path))
+                material_img.alpha_mode = "CHANNEL_PACKED"
+            material_img.alpha_mode = "CHANNEL_PACKED"
+            tex_image.image = material_img
             mat.node_tree.links.new(
                 bsdf.inputs["Base Color"],
                 tex_image.outputs["Color"],
