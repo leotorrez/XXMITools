@@ -568,7 +568,7 @@ def import_3dmigoto_vb_ib(
             ),
         )
 
-    (blend_indices, blend_weights, texcoords, vertex_layers, use_normals, normals) = (
+    blend_indices, blend_weights, texcoords, vertex_layers, use_normals, normals = (
         import_vertices(
             mesh, obj, vb, operator, semantic_translations, flip_normal, flip_mesh
         )
@@ -1209,6 +1209,7 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
             ("-Y", "-Y Forward", ""),
             ("-Z", "-Z Forward", ""),
         ],
+        default="-Z",
         update=sync_settings_to_preset,
     )
     axis_up: bpy.props.EnumProperty(
@@ -1221,6 +1222,7 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
             ("-Y", "-Y Up", ""),
             ("-Z", "-Z Up", ""),
         ],
+        default="Y",
         update=sync_settings_to_preset,
     )
     flip_texcoord_v: BoolProperty(
@@ -1618,7 +1620,7 @@ class Import3DMigotoRaw(Operator, ImportHelper, IOOBJOrientationHelper):
         dirname = os.path.dirname(self.filepath)
         for filename in self.files:
             try:
-                (vb_path, ib_path, fmt_path, vgmap_path) = self.get_vb_ib_paths(
+                vb_path, ib_path, fmt_path, vgmap_path = self.get_vb_ib_paths(
                     os.path.join(dirname, filename.name)
                 )
                 vb_path_norm = set(map(os.path.normcase, vb_path))
