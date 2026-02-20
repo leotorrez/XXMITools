@@ -1,15 +1,16 @@
 import copy
+import io
+import re
 import textwrap
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 from enum import Enum
-from pathlib import Path
-from typing import Callable
-import numpy
-from .dxgi_format import DXGIFormat
 from operator import attrgetter
-import re
-import io
-from ..datahandling import Fatal
+from pathlib import Path
+
+import numpy
+
+from .dxgi_format import DXGIFormat
 
 
 class Topology(str, Enum):
@@ -65,35 +66,22 @@ class Topology(str, Enum):
         return f"{self.value}"
 
 
-class Semantic(str, Enum):
+class Semantic(Enum):
     VertexId = "VERTEXID"
     Index = "INDEX"
     Tangent = "TANGENT"
     BitangentSign = "BITANGENTSIGN"
-    # Binormal = "BINORMAL"
     Normal = "NORMAL"
     TexCoord = "TEXCOORD"
     Color = "COLOR"
     Position = "POSITION"
     Blendindices = "BLENDINDICES"
-    Blendweight = "BLENDWEIGHTS"
+    Blendweight = "BLENDWEIGHT"
     Blendweights = "BLENDWEIGHTS"
     ShapeKey = "SHAPEKEY"
     RawData = "RAWDATA"
     EncodedData = "ENCODEDDATA"
     Attribute = "ATTRIBUTE"
-
-    _ALIASES = {
-        "BLENDWEIGHT": "BLENDWEIGHTS",
-    }
-
-    @classmethod
-    def _missing_(cls, value):
-        if isinstance(value, str):
-            value = value.upper()
-            if value in cls._ALIASES:
-                return cls(cls._ALIASES[value])
-        return super()._missing_(value)
 
     def __str__(self):
         return f"{self.value}"
@@ -191,7 +179,7 @@ class BufferSemantic:
         return self.format.get_format()
 
     def get_name(self) -> str:
-        return self.name if self.name else self.abstract.get_name()
+        return self.name or self.abstract.get_name()
 
     def get_num_values(self) -> int:
         return self.format.get_num_values(self.stride)
@@ -389,8 +377,7 @@ class NumpyBuffer:
     def get_data(self, indices: numpy.ndarray | None = None) -> numpy.ndarray:
         if indices is None:
             return self.data
-        else:
-            return self.data[indices]
+        return self.data[indices]
 
     def get_field(
         self, field: AbstractSemantic | Semantic | int | str
@@ -434,7 +421,7 @@ class NumpyBuffer:
             self.set_field(current_semantic.get_name(), data)
         except Exception as e:
             raise ValueError(
-                f"Failed to import semantic {semantic} to buffer layout {self.layout}: {str(e)}"
+                f"Failed to import semantic {semantic} to buffer layout {self.layout}: {e!s}"
             ) from e
 
     def import_data(
@@ -487,6 +474,7 @@ class NumpyBuffer:
             semantic_name = remapped_semantics.get(
                 semantic.abstract, semantic
             ).get_name()
+            print(f"Parsing semantic {semantic} with name {semantic_name}")
             semantic_name = semantic_name.split(".")[0]
             groups = ",".join(
                 [f"({float_pattern})" for _ in range(semantic.get_num_values())]
@@ -602,14 +590,14 @@ class MigotoFormat:
             )
         if fmt_path.is_file():
             # Read migoto format from fmt file
-            with open(fmt_path, "r") as fmt_file:
+            with open(fmt_path) as fmt_file:
                 fmt = MigotoFormat.from_fmt_file(fmt_file)
         else:
             if ib_path is None or vb_path is None:
                 raise ValueError(
                     f"Failed to resolve format file for VB `{vb_path}` and IB `{ib_path}` and auto-detection failed (fmt file not found)!"
                 )
-            with open(ib_path, "r") as ib_file, open(vb_path, "r") as vb_file:
+            with open(ib_path) as ib_file, open(vb_path) as vb_file:
                 fmt = MigotoFormat.from_vb_ib_files(vb_file, ib_file)
 
         return fmt
@@ -649,7 +637,7 @@ class MigotoFormat:
             fmt.ib_layout.add_element(index_semantic)
 
         # Get layout data and exit early if not found
-        elements_data = migoto_data.get("elements", None)
+        elements_data = migoto_data.get("elements")
         if elements_data is None:
             return fmt
 
@@ -771,7 +759,7 @@ class MigotoFormat:
     ) -> dict:
         tokenized_data = {}
         for k, v in element_data.items():
-            converter = converters.get(k, None)
+            converter = converters.get(k)
             if converter:
                 tokenized_data[k] = converter(v)
             elif isinstance(v, str):

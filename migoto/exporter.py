@@ -404,7 +404,7 @@ class ModExporter:
                 missing_colors.append(abs_name)
             if abs_enum == Semantic.TexCoord and mesh.uv_layers.get(abs_name) is None:
                 missing_uvs.append(abs_name)
-            if abs_enum == Semantic.Blendweight:
+            if abs_enum == Semantic.Blendweights or abs_enum == Semantic.Blendweight:
                 if len(mesh.vertices) > 0 and len(obj.vertex_groups) == 0:
                     self.operator.report(
                         {"WARNING"},
