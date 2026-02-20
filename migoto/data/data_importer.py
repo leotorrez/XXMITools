@@ -72,7 +72,7 @@ class BlenderDataImporter:
                 normals = data
             elif semantic == Semantic.Blendindices:
                 vg_indices[buffer_semantic.abstract.index] = data
-            elif semantic == Semantic.Blendweight:
+            elif semantic == Semantic.Blendweights or semantic == Semantic.Blendweight:
                 vg_weights[buffer_semantic.abstract.index] = data
             elif semantic == Semantic.Position:
                 self.import_positions(mesh, data)

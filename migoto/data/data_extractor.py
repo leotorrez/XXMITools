@@ -32,6 +32,7 @@ class BlenderDataExtractor:
     blender_vertex_semantics: list[Semantic] = [
         Semantic.Position,
         Semantic.Blendindices,
+        Semantic.Blendweights,
         Semantic.Blendweight,
     ]
     format_converters: dict[AbstractSemantic, list[Callable]] = {}
@@ -144,6 +145,7 @@ class BlenderDataExtractor:
                 # Lets extract data in original format to prevent possible precision loss
                 if export_semantic.abstract.enum in [
                     Semantic.Blendindices,
+                    Semantic.Blendweights,
                     Semantic.Blendweight,
                 ]:
                     proxy_semantic.stride = (
@@ -155,6 +157,7 @@ class BlenderDataExtractor:
                     proxy_semantic.stride = blender_format.byte_width
             elif export_semantic.abstract.enum not in [
                 Semantic.Blendindices,
+                Semantic.Blendweights,
                 Semantic.Blendweight,
             ]:
                 # Only blends can be directly exported with any bitness and padding, because they aren't extracted with foreach_get
@@ -203,8 +206,8 @@ class BlenderDataExtractor:
                 layout.add_element(buffer_semantic)
 
         # TODO: Check if the export needs tangents or bitangents
-            # Error out if it does not have a valid UV in these cases
-            # ADD: UI for the user to select which UV map to use for tangent calculation
+        # Error out if it does not have a valid UV in these cases
+        # ADD: UI for the user to select which UV map to use for tangent calculation
         mesh.calc_tangents(uvmap="TEXCOORD.xy")
 
         # Initialize loop data storage
@@ -297,6 +300,7 @@ class BlenderDataExtractor:
         for buffer_semantic in proxy_layout.semantics:
             if buffer_semantic.abstract.enum in [
                 Semantic.Blendindices,
+                Semantic.Blendweights,
                 Semantic.Blendweight,
             ]:
                 vertex_groups = [
@@ -325,7 +329,7 @@ class BlenderDataExtractor:
                     ],
                     dtype=dtype,
                 )
-            elif semantic == Semantic.Blendweight:
+            elif semantic == Semantic.Blendweights or semantic == Semantic.Blendweight:
                 dtype: DTypeLike = (
                     numpy_type[0] if isinstance(numpy_type, tuple) else numpy_type
                 )
