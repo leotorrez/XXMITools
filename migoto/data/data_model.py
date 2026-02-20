@@ -50,6 +50,7 @@ class DataModel(object):
         Semantic.TexCoord: DXGIFormat.R32G32_FLOAT,
         Semantic.Position: DXGIFormat.R32G32B32_FLOAT,
         Semantic.Blendindices: DXGIFormat.R32_UINT,
+        Semantic.Blendweights: DXGIFormat.R32_FLOAT,
         Semantic.Blendweight: DXGIFormat.R32_FLOAT,
         Semantic.ShapeKey: DXGIFormat.R32G32B32_FLOAT,
     }
@@ -139,6 +140,7 @@ class DataModel(object):
             # Auto-resize second dimension of data array to match Blender format
             if semantic.abstract.enum not in [
                 Semantic.Blendindices,
+                Semantic.Blendweights,
                 Semantic.Blendweight,
                 Semantic.Attribute,
                 Semantic.EncodedData,
@@ -585,7 +587,7 @@ class DataModelXXMI(DataModel):
             Semantic.Normal,
             Semantic.Tangent,
         ]
-        blend_semantics: list[Semantic] = [Semantic.Blendweight, Semantic.Blendindices]
+        blend_semantics: list[Semantic] = [Semantic.Blendweights, Semantic.Blendindices]
         tex_semantics: list[Semantic] = [Semantic.TexCoord, Semantic.Color]
         if game == GameEnum.HonkaiImpactPart2:
             pos_semantics = [
@@ -600,7 +602,7 @@ class DataModelXXMI(DataModel):
                 Semantic.Position,
                 Semantic.Normal,
                 Semantic.Tangent,
-                Semantic.Blendweight,
+                Semantic.Blendweights,
                 Semantic.Blendindices,
                 Semantic.TexCoord,
                 Semantic.Color,
@@ -669,7 +671,7 @@ class DataModelXXMI(DataModel):
                     cls.buffers_format["Position"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in blend_semantics:
                     if (
-                        new_semantic.abstract.enum is Semantic.Blendweight
+                        new_semantic.abstract.enum is Semantic.Blendweights
                         and cls.normalize_weights
                     ):
                         cls.format_converters[new_semantic.abstract] = [
