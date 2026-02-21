@@ -175,10 +175,13 @@ class NumpyMesh:
         ib_buffer = NumpyBuffer(
             migoto_format.ib_layout, size=migoto_format.index_count // 3
         )
+        import time
+
+        start_time = time.time()
         with open(vb_path, "r") as vb_file, open(ib_path, "r") as ib_file:
             vb_buffer.import_txt_data(vb_file.read())
             ib_buffer.import_txt_data_ib(ib_file.read())
-
+        print(f"    Loaded mesh from txt in {time.time() - start_time:.2f} seconds")
         return cls(
             format=migoto_format,
             vertex_buffer=vb_buffer,
