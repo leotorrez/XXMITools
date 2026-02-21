@@ -79,31 +79,40 @@ class ObjectImporter:
     ) -> list[bpy.types.Object]:
         imported_objects = []
 
-        grouped_paths: dict[str, set[ImportPaths]] = {}
+        # We use lists to ensure the order is kept
+        grouped_paths: dict[str, list[ImportPaths]] = {}
         if cfg.merge_meshes:
-            for component in reversed(hash_json_data.components):
+            for component in hash_json_data.components:
                 fullname = component.fullname
-                grouped_paths[fullname] = set(
-                    x
-                    for x in cfg.import_paths
-                    if Path(x.ib_paths).stem.startswith(fullname)
-                )
-                if len(grouped_paths[fullname]) == 0:
-                    del grouped_paths[fullname]
+                result: list[ImportPaths] = []
+                for part in component.parts:
+                    part_result = next(
+                        (
+                            paths
+                            for paths in cfg.import_paths
+                            if Path(paths.ib_paths).stem.split("-ib")[0]
+                            == part.fullname
+                        ),
+                        None,
+                    )
+                    if part_result:
+                        result.append(part_result)
+                if len(result) > 0:
+                    grouped_paths[fullname] = result
         else:
             for paths in cfg.import_paths:
                 ib_path = Path(paths.ib_paths)
                 fullname = ib_path.stem.split("-ib")[0]
                 if fullname not in grouped_paths:
-                    grouped_paths[fullname] = set()
-                grouped_paths[fullname].add(paths)
+                    grouped_paths[fullname] = []
+                grouped_paths[fullname].append(paths)
 
         for fullname, paths in grouped_paths.items():
             obj = self.import_component(
                 operator,
                 context,
                 cfg,
-                grouped_paths[fullname],
+                paths,
                 hash_json_data,
                 fullname,
                 axis_forward=cfg.axis_forward,
@@ -119,7 +128,7 @@ class ObjectImporter:
         operator,
         context,
         cfg,
-        paths: set[ImportPaths],
+        paths: list[ImportPaths],
         hash_json_data: HashJsonData,
         name: str,
         axis_forward="Y",
@@ -129,7 +138,6 @@ class ObjectImporter:
         numpy_mesh_group: NumpyMeshGroup = NumpyMeshGroup()
         migoto_format: MigotoFormat | None = None
 
-        face_counts: dict[ImportPaths, int] = {}
         for p in paths:
             vb_paths, ib_path, _, _ = p
             vb_path = Path(vb_paths[0])
@@ -168,9 +176,9 @@ class ObjectImporter:
         model.flip_texcoord_v = cfg.flip_texcoord_v
         model.legacy_vertex_colors = False
 
-        self.set_custom_properties(obj, migoto_format, cfg)
         if cfg.create_materials:
             self.set_materials(operator, obj, name, cfg, hash_json_data)
+        self.set_custom_properties(obj, migoto_format, cfg)
         model.set_data(
             obj,
             mesh,
@@ -247,14 +255,39 @@ class ObjectImporter:
         cfg: ImporterOptions,
         hash_json_data: HashJsonData,
     ):
+        def add_material(obj, part, diffuse):
+            mat_name = part.fullname
+            mat = bpy.data.materials.new(mat_name)
+            mat.use_nodes = True
+            bsdf = mat.node_tree.nodes.get("Principled BSDF")
+            if bsdf:
+                tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage")
+
+                for img in bpy.data.images:
+                    if img.filepath == str(diffuse.path):
+                        material_img = img
+                        break
+                else:
+                    material_img = bpy.data.images.load(str(diffuse.path))
+                    material_img.alpha_mode = "CHANNEL_PACKED"
+                tex_image.image = material_img
+                mat.node_tree.links.new(
+                    bsdf.inputs["Base Color"],
+                    tex_image.outputs["Color"],
+                )
+            obj.data.materials.append(mat)
+            prop_name = f"3DMigoto:Material_{part.name}"
+            obj[prop_name] = mat
+
+            obj.id_properties_ui(prop_name).update(id_type="MATERIAL", description="")
+
         if cfg.merge_meshes:
-            poly_mat_idx = []
+            # obj["3DMigoto:Materials"] = bpy.props.CollectionProperty(
+            #     type=MaterialCollection
+            # )
             component = hash_json_data.get_component_by_fullname(name)
             for part in component.parts:
-                diffuse = next(
-                    (tex for tex in part.textures if tex.name.lower() == "diffuse"),
-                    None,
-                )
+                diffuse = part.get_texture_by_name("diffuse")
                 if diffuse is None:
                     operator.report(
                         {"WARNING"},
@@ -267,28 +300,7 @@ class ObjectImporter:
                         f"Diffuse texture file for {part.fullname} not found at expected path: {diffuse.path}",
                     )
                     continue
-
-                mat_name = part.fullname
-                mat = bpy.data.materials.new(mat_name)
-                mat.use_nodes = True
-                bsdf = mat.node_tree.nodes.get("Principled BSDF")
-                if bsdf:
-                    tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage")
-
-                    for img in bpy.data.images:
-                        if img.filepath == str(diffuse.path):
-                            material_img = img
-                            break
-                    else:
-                        material_img = bpy.data.images.load(str(diffuse.path))
-                        material_img.alpha_mode = "CHANNEL_PACKED"
-                    tex_image.image = material_img
-                    mat.node_tree.links.new(
-                        bsdf.inputs["Base Color"],
-                        tex_image.outputs["Color"],
-                    )
-
-                obj.data.materials.append(mat)
+                add_material(obj, part, diffuse)
             return
 
         part = hash_json_data.get_part_by_fullname(name)
@@ -298,38 +310,18 @@ class ObjectImporter:
                 f"Failed to find diffuse texture for {name} in dump folder!",
             )
             return
-        diffuse = next(
-            (tex for tex in part.textures if tex.name.lower() == "diffuse"),
-            None,
-        )
+        diffuse = part.get_texture_by_name("diffuse")
         if diffuse is None:
             operator.report(
                 {"WARNING"},
                 f"Failed to find diffuse texture for {name} in dump folder!!",
             )
             return
-
-        mat_name = part.fullname
-        mat = bpy.data.materials.new(mat_name)
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
-        if bsdf:
-            tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage")
-            for img in bpy.data.images:
-                if img.filepath == str(diffuse.path):
-                    material_img = img
-                    break
-            else:
-                material_img = bpy.data.images.load(str(diffuse.path))
-                material_img.alpha_mode = "CHANNEL_PACKED"
-            material_img.alpha_mode = "CHANNEL_PACKED"
-            tex_image.image = material_img
-            mat.node_tree.links.new(
-                bsdf.inputs["Base Color"],
-                tex_image.outputs["Color"],
+        if not diffuse.path.exists():
+            operator.report(
+                {"WARNING"},
+                f"Diffuse texture file for {name} not found at expected path: {diffuse.path}",
             )
+            return
+        add_material(obj, part, diffuse)
         # TODO: add proper node support for old versions and fall off color to surface in case of errors
-        obj.data.materials.append(mat)
-        mat_idx = len(obj.data.materials) - 1
-        poly_mat_idx = [mat_idx] * len(obj.data.polygons)
-        obj.data.polygons.foreach_set("material_index", poly_mat_idx)
