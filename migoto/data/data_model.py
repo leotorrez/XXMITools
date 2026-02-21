@@ -141,7 +141,6 @@ class DataModel(object):
             if semantic.abstract.enum not in [
                 Semantic.Blendindices,
                 Semantic.Blendweights,
-                Semantic.Blendweight,
                 Semantic.Attribute,
                 Semantic.EncodedData,
             ]:
