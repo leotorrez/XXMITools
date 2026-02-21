@@ -66,7 +66,7 @@ class Topology(str, Enum):
         return f"{self.value}"
 
 
-class Semantic(Enum):
+class Semantic(str, Enum):
     VertexId = "VERTEXID"
     Index = "INDEX"
     Tangent = "TANGENT"
@@ -88,6 +88,17 @@ class Semantic(Enum):
 
     def __repr__(self):
         return f"{self.value}"
+
+    def __eq__(self, other):
+        ALIASES = {"BLENDWEIGHT": "BLENDWEIGHTS"}
+        if isinstance(other, str):
+            return self.value == other or ALIASES.get(self.value) == other
+        if isinstance(other, Semantic):
+            return self.value == other.value or ALIASES.get(self.value) == other.value
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self.value)
 
 
 class InputSlotClass(str, Enum):
@@ -474,7 +485,6 @@ class NumpyBuffer:
             semantic_name = remapped_semantics.get(
                 semantic.abstract, semantic
             ).get_name()
-            print(f"Parsing semantic {semantic} with name {semantic_name}")
             semantic_name = semantic_name.split(".")[0]
             groups = ",".join(
                 [f"({float_pattern})" for _ in range(semantic.get_num_values())]

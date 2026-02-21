@@ -33,7 +33,6 @@ class BlenderDataExtractor:
         Semantic.Position,
         Semantic.Blendindices,
         Semantic.Blendweights,
-        Semantic.Blendweight,
     ]
     format_converters: dict[AbstractSemantic, list[Callable]] = {}
     semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
@@ -146,7 +145,6 @@ class BlenderDataExtractor:
                 if export_semantic.abstract.enum in [
                     Semantic.Blendindices,
                     Semantic.Blendweights,
-                    Semantic.Blendweight,
                 ]:
                     proxy_semantic.stride = (
                         blender_format.byte_width * proxy_semantic.get_num_values()
@@ -158,7 +156,6 @@ class BlenderDataExtractor:
             elif export_semantic.abstract.enum not in [
                 Semantic.Blendindices,
                 Semantic.Blendweights,
-                Semantic.Blendweight,
             ]:
                 # Only blends can be directly exported with any bitness and padding, because they aren't extracted with foreach_get
                 # Other semantics may require conversion:
@@ -301,7 +298,6 @@ class BlenderDataExtractor:
             if buffer_semantic.abstract.enum in [
                 Semantic.Blendindices,
                 Semantic.Blendweights,
-                Semantic.Blendweight,
             ]:
                 vertex_groups = [
                     sorted(vertex.groups, key=attrgetter("weight"), reverse=True)
@@ -329,7 +325,7 @@ class BlenderDataExtractor:
                     ],
                     dtype=dtype,
                 )
-            elif semantic == Semantic.Blendweights or semantic == Semantic.Blendweight:
+            elif semantic == Semantic.Blendweights:
                 dtype: DTypeLike = (
                     numpy_type[0] if isinstance(numpy_type, tuple) else numpy_type
                 )

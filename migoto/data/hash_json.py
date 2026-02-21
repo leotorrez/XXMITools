@@ -14,6 +14,7 @@ class TextureData:
 
 @dataclass
 class Part:
+    name: str
     fullname: str
     textures: list[TextureData]
     first_index: int
@@ -24,6 +25,9 @@ class Part:
             + "".join(tex.hash for tex in self.textures)
             + str(self.first_index)
         )
+
+    def get_texture_by_name(self, name: str) -> TextureData | None:
+        return next((t for t in self.textures if t.name.lower() == "diffuse"), None)
 
 
 @dataclass
@@ -99,6 +103,7 @@ class HashJsonData:
             textures = self.parse_textures(tex_hashes, part_fullname)
             parts.append(
                 Part(
+                    name=obj_class,
                     fullname=part_fullname,
                     textures=textures,
                     first_index=obj_index,
