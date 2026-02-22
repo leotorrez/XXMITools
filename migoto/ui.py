@@ -4,7 +4,6 @@ from bl_ui.generic_ui_list import draw_ui_list
 from bpy.types import Menu, Panel, UILayout, UIList
 
 from .. import addon_updater_ops
-from .datastructures import GameEnum
 from .export_ops import (
     Export3DMigoto,
     Export3DMigotoXXMI,
@@ -230,7 +229,7 @@ class MIGOTO_PT_ImportMaterialRelatedFilesPanel(
     def draw(self, context):
         MigotoImportMaterialOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
-        self.layout.enabled = not operator.load_buf
+        # self.layout.enabled = not operator.load_buf
         self.layout.prop(operator, "load_related")
         self.layout.prop(operator, "load_related_so_vb")
         self.layout.prop(operator, "merge_meshes")
@@ -343,9 +342,9 @@ class XXMI_PT_Sidebar(Panel):
         version: str = ".".join(str(i) for i in version)
         layout: UILayout = self.layout
         row = layout.row()
-        row.operator(
-            "wm.url_open", text="", icon="HELP"
-        ).url = "https://leotorrez.github.io/modding/guides/xxmi_tools"
+        row.operator("wm.url_open", text="", icon="HELP").url = (
+            "https://leotorrez.github.io/modding/guides/xxmi_tools"
+        )
         row.label(text=f"v{version}")
 
     def draw(self, context):
@@ -486,10 +485,43 @@ class XXMI_PT_Toolbox(Panel):
         )
 
 
+class XXMI_PT_Object_properties(Panel):
+    """Object's properties Panel"""
+
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "XXMI Tools"
+    bl_idname = "XXMI_PT_Toolbox"
+    bl_label = "XXMI Object's Custom properties"
+    # bl_context = "objectmode"
+    bl_order = 1
+
+    # @classmethod
+    # def poll(cls, context):
+    #     obj = context.object
+    #     return obj is not None and any(k.startswith("3DMigoto:") for k in obj.keys())
+    #
+    def draw(self, context):
+        layout = self.layout
+        obj = context.object
+        if obj is None or layout is None:
+            return
+        layout.label(text=f"Custom properties for {obj.name}:")
+        row = layout.split(factor=0.3)
+        col1 = row.column()
+        col2 = row.column()
+
+        items = [k for k in obj.keys() if k.startswith("3DMigoto:")]
+        items.sort()
+
+        for key in items:
+            col1.label(text=key[len("3DMigoto:") :])
+            col2.prop(obj, f'["{key}"]', text="")
+
+
 # TODO:
 # - Apply modifier to mesh with shapekeys
 # - Create collections on import
-# - Import materials
 
 
 class UpdaterPanel(Panel):
