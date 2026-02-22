@@ -32,38 +32,57 @@ class NumpyMesh:
         fmt_path: Path | None = None,
         use_binary: bool = False,
     ) -> "NumpyMesh":
-        # Make migoto format from fmt file
+        # Make migoto format from fmt file or txt files
         if migoto_format is None:
             migoto_format = MigotoFormat.from_paths(fmt_path, vb_path, ib_path)
 
-        if not use_binary:
-            if vb_path is None or ib_path is None:
-                raise ValueError(
-                    "Both vertex and index buffer paths must be provided when use_binary is False."
-                )
-            return cls.from_txt(migoto_format, vb_path, ib_path)
+        vb_binary_path: Path | None = None
+        ib_binary_path: Path | None = None
 
-        # If txt fails we use binary as fallback
-        vb_bytes = None
-        if vb_path is None:
-            vb_path = cls.resolve_partner_path(ib_path, ".vb")
-        if vb_path is not None and vb_path.suffix == ".vb":
-            with open(vb_path, "rb") as vb:
-                vb_bytes = vb.read()
+        if use_binary:
+            if vb_path is not None:
+                if vb_path.suffix == ".txt":
+                    potential_vb = vb_path.with_suffix(".buf")
+                    if potential_vb.is_file():
+                        vb_binary_path = potential_vb
+                    else:
+                        potential_vb = vb_path.with_suffix(".vb")
+                        if potential_vb.is_file():
+                            vb_binary_path = potential_vb
+                elif vb_path.suffix in (".vb", ".buf"):
+                    vb_binary_path = vb_path
 
-        ib_bytes = None
-        if ib_path is None:
-            ib_path = cls.resolve_partner_path(vb_path, ".ib")
-        if ib_path is not None and ib_path.suffix == ".ib":
-            with open(ib_path, "rb") as ib:
-                ib_bytes = ib.read()
+            if ib_path is not None:
+                if ib_path.suffix == ".txt":
+                    potential_ib = ib_path.with_suffix(".buf")
+                    if potential_ib.is_file():
+                        ib_binary_path = potential_ib
+                    else:
+                        potential_ib = ib_path.with_suffix(".ib")
+                        if potential_ib.is_file():
+                            ib_binary_path = potential_ib
+                elif ib_path.suffix in (".ib", ".buf"):
+                    ib_binary_path = ib_path
 
-        if vb_bytes is None and ib_bytes is None:
+        if vb_binary_path is not None or ib_binary_path is not None:
+            vb_bytes = None
+            if vb_binary_path is not None:
+                with open(vb_binary_path, "rb") as vb:
+                    vb_bytes = vb.read()
+
+            ib_bytes = None
+            if ib_binary_path is not None:
+                with open(ib_binary_path, "rb") as ib:
+                    ib_bytes = ib.read()
+
+            if vb_bytes is not None or ib_bytes is not None:
+                return cls.from_bytes(migoto_format, vb_bytes, ib_bytes)
+
+        if vb_path is None or ib_path is None:
             raise ValueError(
-                "Failed to read binary buffers. Please check the paths and try again."
+                "Both vertex and index buffer paths must be provided when loading from text files."
             )
-
-        return cls.from_bytes(migoto_format, vb_bytes, ib_bytes)
+        return cls.from_txt(migoto_format, vb_path, ib_path)
 
     @staticmethod
     def resolve_partner_path(path: Path | None, partner_suffix: str) -> Path | None:
@@ -154,10 +173,12 @@ class NumpyMesh:
         merged_index_buffer.import_raw_data(
             numpy.frombuffer(merged_ib_bytes, dtype=numpy.uint16)
         )
-
-        self.format = self.format
         self.format.vertex_count += other.format.vertex_count
         self.format.index_count += other.format.index_count
+        self.format.first_index = min(self.format.first_index, other.format.first_index)
+        self.format.first_vertex = min(
+            self.format.first_vertex, other.format.first_vertex
+        )
         self.vertex_buffer = merged_vertex_buffer
         self.index_buffer = merged_index_buffer
 
@@ -193,8 +214,8 @@ class NumpyMeshGroup:
     def __init__(self):
         self.meshes: list[NumpyMesh] = []
         self.numpy_mesh: NumpyMesh = NumpyMesh()
-        self.index_buffer: NumpyBuffer = self.numpy_mesh.index_buffer
-        self.vertex_buffer: NumpyBuffer = self.numpy_mesh.vertex_buffer
+        self.index_buffer: NumpyBuffer | None = self.numpy_mesh.index_buffer
+        self.vertex_buffer: NumpyBuffer | None = self.numpy_mesh.vertex_buffer
 
     def add_mesh(self, mesh: NumpyMesh):
         self.meshes.append(mesh)

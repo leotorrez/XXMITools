@@ -1498,16 +1498,16 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
         return ret
 
     def execute(self, context):
-        if self.load_buf:
-            # Is there a way to have the mutual exclusivity reflected in
-            # the UI? Grey out options or use radio buttons or whatever?
-            if self.merge_meshes or self.load_related:
-                self.report(
-                    {"INFO"},
-                    "Loading .buf files selected: Disabled incompatible options",
-                )
-            self.merge_meshes = False
-            self.load_related = False
+        # if self.load_buf:
+        #     # Is there a way to have the mutual exclusivity reflected in
+        #     # the UI? Grey out options or use radio buttons or whatever?
+        #     if self.merge_meshes or self.load_related:
+        #         self.report(
+        #             {"INFO"},
+        #             "Loading .buf files selected: Disabled incompatible options",
+        #         )
+        #     self.merge_meshes = False
+        #     self.load_related = False
 
         try:
             cfg = ImporterOptions(
