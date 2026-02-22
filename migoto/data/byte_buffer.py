@@ -740,6 +740,8 @@ class MigotoFormat:
         ib_fmt_data = cls.extract_txt_file_fmt_text(ib_file_data)
         ib_fmt = cls.parse_fmt_text(ib_fmt_data)
         vb_fmt = cls.parse_fmt_text(vb_fmt_data)
+
+        ib_fmt.pop("elements", None)
         merged_fmt = vb_fmt | ib_fmt
 
         return cls.from_dict(merged_fmt)
