@@ -741,8 +741,8 @@ class MigotoFormat:
         ib_fmt = cls.parse_fmt_text(ib_fmt_data)
         vb_fmt = cls.parse_fmt_text(vb_fmt_data)
 
-        ib_fmt.pop("elements", None)
-        merged_fmt = vb_fmt | ib_fmt
+        merged_fmt = ib_fmt | vb_fmt
+        merged_fmt["elements"] = ib_fmt["elements"] | vb_fmt["elements"]
 
         return cls.from_dict(merged_fmt)
 
