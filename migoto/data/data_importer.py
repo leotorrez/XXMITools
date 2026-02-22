@@ -43,7 +43,6 @@ class BlenderDataImporter:
         texcoords = {}
         shapekeys = {}
         normals = None
-
         for buffer_semantic in vertex_buffer.layout.semantics:
             semantic = buffer_semantic.abstract.enum
 
@@ -80,7 +79,6 @@ class BlenderDataImporter:
                 self.import_attribute(mesh, buffer_semantic.get_name(), data)
             else:
                 continue
-
         self.import_texcoords(mesh, texcoords, vertex_ids)
         self.import_vertex_groups(obj, vg_indices, vg_weights)
         self.import_shapekeys(obj, shapekeys)
@@ -90,7 +88,6 @@ class BlenderDataImporter:
 
         if normals is not None:
             self.import_normals(mesh, normals, vertex_ids)
-
         return vertex_ids
 
     def get_semantic_data(
@@ -155,39 +152,101 @@ class BlenderDataImporter:
         semantic_vg_indices: dict[int, numpy.ndarray],
         semantic_vg_weights: dict[int, numpy.ndarray],
     ):
-        vg_index_offset = 0
-
+        """Import vertex groups using optimized batch processing.
+        Groups vertices by weight value to minimize Blender API calls,
+        significantly improving performance for large meshes.
+        """
         for semantic_index in sorted(semantic_vg_indices.keys()):
             vg_indices = semantic_vg_indices[semantic_index]
             vg_weights = semantic_vg_weights.get(semantic_index, None)
 
-            if vg_weights is None:
-                vg_weights = numpy.zeros((vg_indices.shape), dtype=int)
-                if vg_indices.ndim == 1:
-                    vg_weights[:] = 1
-                    vg_indices = vg_indices.reshape(-1, 1)
-                    vg_weights = vg_weights.reshape(-1, 1)
-                else:
-                    vg_weights[:, 0] = 1
+            # Handle missing weights by creating default values
+            vg_indices, vg_weights = self._normalize_vertex_group_data(
+                vg_indices, vg_weights
+            )
 
-            assert len(vg_indices) == len(vg_weights)
+            num_vertex_groups = int(vg_indices.max()) + 1
 
-            num_vertex_groups = vg_indices.max()
+            # Create vertex groups
+            vg_list = [
+                obj.vertex_groups.new(name=f"{i}") for i in range(num_vertex_groups)
+            ]
 
-            semantic_prefix = "" if semantic_index == 0 else f"{semantic_index}_"
+            # Flatten data for vectorized processing
+            vert_ids, group_ids, weights = self._flatten_vertex_group_data(
+                vg_indices, vg_weights
+            )
 
-            for i in range(num_vertex_groups + 1):
-                obj.vertex_groups.new(name=semantic_prefix + str(i))
+            # Filter out zero weights
+            nonzero_mask = weights > 0.0
+            vert_ids = vert_ids[nonzero_mask]
+            group_ids = group_ids[nonzero_mask]
+            weights = weights[nonzero_mask]
 
-            for vertex_id, (indices, weights) in enumerate(zip(vg_indices, vg_weights)):
-                for index, weight in zip(indices, weights):
-                    if weight == 0.0:
-                        continue
-                    obj.vertex_groups[vg_index_offset + index].add(
-                        (vertex_id,), weight, "REPLACE"
-                    )
+            # Batch assign weights by grouping vertices with same weight
+            self._batch_assign_vertex_weights(
+                vg_list, num_vertex_groups, vert_ids, group_ids, weights
+            )
 
-            vg_index_offset += num_vertex_groups
+    def _normalize_vertex_group_data(
+        self, vg_indices: numpy.ndarray, vg_weights: numpy.ndarray | None
+    ) -> tuple[numpy.ndarray, numpy.ndarray]:
+        """Normalize vertex group indices and weights to consistent shape."""
+        if vg_weights is None:
+            vg_weights = numpy.zeros(vg_indices.shape, dtype=int)
+            if vg_indices.ndim == 1:
+                vg_weights[:] = 1
+                vg_indices = vg_indices.reshape(-1, 1)
+                vg_weights = vg_weights.reshape(-1, 1)
+            else:
+                vg_weights[:, 0] = 1
+
+        assert len(vg_indices) == len(vg_weights)
+        return vg_indices, vg_weights
+
+    def _flatten_vertex_group_data(
+        self, vg_indices: numpy.ndarray, vg_weights: numpy.ndarray
+    ) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
+        """Flatten vertex group data for vectorized processing."""
+        num_verts = len(vg_indices)
+        num_influences = vg_indices.shape[1] if vg_indices.ndim > 1 else 1
+
+        if vg_indices.ndim > 1:
+            vert_ids = numpy.repeat(numpy.arange(num_verts), num_influences)
+            group_ids = vg_indices.flatten()
+            weights = vg_weights.astype(numpy.float32).flatten()
+        else:
+            vert_ids = numpy.arange(num_verts)
+            group_ids = vg_indices.flatten()
+            weights = vg_weights.astype(numpy.float32).flatten()
+
+        return vert_ids, group_ids, weights
+
+    def _batch_assign_vertex_weights(
+        self,
+        vg_list: list,
+        num_vertex_groups: int,
+        vert_ids: numpy.ndarray,
+        group_ids: numpy.ndarray,
+        weights: numpy.ndarray,
+    ):
+        """Assign vertex weights in batches grouped by weight value."""
+        for group_idx in range(num_vertex_groups):
+            mask = group_ids == group_idx
+            if not numpy.any(mask):
+                continue
+
+            group_verts = vert_ids[mask]
+            group_weights = weights[mask]
+
+            # Group vertices by unique weight values for batch processing
+            unique_weights = numpy.unique(group_weights)
+
+            vg: bpy.types.VertexGroup = vg_list[group_idx]
+            for weight in unique_weights:
+                weight_mask = group_weights == weight
+                verts_with_weight = group_verts[weight_mask].tolist()
+                vg.add(verts_with_weight, float(weight), "REPLACE")
 
     def import_colors(
         self,

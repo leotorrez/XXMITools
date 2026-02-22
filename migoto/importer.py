@@ -41,12 +41,32 @@ class ImporterOptions:
 # TODO: Add support of import of unhandled semantics into vertex attributes
 # TODO: Support multiple vertex buffers and pose data
 # semantic remapping
+
+
+def _extract_path(path_or_tuple: str | tuple | list[str]) -> Path:
+    """
+    Extract the text path from either a string path or a (binary, text) tuple.
+    When use_bin=True, paths are tuples of (binary_path, text_path).
+    When use_bin=False, paths are simple strings.
+    """
+    if isinstance(path_or_tuple, (tuple, list)):
+        # Return the text path (second element of the tuple)
+        found = path_or_tuple[1] if len(path_or_tuple) > 1 else path_or_tuple[0]
+    else:
+        found = path_or_tuple
+
+    return Path(found) if isinstance(found, str) else found
+
+
 class ObjectImporter:
     def import_object(self, operator, context, cfg):
-        import_folder: Path = Path(next(iter(cfg.import_paths))[0][0]).parent
+        # Extract the first path, handling both string and tuple formats
+        first_import_path = next(iter(cfg.import_paths))
+        first_vb_path = _extract_path(first_import_path.vb_paths[0])
+        import_folder: Path = Path(first_vb_path).parent
+
         start_time = time.time()
         print(f"Object import started for '{import_folder.stem}' folder")
-
         try:
             hash_json_data = HashJsonData(import_folder / "hash.json")
         except FileNotFoundError:
@@ -54,9 +74,7 @@ class ObjectImporter:
                 f"Specified folder is missing hash.json! Expected at: {import_folder / 'hash.json'}",
             )
 
-        imported_objects = self.process_objects(
-            operator, context, cfg, hash_json_data, import_folder
-        )
+        imported_objects = self.process_objects(operator, cfg, hash_json_data)
         if len(imported_objects) == 0:
             raise Fatal(
                 "Specified folder is missing files for components!",
@@ -74,9 +92,7 @@ class ObjectImporter:
 
         print(f"Total import time: {time.time() - start_time:.3f}s")
 
-    def process_objects(
-        self, operator, context, cfg, hash_json_data, import_folder: Path
-    ) -> list[bpy.types.Object]:
+    def process_objects(self, operator, cfg, hash_json_data) -> list[bpy.types.Object]:
         imported_objects = []
 
         # We use lists to ensure the order is kept
@@ -90,7 +106,7 @@ class ObjectImporter:
                         (
                             paths
                             for paths in cfg.import_paths
-                            if Path(paths.ib_paths).stem.split("-ib")[0]
+                            if Path(_extract_path(paths.ib_paths)).stem.split("-ib")[0]
                             == part.fullname
                         ),
                         None,
@@ -101,7 +117,7 @@ class ObjectImporter:
                     grouped_paths[fullname] = result
         else:
             for paths in cfg.import_paths:
-                ib_path = Path(paths.ib_paths)
+                ib_path = Path(_extract_path(paths.ib_paths))
                 fullname = ib_path.stem.split("-ib")[0]
                 if fullname not in grouped_paths:
                     grouped_paths[fullname] = []
@@ -110,7 +126,6 @@ class ObjectImporter:
         for fullname, paths in grouped_paths.items():
             obj = self.import_component(
                 operator,
-                context,
                 cfg,
                 paths,
                 hash_json_data,
@@ -126,8 +141,7 @@ class ObjectImporter:
     def import_component(
         self,
         operator,
-        context,
-        cfg,
+        cfg: ImporterOptions,
         paths: list[ImportPaths],
         hash_json_data: HashJsonData,
         name: str,
@@ -136,24 +150,29 @@ class ObjectImporter:
     ):
         start_time = time.time()
         numpy_mesh_group: NumpyMeshGroup = NumpyMeshGroup()
-        migoto_format: MigotoFormat | None = None
 
         for p in paths:
             vb_paths, ib_path, _, _ = p
-            vb_path = Path(vb_paths[0])
-            fmt_path = vb_path.with_suffix(".fmt")
-            migoto_format = MigotoFormat.from_paths(fmt_path, ib_path, vb_path)
+            # Extract text path from either string or (binary, text) tuple
+            vb_path: Path = _extract_path(vb_paths[0])
+            ib_path: Path = _extract_path(ib_path)
+            fmt_path: Path = vb_path.with_suffix(".fmt")
+            migoto_format: MigotoFormat = MigotoFormat.from_paths(
+                fmt_path, ib_path, vb_path
+            )
             if migoto_format.vb_layout is None or migoto_format.format is None:
                 raise Fatal(
                     f"Specified .fmt file for {fmt_path.stem} is missing vertex buffer layout!",
                 )
             numpy_mesh_group.add_mesh(
-                NumpyMesh.from_paths(migoto_format, vb_path, ib_path, fmt_path)
+                NumpyMesh.from_paths(
+                    migoto_format, vb_path, ib_path, fmt_path, cfg.load_buf
+                )
             )
-
-        if migoto_format is None:
-            raise Fatal(f"Failed to parse a format for component {name}!")
-
+        if (format := numpy_mesh_group.numpy_mesh.format) is None:
+            raise Fatal(
+                f"Specified .fmt file for {fmt_path.stem} is missing vertex buffer layout!",
+            )
         vg_remap = None
         # if cfg.import_skeleton_type == "MERGED":
         #     component_pattern = re.compile(r".*component[ -_]*([0-9]+).*")
@@ -178,7 +197,7 @@ class ObjectImporter:
 
         if cfg.create_materials:
             self.set_materials(operator, obj, name, cfg, hash_json_data)
-        self.set_custom_properties(obj, migoto_format, cfg)
+        self.set_custom_properties(obj, format, cfg)
         model.set_data(
             obj,
             mesh,
@@ -192,7 +211,6 @@ class ObjectImporter:
             if mesh.shape_keys is None
             else len(getattr(mesh.shape_keys, "key_blocks", []))
         )
-
         print(
             f"{name} import time: {time.time() - start_time:.3f}s ({len(mesh.vertices)} vertices, {len(mesh.loops)} indices, {num_shapekeys} shapekeys)"
         )
@@ -230,11 +248,14 @@ class ObjectImporter:
         #         pose_cb_step=pose_cb_step,
         #     )
         #     context.view_layer.objects.active = obj
-        #
 
     def set_custom_properties(
         self, obj, migoto_format: MigotoFormat, cfg: ImporterOptions
     ):
+        if migoto_format.vb_layout is None or migoto_format.format is None:
+            raise Fatal(
+                f"Specified .fmt file is missing vertex buffer layout for object {obj.name}!",
+            )
         obj["3DMigoto:VBLayout"] = migoto_format.vb_layout.serialise()
         obj["3DMigoto:Topology"] = migoto_format.topology
         # for raw_vb in vb.vbs:
@@ -256,25 +277,41 @@ class ObjectImporter:
         hash_json_data: HashJsonData,
     ):
         def add_material(obj, part, diffuse):
+            # TODO: add proper node support for old versions and fall off color to surface in case of errors
             mat_name = part.fullname
             mat = bpy.data.materials.new(mat_name)
             mat.use_nodes = True
-            bsdf = mat.node_tree.nodes.get("Principled BSDF")
-            if bsdf:
-                tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage")
-
-                for img in bpy.data.images:
-                    if img.filepath == str(diffuse.path):
-                        material_img = img
-                        break
-                else:
-                    material_img = bpy.data.images.load(str(diffuse.path))
-                    material_img.alpha_mode = "CHANNEL_PACKED"
-                tex_image.image = material_img
-                mat.node_tree.links.new(
-                    bsdf.inputs["Base Color"],
-                    tex_image.outputs["Color"],
+            if mat.node_tree is None:
+                operator.report(
+                    {"WARNING"},
+                    f"Failed to create node tree for material {mat_name}! Skipping..",
                 )
+                return
+            if (bsdf := mat.node_tree.nodes.get("Principled BSDF")) is None:
+                operator.report(
+                    {"WARNING"},
+                    f"Failed to find Principled BSDF node for material {mat_name}! Skipping..",
+                )
+                return
+            if (tex_image := mat.node_tree.nodes.new("ShaderNodeTexImage")) is None:
+                operator.report(
+                    {"WARNING"},
+                    f"Failed to create Image Texture node for material {mat_name}! Skipping..",
+                )
+                return
+
+            for img in bpy.data.images:
+                if img.filepath == str(diffuse.path):
+                    material_img = img
+                    break
+            else:
+                material_img = bpy.data.images.load(str(diffuse.path))
+                material_img.alpha_mode = "CHANNEL_PACKED"
+            tex_image.image = material_img
+            mat.node_tree.links.new(
+                bsdf.inputs["Base Color"],
+                tex_image.outputs["Color"],
+            )
             obj.data.materials.append(mat)
             prop_name = f"3DMigoto:Material_{part.name}"
             obj[prop_name] = mat
@@ -282,9 +319,6 @@ class ObjectImporter:
             obj.id_properties_ui(prop_name).update(id_type="MATERIAL", description="")
 
         if cfg.merge_meshes:
-            # obj["3DMigoto:Materials"] = bpy.props.CollectionProperty(
-            #     type=MaterialCollection
-            # )
             component = hash_json_data.get_component_by_fullname(name)
             for part in component.parts:
                 diffuse = part.get_texture_by_name("diffuse")
@@ -324,4 +358,3 @@ class ObjectImporter:
             )
             return
         add_material(obj, part, diffuse)
-        # TODO: add proper node support for old versions and fall off color to surface in case of errors
