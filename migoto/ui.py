@@ -468,6 +468,7 @@ class XXMI_PT_Toolbox(Panel):
     bl_label = "XXMI Toolbox"
     # bl_context = "objectmode"
     bl_order = 98
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         layout = self.layout
@@ -491,19 +492,23 @@ class XXMI_PT_Object_properties(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "XXMI Tools"
-    bl_idname = "XXMI_PT_Toolbox"
+    bl_idname = "XXMI_PT_Object_props"
     bl_label = "XXMI Object's Custom properties"
-    # bl_context = "objectmode"
     bl_order = 1
+    bl_options = {"DEFAULT_CLOSED"}
 
-    # @classmethod
-    # def poll(cls, context):
-    #     obj = context.object
-    #     return obj is not None and any(k.startswith("3DMigoto:") for k in obj.keys())
-    #
+    @classmethod
+    def poll(cls, context):
+        if context.selected_objects is None or len(context.selected_objects) == 0:
+            return False
+        obj = context.selected_objects[0]
+        return obj is not None and any(k.startswith("3DMigoto:") for k in obj.keys())
+
     def draw(self, context):
         layout = self.layout
-        obj = context.object
+        if context.selected_objects is None or len(context.selected_objects) == 0:
+            return
+        obj = context.selected_objects[0]
         if obj is None or layout is None:
             return
         layout.label(text=f"Custom properties for {obj.name}:")
