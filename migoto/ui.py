@@ -198,6 +198,8 @@ class MigotoImportMaterialOptionsPanelBase(object):
     @classmethod
     def poll(cls, context):
         operator = context.space_data.active_operator
+        if operator.simple_mode:
+            return False
         return operator.bl_idname == "IMPORT_MESH_OT_migoto_material"
 
     def draw(self, context):
@@ -206,18 +208,38 @@ class MigotoImportMaterialOptionsPanelBase(object):
 
 
 class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Panel):
-    bl_label = "Basic Options"
+    bl_label = ""
     bl_order = 0
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    def draw_header(self, context) -> None:
+        operator = context.space_data.active_operator
+        self.layout.prop(operator, "simple_mode")
 
     def draw(self, context):
         MigotoImportMaterialOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
-        self.layout.prop(operator, "game")
-        self.layout.prop(operator, "flip_texcoord_v")
-        self.layout.prop(operator, "flip_winding")
-        self.layout.prop(operator, "flip_normal")
-        self.layout.prop(operator, "flip_mesh")
-        self.layout.prop(operator, "create_materials")
+        if operator.simple_mode:
+            self.layout.prop(operator, "game")
+            self.layout.prop(operator, "flip_mesh")
+            self.layout.prop(operator, "create_materials")
+            self.layout.prop(operator, "create_collections")
+            self.layout.prop(operator, "merge_meshes")
+            self.layout.separator()
+            self.layout.prop(operator, "merge_verts")
+            self.layout.prop(operator, "tris_to_quads")
+            self.layout.prop(operator, "clean_loose")
+        else:
+            self.layout.prop(operator, "game")
+            self.layout.prop(operator, "flip_texcoord_v")
+            self.layout.prop(operator, "flip_winding")
+            self.layout.prop(operator, "flip_normal")
+            self.layout.prop(operator, "flip_mesh")
+            self.layout.prop(operator, "create_materials")
+            self.layout.prop(operator, "create_collections")
 
 
 class MIGOTO_PT_ImportMaterialRelatedFilesPanel(

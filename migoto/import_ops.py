@@ -1259,6 +1259,12 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
         default=False,
     )
 
+    create_collections: BoolProperty(
+        name="Create Collections",
+        description="Creates collections to match the exported object for merging purposes. ie: Objects within said collection will be merged to that in game object for export.",
+        default=False,
+    )
+
     load_related: BoolProperty(
         name="Auto-load related meshes",
         description="Automatically load related meshes found in the frame analysis dump",
@@ -1338,6 +1344,11 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
         items=game_enum + [("None", "", "No preset, using custom settings")],
         default="None",
         update=sync_preset_to_settings,
+    )
+    simple_mode: BoolProperty(
+        name="Simple mode",
+        description="Hides some of the more technical options and only shows the most commonly used ones. Recommended for users who just want to quickly import meshes without worrying about the technical details",
+        default=True,
     )
 
     def get_vb_ib_paths(self, load_related=None) -> set[ImportPaths]:
@@ -1498,17 +1509,16 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
         return ret
 
     def execute(self, context):
-        # if self.load_buf:
-        #     # Is there a way to have the mutual exclusivity reflected in
-        #     # the UI? Grey out options or use radio buttons or whatever?
-        #     if self.merge_meshes or self.load_related:
-        #         self.report(
-        #             {"INFO"},
-        #             "Loading .buf files selected: Disabled incompatible options",
-        #         )
-        #     self.merge_meshes = False
-        #     self.load_related = False
-
+        if self.simple_mode:
+            self.load_related = True
+            self.load_buf = True
+            if self.game == "None":
+                self.report(
+                    {"ERROR"},
+                    "Simple mode can only export the specified games. "
+                    + "Select one from the list to proceed or disable simple mode.",
+                )
+                return {"FINISHED"}
         try:
             cfg = ImporterOptions(
                 flip_texcoord_v=self.flip_texcoord_v,
@@ -1516,6 +1526,7 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
                 flip_mesh=self.flip_mesh,
                 flip_normal=self.flip_normal,
                 create_materials=self.create_materials,
+                create_collections=self.create_collections,
                 load_related=self.load_related,
                 load_related_so_vb=self.load_related_so_vb,
                 load_buf=self.load_buf,
