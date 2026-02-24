@@ -21,6 +21,7 @@ class ImporterOptions:
     flip_mesh: bool = False
     flip_normal: bool = False
     create_materials: bool = False
+    create_collections: bool = False
     load_related: bool = False
     load_related_so_vb: bool = False
     load_buf: bool = True
@@ -82,19 +83,11 @@ class ObjectImporter:
             operator, cfg, hash_json_data
         )
         if len(imported_objects) == 0:
-            raise Fatal(
-                "Specified folder is missing files for components!",
-            )
+            raise Fatal("Specified folder is missing files for components!")
 
-        col: Collection = bpy.data.collections.new(import_folder.stem)
-
-        context.scene.collection.children.link(col)
-        for obj in imported_objects:
-            col.objects.link(obj)
-            self.cleanup_object(operator, context, obj, cfg)
-            # if cfg.skip_empty_vertex_groups and cfg.import_skeleton_type == "MERGED":
-            #     remove_unused_vertex_groups(context, obj)
-
+        self.setup_collections(
+            operator, context, cfg, hash_json_data, imported_objects, import_folder
+        )
         print(f"Total import time: {time.time() - start_time:.3f}s")
 
     def process_objects(self, operator: Operator, cfg, hash_json_data) -> list[Object]:
@@ -223,33 +216,30 @@ class ObjectImporter:
                 {"WARNING"},
                 "Mesh merging enabled without loose geometry cleanup! This may result in floating vertex hidden among your mesh. Consider enabling 'Clean Loose' option to remove them.",
             )
+        assert obj.data is not None and isinstance(obj.data, Mesh)
         assert context.view_layer is not None
+
+        bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         context.view_layer.objects.active = obj
-
         bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="SELECT")
-        if cfg.merge_verts:
-            bpy.ops.mesh.remove_doubles(use_sharp_edge_from_normals=True)
-        if cfg.tris_to_quads:
-            bpy.ops.mesh.tris_convert_to_quads(
-                uvs=True, vcols=True, seam=True, sharp=True, materials=True
+        try:
+            bpy.ops.mesh.select_all(action="SELECT")
+            if cfg.merge_verts:
+                bpy.ops.mesh.remove_doubles(use_sharp_edge_from_normals=True)
+            if cfg.tris_to_quads:
+                bpy.ops.mesh.tris_convert_to_quads(
+                    uvs=True, vcols=True, seam=True, sharp=True, materials=True
+                )
+            if cfg.clean_loose:
+                bpy.ops.mesh.delete_loose()
+        except Exception as e:
+            operator.report(
+                {"WARNING"},
+                f"Failed to clean up mesh {obj.name} after import! Error: {e}",
             )
-        if cfg.clean_loose:
-            bpy.ops.mesh.delete_loose()
-        bpy.ops.object.mode_set(mode="OBJECT")
-        # if pose_path is not None:
-        #     import_pose(
-        #         operator,
-        #         context,
-        #         pose_path,
-        #         limit_bones_to_vertex_groups=True,
-        #         axis_forward=axis_forward,
-        #         axis_up=axis_up,
-        #         pose_cb_off=pose_cb_off,
-        #         pose_cb_step=pose_cb_step,
-        #     )
-        #     context.view_layer.objects.active = obj
+        finally:
+            bpy.ops.object.mode_set(mode="OBJECT")
 
     def set_custom_properties(
         self, obj: Object, migoto_format: MigotoFormat, cfg: ImporterOptions
@@ -357,3 +347,40 @@ class ObjectImporter:
             )
             return
         add_material(obj, part, diffuse)
+
+    def setup_collections(
+        self,
+        operator: Operator,
+        context: Context,
+        cfg: ImporterOptions,
+        hash_json_data: HashJsonData,
+        objs: list[Object],
+        import_folder: Path,
+    ):
+        def fetch_by_fullname(objs: list[Object], fullname: str) -> Object | None:
+            return next((o for o in objs if o.name.split(".")[0] == fullname), None)
+
+        assert context.scene is not None and context.scene.collection is not None
+        main_col: Collection = bpy.data.collections.new(import_folder.stem)
+        context.scene.collection.children.link(main_col)
+
+        if cfg.create_collections:
+            for component in hash_json_data.components:
+                component_col = bpy.data.collections.new(component.fullname)
+                main_col.children.link(component_col)
+                if component_obj := fetch_by_fullname(objs, component.fullname):
+                    component_col.objects.link(component_obj)
+                    self.cleanup_object(operator, context, component_obj, cfg)
+                if cfg.merge_meshes:
+                    continue
+
+                for part in component.parts:
+                    part_col = bpy.data.collections.new(part.fullname)
+                    component_col.children.link(part_col)
+                    if part_obj := fetch_by_fullname(objs, part.fullname):
+                        part_col.objects.link(part_obj)
+                        self.cleanup_object(operator, context, part_obj, cfg)
+        else:
+            for o in objs:
+                main_col.objects.link(o)
+                self.cleanup_object(operator, context, o, cfg)
