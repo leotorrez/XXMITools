@@ -198,9 +198,8 @@ class MigotoImportMaterialOptionsPanelBase(object):
     @classmethod
     def poll(cls, context):
         operator = context.space_data.active_operator
-        if operator.simple_mode:
-            return False
-        return operator.bl_idname == "IMPORT_MESH_OT_migoto_material"
+        if operator.bl_idname == "IMPORT_MESH_OT_migoto_material":
+            return not operator.simple_mode
 
     def draw(self, context):
         self.layout.use_property_split = True
@@ -213,7 +212,8 @@ class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Pa
 
     @classmethod
     def poll(cls, context):
-        return True
+        operator = context.space_data.active_operator
+        return operator.bl_idname == "IMPORT_MESH_OT_migoto_material"
 
     def draw_header(self, context) -> None:
         operator = context.space_data.active_operator
@@ -227,7 +227,8 @@ class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Pa
             self.layout.prop(operator, "flip_mesh")
             self.layout.prop(operator, "create_materials")
             self.layout.prop(operator, "create_collections")
-            self.layout.prop(operator, "merge_meshes")
+            # Temporarily set as experimental/advanced
+            # self.layout.prop(operator, "merge_meshes")
             self.layout.separator()
             self.layout.prop(operator, "merge_verts")
             self.layout.prop(operator, "tris_to_quads")
