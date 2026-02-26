@@ -79,11 +79,11 @@
             ib = Resource{{ part.fullname }}IB
             {% for texture in part.textures %}
               {% if "normalmap" in texture.name|lower %}
-                  Resource\GIMI\NormalMap = Resource{{ part.fullname }}{{ texture.name }}
+                  Resource\GIMI\NormalMap = ref Resource{{ part.fullname }}{{ texture.name }}
               {% elif "diffuse" in texture.name|lower %}
-                  Resource\GIMI\Diffuse = Resource{{ part.fullname }}{{ texture.name }}
+                  Resource\GIMI\Diffuse = ref Resource{{ part.fullname }}{{ texture.name }}
               {% elif "lightmap" in texture.name|lower %}
-                  Resource\GIMI\LightMap = Resource{{ part.fullname }}{{ texture.name }}
+                  Resource\GIMI\LightMap = ref Resource{{ part.fullname }}{{ texture.name }}
               {% else %}
               ; ps-t{{loop.index0}} = Resource{{ part.fullname }}{{ texture.name }}
               {% endif %}
