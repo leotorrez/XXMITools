@@ -47,15 +47,18 @@ class TextureData:
 
 @dataclass
 class Part:
+    name: str
     fullname: str
     objects: list[SubObj]
     textures: list[TextureData]
     first_index: int
     vertex_count: int = 0
+    index_count: int = 0
 
 
 @dataclass
 class Component:
+    name: str
     fullname: str
     parts: list[Part]
     root_vs: str
@@ -167,6 +170,7 @@ class ModExporter:
         for component in self.hash_data:
             current_name: str = f"{self.mod_name}{component['component_name']}"
             component_entry: Component = Component(
+                name=component['component_name'],
                 fullname=current_name,
                 parts=[],
                 root_vs=component.get("root_vs", ""),
@@ -229,12 +233,25 @@ class ModExporter:
                         self.obj_from_col(obj, None, objects)
                     else:
                         self.obj_from_col(obj, collection[0], objects)
+                index_count: int = 0
+                if len(objects) > 0:
+                    index_count = objects[0].obj.get("3DMigoto:IndexCount", 0)
+                else:
+                    try:
+                        index_count = component["object_index_counts"][j] if "object_index_counts" in component else 0
+                    except IndexError:
+                        self.operator.report(
+                            {"WARNING"},
+                            f"Index count for part {part_name} not found in hash.json. Defaulting to 0.",
+                        )
                 component_entry.parts.append(
                     Part(
                         fullname=part_name,
+                        name=part,
                         objects=objects,
                         textures=textures,
                         first_index=component["object_indexes"][j],
+                        index_count=index_count,
                     )
                 )
             self.mod_file.components.append(component_entry)
@@ -336,11 +353,12 @@ class ModExporter:
                     layout=data_model.buffers_format["IB"]
                 )
                 ib_offset: int = 0
-                for t in part.textures:
-                    tex_name = part.fullname + t.name + t.extension
-                    self.files_to_copy[self.dump_path / tex_name] = (
-                        self.destination / tex_name
-                    )
+                if (component.draw_vb != "" and part.vertex_count > 0) or (component.draw_vb == "" and component.position_vb == ""):
+                    for t in part.textures:
+                        tex_name = part.fullname + t.name + t.extension
+                        self.files_to_copy[self.dump_path / tex_name] = (
+                            self.destination / tex_name
+                        )
                 if component.draw_vb == "":
                     continue
                 for entry in part.objects:
@@ -386,20 +404,21 @@ class ModExporter:
             if self.outline_optimization:
                 self.optimize_outlines(out_buffers, component_ib)
             if component.blend_vb != "":
-                self.files_to_write[
-                    self.destination / (component.fullname + "Position.buf")
-                ] = out_buffers["Position"].data
-                self.files_to_write[
-                    self.destination / (component.fullname + "Blend.buf")
-                ] = out_buffers["Blend"].data
-                self.files_to_write[
-                    self.destination / (component.fullname + "Texcoord.buf")
-                ] = out_buffers["TexCoord"].data
-                component.strides = {
-                    k.lower(): v.stride
-                    for k, v in data_model.buffers_format.items()
-                    if k != "IB"
-                }
+                if any([part.vertex_count for part in component.parts]):
+                    self.files_to_write[
+                        self.destination / (component.fullname + "Position.buf")
+                    ] = out_buffers["Position"].data
+                    self.files_to_write[
+                        self.destination / (component.fullname + "Blend.buf")
+                    ] = out_buffers["Blend"].data
+                    self.files_to_write[
+                        self.destination / (component.fullname + "Texcoord.buf")
+                    ] = out_buffers["TexCoord"].data
+                    component.strides = {
+                        k.lower(): v.stride
+                        for k, v in data_model.buffers_format.items()
+                        if k != "IB"
+                    }
                 continue
             self.files_to_write[self.destination / (component.fullname + ".buf")] = (
                 out_buffers["Position"].data
@@ -494,6 +513,11 @@ class ModExporter:
                 credit=self.credit,
                 game=self.game,
                 character_name=self.mod_name,
+                apply_modifiers=self.apply_modifiers,
+                copy_textures=self.copy_textures,
+                ignore_duplicate_textures=self.ignore_duplicate_textures,
+                no_ramps=self.no_ramps,
+                write_buffers=self.write_buffers
             )
         )
         ini_file.clean_up_indentation()
