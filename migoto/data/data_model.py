@@ -602,7 +602,7 @@ class DataModelXXMI(DataModel):
             raise Fatal(
                 f"Object({obj.name}) doesn't count with the custom properties required for export! Reimport the mesh from dump folder."
             )
-        if cls.game == GameEnum.ZenlessZoneZero:
+        if cls.game == GameEnum.ZenlessZoneZero or cls.game == GameEnum.HonkaiImpactPart2:
             bitan_abstract: AbstractSemantic = AbstractSemantic(Semantic.BitangentSign)
             if cls.buffers_format["Position"].get_element(bitan_abstract) is not None:
                 cls.format_converters[bitan_abstract] = [
