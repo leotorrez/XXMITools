@@ -506,14 +506,16 @@ class NumpyBuffer:
             )
 
         data = numpy.array(matches, dtype=numpy.float32)  # parse floats first
-
         # Fill fields
         start = 0
         for semantic in self.layout.semantics:
             n = semantic.get_num_values()
-            field_data = data[:, start : start + n].astype(
-                semantic.format.numpy_base_type
-            )
+            if semantic.format.type_decoder is None:
+                field_data = data[:, start : start + n].astype(
+                    semantic.format.numpy_base_type
+                )
+            else:
+                field_data = semantic.format.type_encoder(data[:, start : start + n])
             if n == 1:
                 field_data = field_data.ravel()
             self.set_field(semantic.get_name(), field_data)
