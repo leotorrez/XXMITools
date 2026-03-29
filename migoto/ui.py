@@ -223,6 +223,10 @@ class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Pa
         MigotoImportMaterialOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         if operator.simple_mode:
+            if operator.simple_mode is True and operator.game == "None":
+                box = self.layout.box()
+                box.alert = True
+                box.label(text="You must select a game", icon="ERROR")
             self.layout.prop(operator, "game")
             self.layout.prop(operator, "flip_mesh")
             self.layout.prop(operator, "create_materials")
