@@ -1,8 +1,10 @@
-import numpy
-
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from .byte_buffer import MigotoFormat, NumpyBuffer, AbstractSemantic, Semantic
+
+import numpy
+
+from .byte_buffer import AbstractSemantic, MigotoFormat, NumpyBuffer, Semantic
 
 
 @dataclass
@@ -196,7 +198,6 @@ class NumpyMesh:
         ib_buffer = NumpyBuffer(
             migoto_format.ib_layout, size=migoto_format.index_count // 3
         )
-        import time
 
         start_time = time.time()
         with open(vb_path, "r") as vb_file, open(ib_path, "r") as ib_file:
