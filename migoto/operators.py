@@ -508,7 +508,7 @@ class RESET_VERTEX_COLORS(bpy.types.Operator):
         size=4,
         min=0.0,
         max=1.0,
-        default=(1.0, 0.215861, 0.215861, 0.501961),  # RGBA default color
+        default=(1.0, 0.5, 0.5, 0.5),
         description="Select the reset vertex color",
     )
     data_type: bpy.props.EnumProperty(
