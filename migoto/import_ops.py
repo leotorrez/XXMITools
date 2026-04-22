@@ -534,6 +534,7 @@ def import_3dmigoto_vb_ib(
     obj["3DMigoto:Topology"] = vb.topology
     for raw_vb in vb.vbs:
         obj["3DMigoto:VB%iStride" % raw_vb.idx] = raw_vb.stride
+    obj["3DMigoto:VertexCount"] = vb.vertex_count
     obj["3DMigoto:FirstVertex"] = vb.first
     # Record these import options so the exporter can set them to match by
     # default. Might also consider adding them to the .fmt file so reimporting
@@ -554,6 +555,7 @@ def import_3dmigoto_vb_ib(
         # Attach the index buffer layout to the object for later exporting.
         obj["3DMigoto:IBFormat"] = ib.format
         obj["3DMigoto:FirstIndex"] = ib.first
+        obj["3DMigoto:IndexCount"] = ib.index_count
     elif vb.topology == "trianglelist":
         import_faces_from_vb_trianglelist(mesh, vb, flip_winding)
     elif vb.topology == "trianglestrip":
