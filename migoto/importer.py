@@ -254,11 +254,13 @@ class ObjectImporter:
         #     obj["3DMigoto:VB%iStride" % raw_vb.idx] = raw_vb.stride
         obj["3DMigoto:VB0Stride"] = migoto_format.vb_layout.stride
         obj["3DMigoto:FirstVertex"] = migoto_format.first_vertex
+        obj["3DMigoto:VertexCount"] = migoto_format.vertex_count
         obj["3DMigoto:FlipWinding"] = cfg.flip_winding
         obj["3DMigoto:FlipNormal"] = cfg.flip_normal
         obj["3DMigoto:FlipMesh"] = cfg.flip_mesh
         obj["3DMigoto:IBFormat"] = migoto_format.format.get_format()
         obj["3DMigoto:FirstIndex"] = migoto_format.first_index
+        obj["3DMigoto:IndexCount"] = migoto_format.index_count
 
     def set_materials(
         self,

@@ -47,15 +47,19 @@ class TextureData:
 
 @dataclass
 class Part:
+    name: str
     fullname: str
     objects: list[SubObj]
     textures: list[TextureData]
     first_index: int
+    index_count: int = 0
+    first_vertex: int = 0
     vertex_count: int = 0
 
 
 @dataclass
 class Component:
+    name: str
     fullname: str
     parts: list[Part]
     root_vs: str
@@ -167,6 +171,7 @@ class ModExporter:
         for component in self.hash_data:
             current_name: str = f"{self.mod_name}{component['component_name']}"
             component_entry: Component = Component(
+                name=component["component_name"],
                 fullname=current_name,
                 parts=[],
                 root_vs=component.get("root_vs", ""),
@@ -208,6 +213,7 @@ class ModExporter:
                 matching_objs: list[Object] = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
+                first_index, first_vertex, index_count = 0, 0, 0
                 if component["draw_vb"] != "":
                     if not matching_objs:
                         raise Fatal(f"Cannot find object {part_name} in the scene.")
@@ -229,12 +235,22 @@ class ModExporter:
                         self.obj_from_col(obj, None, objects)
                     else:
                         self.obj_from_col(obj, collection[0], objects)
+                    # TODO: This should be reworked to load data from hash.json as a base
+                    # then override values in custom properties. Finally use that resulting structure to define these values.
+                    first_index = obj.get(
+                        "3DMigoto:FirstIndex", component["object_indexes"][j]
+                    )
+                    first_vertex = obj.get("3DMigoto:FirstVertex", 0)
+                    index_count = obj.get("3DMigoto:IndexCount", 0)
                 component_entry.parts.append(
                     Part(
+                        name=part,
                         fullname=part_name,
                         objects=objects,
                         textures=textures,
-                        first_index=component["object_indexes"][j],
+                        first_index=first_index,
+                        index_count=index_count,
+                        first_vertex=first_vertex,
                     )
                 )
             self.mod_file.components.append(component_entry)
