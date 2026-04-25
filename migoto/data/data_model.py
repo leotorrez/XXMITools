@@ -518,8 +518,6 @@ class DataModelXXMI(DataModel):
                 Semantic.Position,
                 Semantic.Normal,
                 Semantic.Tangent,
-                Semantic.Blendweight,
-                Semantic.Blendindices,
                 Semantic.TexCoord,
                 Semantic.Color,
             ]
@@ -578,7 +576,9 @@ class DataModelXXMI(DataModel):
                         )
                         cls.buffers_format["Position"].add_element(
                             BufferSemantic(
-                                AbstractSemantic(Semantic.BitangentSign),
+                                AbstractSemantic(
+                                    Semantic.BitangentSign, new_semantic.abstract.index
+                                ),
                                 DXGIFormat.from_type(new_semantic.format.dxgi_type, 1),
                                 new_semantic.input_slot,
                                 new_semantic.data_step_rate,
