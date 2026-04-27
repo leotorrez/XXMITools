@@ -494,6 +494,7 @@ class ModExporter:
                 credit=self.credit,
                 game=self.game,
                 character_name=self.mod_name,
+                scene=self.context.scene,
             )
         )
         ini_file.clean_up_indentation()
