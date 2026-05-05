@@ -3,7 +3,7 @@ import time
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 import bpy
 import numpy
@@ -75,6 +75,7 @@ class ModFile:
     hash_data: list[dict]
     game: GameEnum
     credit: str = ""
+    scene_data: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -238,6 +239,25 @@ class ModExporter:
                     )
                 )
             self.mod_file.components.append(component_entry)
+        self.mod_file.scene_data = self._prepare_scene_data(scene)
+
+    def _prepare_scene_data(self, scene: Scene) -> dict[str, Any]:
+        """Extracts all custom properties from the scene and converts them into a Jinja2-compatible dictionary."""
+        def convert_property(value: Any) -> Any:
+            """Recursively converts Blender-specific data types to basic Python types."""
+            prop_type_name = type(value).__name__
+            if prop_type_name == "IDPropertyArray":
+                return list(value)
+            if prop_type_name == "IDPropertyGroup":
+                return {k: convert_property(v) for k, v in value.items()}
+            if prop_type_name == "bpy_prop_collection":
+                return [convert_property(item) for item in value]
+            return value
+
+        print("Preparing scene custom properties for template...")
+        if not scene.items():
+            return {}
+        return {key: convert_property(prop) for key, prop in scene.items()}
 
     def obj_from_col(
         self,
