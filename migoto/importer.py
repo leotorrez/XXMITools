@@ -1,3 +1,4 @@
+import copy
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -6,7 +7,7 @@ import bpy
 from bpy.types import Collection, Context, Mesh, Object, Operator
 from bpy_extras.io_utils import axis_conversion
 
-from .data.byte_buffer import AbstractSemantic, MigotoFormat
+from .data.byte_buffer import MigotoFormat, Semantic
 from .data.data_model import DataModelXXMI
 from .data.hash_json import Component, HashJsonData
 from .data.numpy_mesh import NumpyMesh, NumpyMeshGroup
@@ -30,8 +31,7 @@ class ImporterOptions:
     pose_cb: str | None = None
     pose_cb_off: tuple[int, int] | None = None
     pose_cb_step: int | None = None
-    semantic_remap: dict[str, AbstractSemantic] = field(default_factory=dict)
-    semantic_remap_idx: dict[str, int] = field(default_factory=dict)
+    semantic_remap: dict[str, Semantic] = field(default_factory=dict)
     merge_verts: bool = False
     tris_to_quads: bool = False
     clean_loose: bool = False
@@ -40,9 +40,7 @@ class ImporterOptions:
     axis_up: str = "Z"
 
 
-# TODO: Add support of import of unhandled semantics into vertex attributes
 # TODO: Support multiple vertex buffers and pose data
-# semantic remapping
 
 
 def _extract_path(path_or_tuple: str | tuple | list[str]) -> Path:
@@ -149,6 +147,7 @@ class ObjectImporter:
         start_time = time.time()
         numpy_mesh_group: NumpyMeshGroup = NumpyMeshGroup()
 
+        migoto_format: MigotoFormat | None | int = -1
         for p in paths:
             vb_paths, ib_path, _, _ = p
             # Extract text path from either string or (binary, text) tuple
@@ -162,12 +161,25 @@ class ObjectImporter:
                 raise Fatal(
                     f"Specified .fmt file for {fmt_path.stem} is missing vertex buffer layout!",
                 )
-            numpy_mesh_group.add_mesh(
-                NumpyMesh.from_paths(
-                    migoto_format, vb_path, ib_path, fmt_path, cfg.load_buf
+            if len(cfg.semantic_remap) > 0:
+                new_layout = migoto_format.vb_layout.generate_remapped_layout(
+                    cfg.semantic_remap
                 )
-            )
-        if (format := numpy_mesh_group.numpy_mesh.format) is None:
+                print(new_layout)
+                new_format = copy.deepcopy(migoto_format)
+                new_format.vb_layout = new_layout
+                numpy_mesh_group.add_mesh(
+                    NumpyMesh.from_paths(
+                        new_format, vb_path, ib_path, fmt_path, cfg.load_buf
+                    )
+                )
+            else:
+                numpy_mesh_group.add_mesh(
+                    NumpyMesh.from_paths(
+                        migoto_format, vb_path, ib_path, fmt_path, cfg.load_buf
+                    )
+                )
+        if migoto_format == -1 or (format := migoto_format) is None:
             raise Fatal(f"Failed to determine vertex format for component {name}!")
         vg_remap = None
         # if cfg.import_skeleton_type == "MERGED":
@@ -189,14 +201,8 @@ class ObjectImporter:
 
         if cfg.create_materials:
             self.set_materials(operator, obj, name, cfg, hash_json_data)
+        model.set_data(obj, mesh, numpy_mesh_group, vg_remap, mirror_mesh=cfg.flip_mesh)
         self.set_custom_properties(obj, format, cfg)
-        model.set_data(
-            obj,
-            mesh,
-            numpy_mesh_group,
-            vg_remap,
-            mirror_mesh=cfg.flip_mesh,
-        )
 
         num_shapekeys: int = (
             0
@@ -261,6 +267,8 @@ class ObjectImporter:
         obj["3DMigoto:IBFormat"] = migoto_format.format.get_format()
         obj["3DMigoto:FirstIndex"] = migoto_format.first_index
         obj["3DMigoto:IndexCount"] = migoto_format.index_count
+        for uv in obj.data.uv_layers:
+            obj[f"3DMigoto:{uv.name}"] = {"flip_v": cfg.flip_texcoord_v}
 
     def set_materials(
         self,
@@ -362,27 +370,28 @@ class ObjectImporter:
         def fetch_by_fullname(objs: list[Object], fullname: str) -> Object | None:
             return next((o for o in objs if o.name.split(".")[0] == fullname), None)
 
+        def create_and_link_collection(col_name: str, obj: Object):
+            collection = bpy.data.collections.new(col_name)
+            main_col.children.link(collection)
+            collection.objects.link(obj)
+            self.cleanup_object(operator, context, obj, cfg)
+
         assert context.scene is not None and context.scene.collection is not None
         main_col: Collection = bpy.data.collections.new(import_folder.stem)
         context.scene.collection.children.link(main_col)
 
-        if cfg.create_collections:
-            for component in hash_json_data.components:
-                component_col = bpy.data.collections.new(component.fullname)
-                main_col.children.link(component_col)
-                if component_obj := fetch_by_fullname(objs, component.fullname):
-                    component_col.objects.link(component_obj)
-                    self.cleanup_object(operator, context, component_obj, cfg)
-                if cfg.merge_meshes:
-                    continue
-
-                for part in component.parts:
-                    part_col = bpy.data.collections.new(part.fullname)
-                    component_col.children.link(part_col)
-                    if part_obj := fetch_by_fullname(objs, part.fullname):
-                        part_col.objects.link(part_obj)
-                        self.cleanup_object(operator, context, part_obj, cfg)
-        else:
+        if not cfg.create_collections:
             for o in objs:
                 main_col.objects.link(o)
                 self.cleanup_object(operator, context, o, cfg)
+            return
+
+        for component in hash_json_data.components:
+            if component_obj := fetch_by_fullname(objs, component.fullname):
+                create_and_link_collection(component.fullname, component_obj)
+
+            if cfg.merge_meshes:
+                continue
+            for part in component.parts:
+                if part_obj := fetch_by_fullname(objs, part.fullname):
+                    create_and_link_collection(part.fullname, part_obj)

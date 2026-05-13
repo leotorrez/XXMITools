@@ -119,17 +119,29 @@ class BlenderDataExtractor:
         proxy_layout = BufferLayout([])
         # Some formats cannot be converted at foreach_get -> numpy request level and require special care
         for export_semantic in export_layout.semantics:
-            blender_format: DXGIFormat = self.blender_data_formats[
-                export_semantic.abstract.enum
-            ]
-            export_format: DXGIFormat = export_semantic.format
+            proxy_semantic = copy.deepcopy(export_semantic)
 
-            proxy_semantic: BufferSemantic = copy.deepcopy(export_semantic)
+            if export_semantic.abstract.enum == Semantic.EncodedData:
+                proxy_layout.add_element(proxy_semantic)
+                continue
+
+            blender_format = self.blender_data_formats[export_semantic.abstract.enum]
+            export_format = export_semantic.format
 
             if export_semantic.extract_format is not None:
                 # Export format has specified extraction format, lets hope they know what they're doing
-                proxy_semantic.format = export_semantic.extract_format
-                proxy_semantic.stride = export_semantic.extract_format.byte_width
+                if export_semantic.abstract.enum in [
+                    Semantic.Blendindices,
+                    Semantic.Blendweights,
+                ]:
+                    proxy_semantic.stride = (
+                        export_semantic.extract_format.byte_width
+                        * proxy_semantic.get_num_values()
+                    )
+                    proxy_semantic.format = export_semantic.extract_format
+                else:
+                    proxy_semantic.format = export_semantic.extract_format
+                    proxy_semantic.stride = export_semantic.extract_format.byte_width
             elif export_format.dxgi_type in [
                 DXGIType.UNORM16,
                 DXGIType.UNORM8,
@@ -137,8 +149,17 @@ class BlenderDataExtractor:
                 DXGIType.SNORM8,
             ]:
                 # Formats UNORM16, UNORM8, SNORM16 and SNORM8 cannot be directly exported and require conversion
-                proxy_semantic.format = blender_format
-                proxy_semantic.stride = blender_format.byte_width
+                if export_semantic.abstract.enum in [
+                    Semantic.Blendindices,
+                    Semantic.Blendweights,
+                ]:
+                    proxy_semantic.stride = (
+                        blender_format.byte_width * proxy_semantic.get_num_values()
+                    )
+                    proxy_semantic.format = blender_format
+                else:
+                    proxy_semantic.format = blender_format
+                    proxy_semantic.stride = blender_format.byte_width
             elif export_semantic.abstract in semantic_converters.keys():
                 # Semantic converter specified and it works with data values
                 # Lets extract data in original format to prevent possible precision loss
@@ -225,13 +246,26 @@ class BlenderDataExtractor:
             elif semantic == Semantic.BitangentSign:
                 data = self.fetch_data(mesh.loops, "bitangent_sign", numpy_type, size)
             elif semantic == Semantic.Color:
-                data = self.fetch_data(
-                    mesh.vertex_colors[semantic_name].data, "color", numpy_type, size
-                )
+                if (
+                    hasattr(mesh, "vertex_colors")
+                    and semantic_name in mesh.vertex_colors
+                ):
+                    # Legacy projects support
+                    color_attribute = mesh.vertex_colors.get(semantic_name, None)
+                else:
+                    color_attribute = mesh.color_attributes.get(semantic_name, None)
+                if color_attribute is not None:
+                    data = self.fetch_data(
+                        color_attribute.data, "color", numpy_type, size
+                    )
+                else:
+                    data = numpy.zeros(size, dtype=numpy_type)
             elif semantic == Semantic.TexCoord:
-                data = self.fetch_data(
-                    mesh.uv_layers[semantic_name].data, "uv", numpy_type, size
-                )
+                uv_layer = mesh.uv_layers.get(semantic_name, None)
+                if uv_layer is not None:
+                    data = self.fetch_data(uv_layer.data, "uv", numpy_type, size)
+                else:
+                    data = numpy.zeros(size, dtype=numpy_type)
             else:
                 continue
             self.sanitize_blender_data(data)
@@ -338,11 +372,14 @@ class BlenderDataExtractor:
                     ],
                     dtype=dtype,
                 )
+            elif semantic == Semantic.Attribute:
+                data = self.fetch_data(
+                    mesh.attributes[semantic.name].data, "color", numpy_type, size
+                )
             else:
                 continue
+
             self.sanitize_blender_data(data)
-            if num_values == 1:
-                data = data.reshape(-1)
             vertex_data.set_field(buffer_semantic.get_name(), data)
 
         print(
