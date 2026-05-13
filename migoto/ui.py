@@ -381,7 +381,10 @@ class XXMI_PT_Sidebar(Panel):
         col_1 = split.column()
         col_2 = split.column()
         col_1.prop(xxmi, "dump_path")
-        col_2.operator("dump.selector", icon="FILE_FOLDER", text="")
+        if xxmi.dump_path == "" and len(context.scene.objects) == 0:
+            col_2.operator("import_mesh.migoto_material", icon="PLUS", text="")
+        else:
+            col_2.operator("dump.selector", icon="FILE_FOLDER", text="")
         col_1.prop(xxmi, "destination_path")
         col_2.operator("destination.selector", icon="FILE_FOLDER", text="")
         col = layout.column(align=True)
