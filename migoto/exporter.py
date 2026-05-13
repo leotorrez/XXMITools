@@ -348,9 +348,7 @@ class ModExporter:
             vb_offset: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname} " + "-" * 10)
-                part_ib: NumpyBuffer = NumpyBuffer(
-                    layout=data_model.buffers_format["IB"]
-                )
+                part_ib = NumpyBuffer(data_model.buffers_format["IB"])
                 ib_offset: int = 0
                 for t in part.textures:
                     tex_name = part.fullname + t.name + t.extension
@@ -379,23 +377,25 @@ class ModExporter:
                         excluded_buffers,
                         data_model.mirror_mesh,
                     )
-                    gen_buffers["IB"].data["INDEX"] += vb_offset
+                    if gen_buffers["IB"].data is not None:
+                        gen_buffers["IB"].data["INDEX"] += vb_offset
+                        entry.index_count = len(gen_buffers["IB"].data)
+                        part_ib.append(gen_buffers["IB"])
                     for k, v in out_buffers.items():
                         if k not in gen_buffers:
                             continue
+                        print("Trying to append buffer " + k)
                         v.append(gen_buffers[k])
-                    part_ib.append(gen_buffers["IB"])
                     vb_offset += v_count
                     entry.vertex_count = v_count
                     part.vertex_count += v_count
                     component.vertex_count += v_count
-                    entry.index_count = len(gen_buffers["IB"].data)
                     entry.index_offset = ib_offset
                     ib_offset += entry.index_count
-                if len(part_ib) == 0:
+                if part_ib.data is None or len(part_ib) == 0:
                     print(f"Skipping {part.fullname}.ib due to no index data.")
                     continue
-                component_ib.append(part_ib.copy())
+                component_ib.append(part_ib)
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     part_ib.data
                 )
@@ -420,7 +420,8 @@ class ModExporter:
             self.files_to_write[self.destination / (component.fullname + ".buf")] = (
                 out_buffers["Position"].data
             )
-            component.strides = {"position": out_buffers["Position"].data.itemsize}
+            if out_buffers["Position"].data is not None:
+                component.strides = {"position": out_buffers["Position"].data.itemsize}
 
     def verify_mesh_requirements(
         self,
@@ -442,7 +443,11 @@ class ModExporter:
         for sem in semantics_to_check:
             abs_enum: Semantic = sem.abstract.enum
             abs_name: str = sem.abstract.get_name()
-            if abs_enum == Semantic.Color and mesh.vertex_colors.get(abs_name) is None:
+            if (
+                abs_enum == Semantic.Color
+                and mesh.vertex_colors.get(abs_name) is None
+                and mesh.color_attributes.get(abs_name) is None
+            ):
                 missing_colors.append(abs_name)
             if abs_enum == Semantic.TexCoord and mesh.uv_layers.get(abs_name) is None:
                 missing_uvs.append(abs_name)

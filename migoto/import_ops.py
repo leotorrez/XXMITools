@@ -21,7 +21,6 @@ from bpy.types import (
     Object,
     Operator,
     OperatorFileListElement,
-    PropertyGroup,
 )
 from bpy_extras.io_utils import (
     ImportHelper,
@@ -29,6 +28,8 @@ from bpy_extras.io_utils import (
     orientation_helper,
     unpack_list,
 )
+
+from .data.byte_buffer import Semantic
 
 from .datahandling import (
     apply_vgmap,
@@ -45,6 +46,7 @@ from .datastructures import (
     ImportPaths,
     IndexBuffer,
     IOOBJOrientationHelper,
+    SemanticRemapItem,
     VBSOMapEntry,
     VertexBufferGroup,
     game_enum,
@@ -686,83 +688,6 @@ def import_3dmigoto_raw_buffers(
         )
 
 
-semantic_remap_enum = [
-    (
-        "None",
-        "No change",
-        "Do not remap this semantic. If the semantic name is recognised the script will try to interpret it, otherwise it will preserve the existing data in a vertex layer",
-    ),
-    (
-        "POSITION",
-        "POSITION",
-        "This data will be used as the vertex positions. There should generally be exactly one POSITION semantic for hopefully obvious reasons",
-    ),
-    (
-        "NORMAL",
-        "NORMAL",
-        "This data will be used as split (custom) normals in Blender.",
-    ),
-    (
-        "TANGENT",
-        "TANGENT (CAUTION: Discards data!)",
-        "Data in the TANGENT semantics are discarded on import, and recalculated on export",
-    ),
-    # ('BINORMAL', 'BINORMAL', "Don't encourage anyone to choose this since the data will be entirely discarded"),
-    (
-        "BLENDINDICES",
-        "BLENDINDICES",
-        "This semantic holds the vertex group indices, and should be paired with a BLENDWEIGHT semantic that has the corresponding weights for these groups",
-    ),
-    (
-        "BLENDWEIGHT",
-        "BLENDWEIGHT",
-        "This semantic holds the vertex group weights, and should be paired with a BLENDINDICES semantic that has the corresponding vertex group indices that these weights apply to",
-    ),
-    (
-        "TEXCOORD",
-        "TEXCOORD",
-        "Typically holds UV coordinates, though can also be custom data. Choosing this will import the data as a UV layer (or two) in Blender",
-    ),
-    (
-        "COLOR",
-        "COLOR",
-        "Typically used for vertex colors, though can also be custom data. Choosing this option will import the data as a vertex color layer in Blender",
-    ),
-    (
-        "Preserve",
-        "Unknown / Preserve",
-        "Don't try to interpret the data. Choosing this option will simply store the data in a vertex layer in Blender so that it can later be exported unmodified",
-    ),
-]
-
-
-class SemanticRemapItem(PropertyGroup):
-    semantic_from: bpy.props.StringProperty(name="From", default="ATTRIBUTE")
-    semantic_to: bpy.props.EnumProperty(
-        items=semantic_remap_enum, name="Change semantic interpretation"
-    )
-    # Extra information when this is filled out automatically that might help guess the correct semantic:
-    Format: bpy.props.StringProperty(name="DXGI Format")
-    InputSlot: bpy.props.IntProperty(name="Vertex Buffer")
-    InputSlotClass: bpy.props.StringProperty(name="Input Slot Class")
-    AlignedByteOffset: bpy.props.IntProperty(name="Aligned Byte Offset")
-    valid: bpy.props.BoolProperty(default=True)
-    tooltip: bpy.props.StringProperty(
-        default="This is a manually added entry. It's recommended to pre-fill semantics from selected files via the menu to the right to avoid typos"
-    )
-
-    def update_tooltip(self):
-        if not self.Format:
-            return
-        self.tooltip = "vb{}+{} {}".format(
-            self.InputSlot, self.AlignedByteOffset, self.Format
-        )
-        if self.InputSlotClass == "per-instance":
-            self.tooltip = ". This semantic holds per-instance data (such as per-object transformation matrices) which will not be used by the script"
-        elif self.valid is False:
-            self.tooltip += ". This semantic is invalid - it may share the same location as another semantic or the vertex buffer it belongs to may be missing / too small"
-
-
 class ClearSemanticRemapList(Operator):
     """Clear the semantic remap list"""
 
@@ -782,6 +707,7 @@ class PrefillSemanticRemapList(Operator):
     bl_label = "Prefill from selected files"
 
     def execute(self, context):
+        # TODO: rewrite to use new classes for buffer reading
         import_operator = context.space_data.active_operator
         semantic_remap_list = import_operator.properties.semantic_remap
         semantics_in_list = {x.semantic_from for x in semantic_remap_list}
@@ -1522,6 +1448,15 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
                 )
                 return {"FINISHED"}
         try:
+            semantic_remap_list = {
+                x.semantic_from: (
+                    Semantic.Attribute
+                    if x.semantic_to == "Preserve"
+                    else Semantic(x.semantic_to)
+                )
+                for x in self.semantic_remap
+                if x.semantic_to != "None"
+            }
             cfg = ImporterOptions(
                 flip_texcoord_v=self.flip_texcoord_v,
                 flip_winding=self.flip_winding,
@@ -1537,9 +1472,7 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
                 pose_cb=self.pose_cb,
                 pose_cb_off=self.pose_cb_off,
                 pose_cb_step=self.pose_cb_step,
-                # semantic_remap=[
-                #     (x.semantic_from, x.semantic_to) for x in self.semantic_remap
-                # ],
+                semantic_remap=semantic_remap_list,
                 merge_verts=self.merge_verts,
                 tris_to_quads=self.tris_to_quads,
                 clean_loose=self.clean_loose,
@@ -1549,10 +1482,10 @@ class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
             )
             importer = ObjectImporter()
             importer.import_object(self, context, cfg)
-
             xxmi: XXMIProperties = context.scene.xxmi
-            if not xxmi.dump_path:
-                hash_json_path = Path(self.filepath).parent / "hash.json"
+            if xxmi.dump_path == "":
+                print(self.filepath)
+                hash_json_path = Path(self.filepath) / "hash.json"
                 if hash_json_path.exists():
                     xxmi.dump_path = str(hash_json_path.parent)
         except Fatal as e:

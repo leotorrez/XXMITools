@@ -117,10 +117,6 @@ class AbstractSemantic:
     enum: Semantic
     index: int = 0
 
-    def __init__(self, semantic, semantic_index=0):
-        self.enum = semantic
-        self.index = semantic_index
-
     def __hash__(self):
         return hash((self.enum, self.index))
 
@@ -357,10 +353,98 @@ class BufferLayout:
     def serialise(self):
         return [x.to_dict() for x in self.semantics]
 
+    def generate_remapped_layout(self, remap: dict[str, Semantic]) -> "BufferLayout":
+        """Apply semantic remap to the vb's Format returns a remapped format for importing purposes and
+        adds a remapped semantic reference to the original layout semantics for data retrieval during export
+        """
+        ELEM_COUNT = {
+            Semantic.Index: 1,
+            Semantic.VertexId: 1,
+            Semantic.BitangentSign: 1,
+            Semantic.TexCoord: 2,
+            Semantic.Normal: 3,
+            Semantic.Tangent: 3,
+            Semantic.ShapeKey: 3,
+            Semantic.Position: 3,
+            Semantic.Color: 4,
+            Semantic.RawData: 4,
+            Semantic.Attribute: 4,
+            Semantic.Blendweight: 4,
+            Semantic.EncodedData: 4,
+            Semantic.Blendindices: 4,
+            Semantic.Blendweights: 4,
+        }
+        # TODO: When semantic remap for export is implemnted we must revisit this order definition
+        # we might want to remap original name as the name of the destination or reassign indexes
+        # for now we reassign indexes to keep the remapped semantics grouped at the bottom
+        semantic_highest_index: dict[Semantic, int] = {}
+        for semantic in self.semantics:
+            if semantic.abstract.enum not in semantic_highest_index:
+                semantic_highest_index[semantic.abstract.enum] = 0
+            else:
+                semantic_highest_index[semantic.abstract.enum] += 1
+
+        def find_new_semantic_index(semantic_enum: Semantic) -> int:
+            if semantic_enum not in semantic_highest_index:
+                semantic_highest_index[semantic_enum] = 0
+            else:
+                semantic_highest_index[semantic_enum] += 1
+            return semantic_highest_index[semantic_enum]
+
+        generated_semantics: dict[BufferSemantic, list[BufferSemantic]] = {}
+        for source_name, destination_semantic in remap.items():
+            try:
+                groups = re.match(r"(.+)(\d+)?", source_name).groups()
+                old_semantic = Semantic(groups[0])
+                semantic_index = 0 if groups[1] is None else int(groups[1])
+            except Exception as e:
+                print(
+                    f"Failed to parse semantic remap key `{source_name}`: {e}.Skipping"
+                )
+                continue
+            for semantic in self.semantics:
+                if (
+                    semantic.abstract.enum == old_semantic
+                    and semantic.abstract.index == semantic_index
+                ):
+                    generated_semantics[semantic] = []
+                    source_dim = semantic.get_num_values()
+                    destination_dim = ELEM_COUNT[destination_semantic]
+
+                    new_semantic = Semantic(destination_semantic)
+                    new = BufferSemantic(
+                        abstract=AbstractSemantic(
+                            new_semantic, find_new_semantic_index(new_semantic)
+                        ),
+                        format=DXGIFormat.from_type(
+                            semantic.format.dxgi_type, min(destination_dim, source_dim)
+                        ),
+                    )
+                    generated_semantics[semantic].append(new)
+                    if source_dim > destination_dim:
+                        new_semantic = Semantic(destination_semantic)
+                        new = BufferSemantic(
+                            abstract=AbstractSemantic(
+                                new_semantic, find_new_semantic_index(new_semantic)
+                            ),
+                            format=DXGIFormat.from_type(
+                                semantic.format.dxgi_type, source_dim - destination_dim
+                            ),
+                        )
+                        generated_semantics[semantic].append(new)
+                    continue
+        semantics: list[BufferSemantic] = []
+        for semantic in self.semantics:
+            if generated_semantics.get(semantic) is None:
+                semantics.append(semantic)
+            else:
+                semantics += generated_semantics[semantic]
+        return BufferLayout(semantics)
+
 
 class NumpyBuffer:
     layout: BufferLayout
-    data: numpy.ndarray
+    data: numpy.ndarray | None = None
 
     def __init__(self, layout: BufferLayout, data: numpy.ndarray | None = None, size=0):
         self.set_layout(layout)
@@ -395,9 +479,16 @@ class NumpyBuffer:
     ) -> numpy.ndarray | None:
         semantic = self.layout.get_element(field)
         if semantic is None:
-            # raise ValueError(f'Semantic {field} not found in the layout of NumpyBuffer!')
             return None
-        return self.data[semantic.get_name()]
+        field_name = semantic.get_name()
+        if self.data is None:
+            return None
+        dtype_names = self.data.dtype.names
+        if dtype_names is None:
+            return None
+        if field_name in dtype_names:
+            return self.data[field_name]
+        return None
 
     def remove_duplicates(self, keep_order=True):
         if keep_order:
@@ -456,7 +547,8 @@ class NumpyBuffer:
             )
 
     def import_raw_data(self, data: numpy.ndarray):
-        self.data = numpy.frombuffer(data, dtype=self.layout.get_numpy_type())
+        dtype = self.layout.get_numpy_type()
+        self.data = numpy.frombuffer(data, dtype=dtype)
 
     def import_txt_data(
         self,
@@ -542,7 +634,17 @@ class NumpyBuffer:
         return self.data.tobytes()
 
     def __len__(self):
-        return len(self.data)
+        return 0 if self.data is None else len(self.data)
+
+    def append(self, other: "NumpyBuffer") -> None:
+        """Appends another NumpyBuffer to this one"""
+        if self.layout != other.layout:
+            raise ValueError("Layouts do not match!")
+        if other.data is None:
+            return
+        self.data = (
+            other.data if self.data is None else numpy.append(self.data, other.data)
+        )
 
 
 MIGOTO_FORMAT_HEADER_CONVERTERS = {
@@ -663,14 +765,13 @@ class MigotoFormat:
         # Fill instance with elements data
 
         layout = BufferLayout(semantics=[], auto_stride=False, auto_offsets=False)
-        layout.stride = migoto_data.get("stride", 0)
+        layout.stride = int(migoto_data.get("stride", 0))
         # TODO: add support for "VB%i stride" format for txt and fmt files with multiple VBs per IB
 
         for element in tokenized_elements_data.values():
             buffer_semantic = BufferSemantic(
                 abstract=AbstractSemantic(
-                    semantic=element["SemanticName"],
-                    semantic_index=element["SemanticIndex"],
+                    element["SemanticName"], element["SemanticIndex"]
                 ),
                 format=element["Format"],
                 input_slot=element["InputSlot"],
