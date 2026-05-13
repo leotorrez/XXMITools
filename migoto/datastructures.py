@@ -8,6 +8,9 @@ from enum import Enum
 import numpy
 from mathutils import Matrix
 
+from bpy.types import PropertyGroup
+from bpy.props import StringProperty, IntProperty, EnumProperty, BoolProperty
+
 IOOBJOrientationHelper = type("DummyIOOBJOrientationHelper", (object,), {})
 vertex_color_layer_channels = 4
 
@@ -112,30 +115,38 @@ def EncoderDecoder(fmt):
 
     if unorm16_pattern.match(fmt):
         return (
-            lambda data: numpy.around((numpy.fromiter(data, numpy.float32) * 65535.0))
-            .astype(numpy.uint16)
-            .tobytes(),
+            lambda data: (
+                numpy.around((numpy.fromiter(data, numpy.float32) * 65535.0))
+                .astype(numpy.uint16)
+                .tobytes()
+            ),
             lambda data: (numpy.frombuffer(data, numpy.uint16) / 65535.0).tolist(),
         )
     if unorm8_pattern.match(fmt):
         return (
-            lambda data: numpy.around((numpy.fromiter(data, numpy.float32) * 255.0))
-            .astype(numpy.uint8)
-            .tobytes(),
+            lambda data: (
+                numpy.around((numpy.fromiter(data, numpy.float32) * 255.0))
+                .astype(numpy.uint8)
+                .tobytes()
+            ),
             lambda data: (numpy.frombuffer(data, numpy.uint8) / 255.0).tolist(),
         )
     if snorm16_pattern.match(fmt):
         return (
-            lambda data: numpy.around((numpy.fromiter(data, numpy.float32) * 32767.0))
-            .astype(numpy.int16)
-            .tobytes(),
+            lambda data: (
+                numpy.around((numpy.fromiter(data, numpy.float32) * 32767.0))
+                .astype(numpy.int16)
+                .tobytes()
+            ),
             lambda data: (numpy.frombuffer(data, numpy.int16) / 32767.0).tolist(),
         )
     if snorm8_pattern.match(fmt):
         return (
-            lambda data: numpy.around((numpy.fromiter(data, numpy.float32) * 127.0))
-            .astype(numpy.int8)
-            .tobytes(),
+            lambda data: (
+                numpy.around((numpy.fromiter(data, numpy.float32) * 127.0))
+                .astype(numpy.int8)
+                .tobytes()
+            ),
             lambda data: (numpy.frombuffer(data, numpy.int8) / 127.0).tolist(),
         )
 
@@ -154,6 +165,83 @@ def format_size(fmt):
     return sum(map(int, matches)) // 8
 
 
+semantic_remap_enum = [
+    (
+        "None",
+        "No change",
+        "Do not remap this semantic. If the semantic name is recognised the script will try to interpret it, otherwise it will preserve the existing data in a vertex layer",
+    ),
+    (
+        "POSITION",
+        "POSITION",
+        "This data will be used as the vertex positions. There should generally be exactly one POSITION semantic for hopefully obvious reasons",
+    ),
+    (
+        "NORMAL",
+        "NORMAL",
+        "This data will be used as split (custom) normals in Blender.",
+    ),
+    (
+        "TANGENT",
+        "TANGENT (CAUTION: Discards data!)",
+        "Data in the TANGENT semantics are discarded on import, and recalculated on export",
+    ),
+    # ('BINORMAL', 'BINORMAL', "Don't encourage anyone to choose this since the data will be entirely discarded"),
+    (
+        "BLENDINDICES",
+        "BLENDINDICES",
+        "This semantic holds the vertex group indices, and should be paired with a BLENDWEIGHT semantic that has the corresponding weights for these groups",
+    ),
+    (
+        "BLENDWEIGHT",
+        "BLENDWEIGHT",
+        "This semantic holds the vertex group weights, and should be paired with a BLENDINDICES semantic that has the corresponding vertex group indices that these weights apply to",
+    ),
+    (
+        "TEXCOORD",
+        "TEXCOORD",
+        "Typically holds UV coordinates, though can also be custom data. Choosing this will import the data as a UV layer (or two) in Blender",
+    ),
+    (
+        "COLOR",
+        "COLOR",
+        "Typically used for vertex colors, though can also be custom data. Choosing this option will import the data as a vertex color layer in Blender",
+    ),
+    (
+        "Preserve",
+        "Unknown / Preserve",
+        "Don't try to interpret the data. Choosing this option will simply store the data in a vertex layer in Blender so that it can later be exported unmodified",
+    ),
+]
+
+
+class SemanticRemapItem(PropertyGroup):
+    semantic_from: StringProperty(name="From", default="RAWDATA")
+    semantic_to: EnumProperty(
+        items=semantic_remap_enum, name="Change semantic interpretation"
+    )
+    # Extra information when this is filled out automatically that might help guess the correct semantic:
+    Format: StringProperty(name="DXGI Format")
+    InputSlot: IntProperty(name="Vertex Buffer")
+    InputSlotClass: StringProperty(name="Input Slot Class")
+    AlignedByteOffset: IntProperty(name="Aligned Byte Offset")
+    valid: BoolProperty(default=True)
+    tooltip: StringProperty(
+        default="This is a manually added entry. It's recommended to pre-fill semantics from selected files via the menu to the right to avoid typos"
+    )
+
+    def update_tooltip(self):
+        if not self.Format:
+            return
+        self.tooltip = "vb{}+{} {}".format(
+            self.InputSlot, self.AlignedByteOffset, self.Format
+        )
+        if self.InputSlotClass == "per-instance":
+            self.tooltip = ". This semantic holds per-instance data (such as per-object transformation matrices) which will not be used by the script"
+        elif self.valid is False:
+            self.tooltip += ". This semantic is invalid - it may share the same location as another semantic or the vertex buffer it belongs to may be missing / too small"
+
+
 class InputLayoutElement(object):
     def __init__(self, arg):
         self.RemappedSemanticName = None
@@ -168,9 +256,7 @@ class InputLayoutElement(object):
     def from_file(self, f):
         self.SemanticName = self.next_validate(f, "SemanticName")
         self.SemanticIndex = int(self.next_validate(f, "SemanticIndex"))
-        (self.RemappedSemanticName, line) = self.next_optional(
-            f, "RemappedSemanticName"
-        )
+        self.RemappedSemanticName, line = self.next_optional(f, "RemappedSemanticName")
         if line is None:
             self.RemappedSemanticIndex = int(
                 self.next_validate(f, "RemappedSemanticIndex")
@@ -202,33 +288,42 @@ class InputLayoutElement(object):
         return d
 
     def to_string(self, indent=2):
-        ret = textwrap.dedent("""
+        ret = (
+            textwrap.dedent("""
             SemanticName: %s
             SemanticIndex: %i
-        """).lstrip() % (
-            self.SemanticName,
-            self.SemanticIndex,
+        """).lstrip()
+            % (
+                self.SemanticName,
+                self.SemanticIndex,
+            )
         )
         if self.RemappedSemanticName is not None:
-            ret += textwrap.dedent("""
+            ret += (
+                textwrap.dedent("""
                 RemappedSemanticName: %s
                 RemappedSemanticIndex: %i
-            """).lstrip() % (
-                self.RemappedSemanticName,
-                self.RemappedSemanticIndex,
+            """).lstrip()
+                % (
+                    self.RemappedSemanticName,
+                    self.RemappedSemanticIndex,
+                )
             )
-        ret += textwrap.dedent("""
+        ret += (
+            textwrap.dedent("""
             Format: %s
             InputSlot: %i
             AlignedByteOffset: %i
             InputSlotClass: %s
             InstanceDataStepRate: %i
-        """).lstrip() % (
-            self.Format,
-            self.InputSlot,
-            self.AlignedByteOffset,
-            self.InputSlotClass,
-            self.InstanceDataStepRate,
+        """).lstrip()
+            % (
+                self.Format,
+                self.InputSlot,
+                self.AlignedByteOffset,
+                self.InputSlotClass,
+                self.InstanceDataStepRate,
+            )
         )
         return textwrap.indent(ret, " " * indent)
 
@@ -425,9 +520,9 @@ class InputLayout(object):
             )
 
             self.elems[remap.semantic_from].RemappedSemanticName = remap.semantic_to
-            self.elems[
-                remap.semantic_from
-            ].RemappedSemanticIndex = remapped_semantic_idx
+            self.elems[remap.semantic_from].RemappedSemanticIndex = (
+                remapped_semantic_idx
+            )
             semantic_translations[remap.semantic_from] = (
                 remap.semantic_to,
                 remapped_semantic_idx,
