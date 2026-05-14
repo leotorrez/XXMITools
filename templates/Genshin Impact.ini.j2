@@ -57,9 +57,9 @@
         override_byte_stride = {{ component.strides.position }}
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" %}
-        [TextureOverride{{ component.fullname }}]
+        [TextureOverride{{ component.fullname }}Position]
         hash = {{ component.position_vb }}
-        vb0 = Resource{{ component.fullname }}
+        vb0 = Resource{{ component.fullname }}Position
         {% if credit != "" %}
             $active = 1
         {% endif %}
@@ -141,10 +141,10 @@
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" and component.vertex_count > 0 %}
         {% if component.strides %}
-            [Resource{{ component.fullname }}]
+            [Resource{{ component.fullname }}Position]
             type = Buffer
             stride = {{ component.strides.position }}
-            filename = {{ component.fullname }}.buf
+            filename = {{ component.fullname }}Position.buf
         {% endif %}
         
         {% for part in component.parts %}

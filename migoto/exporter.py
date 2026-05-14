@@ -302,40 +302,24 @@ class ModExporter:
         self.files_to_write = {}
         self.files_to_copy = {}
         for component in self.mod_file.components:
-            if component.draw_vb == "":
-                for part in component.parts:
-                    print(f"Processing {part.fullname} " + "-" * 10)
-                    for t in part.textures:
-                        tex_name = part.fullname + t.name + t.extension
-                        self.files_to_copy[self.dump_path / tex_name] = (
-                            self.destination / tex_name
-                        )
-                continue
             data_model: DataModelXXMI = DataModelXXMI.from_obj(
                 component.parts[0].objects[0].obj,
-                game=self.game,
-                normalize_weights=self.normalize_weights,
-                is_posed_mesh=component.blend_vb != "",
+                self.game,
+                self.normalize_weights,
+                component.blend_vb,
+                component.texcoord_vb,
             )
             excluded_buffers: list[str] = []
             out_buffers: dict[str, NumpyBuffer] = {
                 key: NumpyBuffer(layout=entry)
                 for key, entry in data_model.buffers_format.items()
-                if key != "IB"
             }
-            component_ib: NumpyBuffer = NumpyBuffer(
-                layout=data_model.buffers_format["IB"]
-            )
             if self.write_buffers is False:
                 for key in out_buffers.keys():
                     excluded_buffers.append(key)
             vb_offset: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname} " + "-" * 10)
-                part_ib: NumpyBuffer = NumpyBuffer(
-                    layout=data_model.buffers_format["IB"]
-                )
-                ib_offset: int = 0
                 for t in part.textures:
                     tex_name = part.fullname + t.name + t.extension
                     self.files_to_copy[self.dump_path / tex_name] = (
@@ -343,6 +327,8 @@ class ModExporter:
                     )
                 if component.draw_vb == "":
                     continue
+                part_ib: NumpyBuffer = NumpyBuffer(data_model.buffers_format["IB"])
+                ib_offset: int = 0
                 for entry in part.objects:
                     print(f"Processing {entry.name}...")
                     v_count: int = 0
@@ -379,32 +365,16 @@ class ModExporter:
                 if len(part_ib) == 0:
                     print(f"Skipping {part.fullname}.ib due to no index data.")
                     continue
-                component_ib.append(part_ib.copy())
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     part_ib.data
                 )
             if self.outline_optimization:
-                self.optimize_outlines(out_buffers, component_ib)
-            if component.blend_vb != "":
+                self.optimize_outlines(out_buffers, gen_buffers["IB"])
+            for key, buffer in out_buffers.items():
                 self.files_to_write[
-                    self.destination / (component.fullname + "Position.buf")
-                ] = out_buffers["Position"].data
-                self.files_to_write[
-                    self.destination / (component.fullname + "Blend.buf")
-                ] = out_buffers["Blend"].data
-                self.files_to_write[
-                    self.destination / (component.fullname + "Texcoord.buf")
-                ] = out_buffers["TexCoord"].data
-                component.strides = {
-                    k.lower(): v.stride
-                    for k, v in data_model.buffers_format.items()
-                    if k != "IB"
-                }
-                continue
-            self.files_to_write[self.destination / (component.fullname + ".buf")] = (
-                out_buffers["Position"].data
-            )
-            component.strides = {"position": out_buffers["Position"].data.itemsize}
+                    self.destination / (component.fullname + key + ".buf")
+                ] = buffer.data
+                component.strides[key.lower()] = buffer.data.strides[0]
 
     def verify_mesh_requirements(
         self,

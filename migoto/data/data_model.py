@@ -114,11 +114,8 @@ class DataModel(object):
                     semantic.abstract.enum
                 ].get_num_values()
                 if semantic.get_num_values() != blender_num_values:
-                    converter = (
-                        lambda data,
-                        width=blender_num_values: self.converter_resize_second_dim(
-                            data, width
-                        )
+                    converter = lambda data, width=blender_num_values: (
+                        self.converter_resize_second_dim(data, width)
                     )
                     self._insert_converter(
                         format_converters, semantic.abstract, converter
@@ -444,7 +441,8 @@ class DataModelXXMI(DataModel):
         obj: Object,
         game: GameEnum,
         normalize_weights: bool = False,
-        is_posed_mesh: bool = False,
+        blend_hash: str = "",
+        texcoord_hash: str = "",
     ) -> "DataModelXXMI":
         cls = super().__new__(cls)
         cls.format_converters = {}
@@ -513,16 +511,24 @@ class DataModelXXMI(DataModel):
                 Semantic.Color,
             ]
             tex_semantics = [Semantic.TexCoord]
-        if not is_posed_mesh:
-            pos_semantics: list[Semantic] = [
-                Semantic.Position,
-                Semantic.Normal,
-                Semantic.Tangent,
-                Semantic.TexCoord,
-                Semantic.Color,
-            ]
+        if blend_hash == "":
             blend_semantics: list[Semantic] = []
-            tex_semantics: list[Semantic] = []
+            if texcoord_hash == "":
+                pos_semantics: list[Semantic] = [
+                    Semantic.Position,
+                    Semantic.Normal,
+                    Semantic.Tangent,
+                    Semantic.TexCoord,
+                    Semantic.Color,
+                ]
+                tex_semantics: list[Semantic] = []
+            else:
+                pos_semantics: list[Semantic] = [
+                    Semantic.Position,
+                    Semantic.Normal,
+                    Semantic.Tangent,
+                ]
+                tex_semantics: list[Semantic] = [Semantic.TexCoord, Semantic.Color]
         try:
             for entry in obj.get("3DMigoto:VBLayout"):
                 s_dict = entry.to_dict()
