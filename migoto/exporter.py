@@ -369,7 +369,7 @@ class ModExporter:
                     part_ib.data
                 )
             if self.outline_optimization:
-                self.optimize_outlines(out_buffers, gen_buffers["IB"])
+                self.optimize_outlines(out_buffers)
             for key, buffer in out_buffers.items():
                 self.files_to_write[
                     self.destination / (component.fullname + key + ".buf")
@@ -471,9 +471,7 @@ class ModExporter:
         ini_body: str = str(ini_file)
         self.files_to_write[self.destination / (self.mod_name + ".ini")] = ini_body
 
-    def optimize_outlines(
-        self, output_buffs: dict[str, NumpyBuffer], ib_buf: NumpyBuffer
-    ) -> None:
+    def optimize_outlines(self, output_buffs: dict[str, NumpyBuffer]) -> None:
         """Optimize the outlines of the meshes with angle-weighted normal averaging."""
 
         def unit_vector(vector: NDArray) -> NDArray:
@@ -498,7 +496,7 @@ class ModExporter:
         if len(pos_buf) == 0:
             return
         tex_buf: NumpyBuffer = output_buffs["TexCoord"]
-        ib_data: NDArray = ib_buf.data["INDEX"]
+        ib_data: NDArray = output_buffs["IB"].data["INDEX"]
 
         start_time: int | float = time.time()
 
