@@ -444,7 +444,7 @@ class BufferLayout:
 
 class NumpyBuffer:
     layout: BufferLayout
-    data: numpy.ndarray | None = None
+    data: numpy.ndarray
 
     def __init__(self, layout: BufferLayout, data: numpy.ndarray | None = None, size=0):
         self.set_layout(layout)
@@ -456,7 +456,7 @@ class NumpyBuffer:
     def set_data(self, data: numpy.ndarray | None, size=0):
         if data is not None:
             self.data = data
-        elif size > 0:
+        else:
             self.data = numpy.zeros(size, dtype=self.layout.get_numpy_type())
 
     def set_field(
