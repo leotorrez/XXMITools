@@ -87,6 +87,7 @@
             [TextureOverride{{ part.fullname }}]
             hash = {{ component.ib }}
             match_first_index = {{ part.first_index }}
+            match_index_count = {{ part.index_count }}
             ib = Resource{{ part.fullname }}IB
             {% for entry in part.objects if entry.vertex_count > 0 %}
                 {% if loop.previtem and loop.previtem.collection_name != entry.collection_name %}

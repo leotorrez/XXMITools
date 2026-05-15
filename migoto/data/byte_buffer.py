@@ -444,7 +444,7 @@ class BufferLayout:
 
 class NumpyBuffer:
     layout: BufferLayout
-    data: numpy.ndarray
+    data: numpy.ndarray | None = None
 
     def __init__(self, layout: BufferLayout, data: numpy.ndarray | None = None, size=0):
         self.set_layout(layout)

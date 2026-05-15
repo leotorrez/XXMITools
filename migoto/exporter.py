@@ -340,6 +340,9 @@ class ModExporter:
             vb_offset: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname} " + "-" * 10)
+                part_ib: NumpyBuffer = NumpyBuffer(
+                    layout=data_model.buffers_format["IB"]
+                )
                 ib_offset: int = 0
                 for t in part.textures:
                     tex_name = part.fullname + t.name + t.extension
@@ -370,17 +373,19 @@ class ModExporter:
                         excluded_buffers,
                         data_model.mirror_mesh,
                     )
-                    gen_buffers["IB"].data["INDEX"] += vb_offset
+                    if gen_buffers["IB"].data is not None:
+                        gen_buffers["IB"].data["INDEX"] += vb_offset
+                        entry.index_count = len(gen_buffers["IB"].data)
+                        part_ib.append(gen_buffers["IB"])
                     for k, v in out_buffers.items():
                         if k not in gen_buffers:
                             continue
+                        print("Trying to append buffer " + k)
                         v.append(gen_buffers[k])
-                    part_ib.append(gen_buffers["IB"])
                     vb_offset += v_count
                     entry.vertex_count = v_count
                     part.vertex_count += v_count
                     component.vertex_count += v_count
-                    entry.index_count = len(gen_buffers["IB"].data)
                     entry.index_offset = ib_offset
                     ib_offset += entry.index_count
                 if part_ib.data is None or len(part_ib) == 0:
