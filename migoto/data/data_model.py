@@ -438,7 +438,7 @@ class DataModelXXMI(DataModel):
     @classmethod
     def from_obj(
         cls,
-        obj: Object,
+        obj: Object | None,
         game: GameEnum,
         normalize_weights: bool = False,
         blend_hash: str = "",
@@ -451,6 +451,8 @@ class DataModelXXMI(DataModel):
         cls.buffers_format = {}
         cls.game = game
         cls.normalize_weights = normalize_weights
+        if obj is None:
+            return cls
         for prop in [
             "3DMigoto:FlipNormal",
             "3DMigoto:FlipTangent",

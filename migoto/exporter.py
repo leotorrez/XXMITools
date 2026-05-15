@@ -137,14 +137,14 @@ class ModExporter:
 
         scene: Scene = bpy.context.scene
         if not [
-            obj for obj in scene.objects if self.mod_name.lower() in obj.name.lower()
+            obj for obj in scene.objects if obj.name.startswith(self.mod_name)
         ] or not [
             file
             for file in self.dump_path.parent.iterdir()
             if self.mod_name.lower() in file.name.lower()
         ]:
             raise Fatal(
-                "ERROR: Cannot find match for name. Double check you are exporting as ObjectName.vb to the original data folder, that ObjectName exists in scene and that hash.json exists"
+                "ERROR: Cannot find match for name. Make sure your dump and objects have matching names and that hash.json exists in the dump folder."
             )
         candidate_objs: list[Object] = (
             [obj for obj in bpy.context.selected_objects]
@@ -303,7 +303,11 @@ class ModExporter:
         self.files_to_copy = {}
         for component in self.mod_file.components:
             data_model: DataModelXXMI = DataModelXXMI.from_obj(
-                component.parts[0].objects[0].obj,
+                (
+                    component.parts[0].objects[0].obj
+                    if len(component.parts[0].objects)
+                    else None
+                ),
                 self.game,
                 self.normalize_weights,
                 component.blend_vb,
@@ -368,7 +372,7 @@ class ModExporter:
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     part_ib.data
                 )
-            if self.outline_optimization:
+            if self.outline_optimization and len(out_buffers) > 0:
                 self.optimize_outlines(out_buffers)
             for key, buffer in out_buffers.items():
                 self.files_to_write[
