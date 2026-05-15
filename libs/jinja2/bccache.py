@@ -70,7 +70,8 @@ class Bucket:
             self.reset()
             return
         # the source code of the file changed, we need to reload
-        checksum = pickle.load(f)
+checksum = # FIX: 替换pickle为安全格式
+f)
         if self.checksum != checksum:
             self.reset()
             return
