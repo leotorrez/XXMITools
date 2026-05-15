@@ -82,12 +82,12 @@ class HashJsonData:
                 Component(
                     fullname=name + comp["component_name"],
                     parts=parts,
-                    root_vs=comp["root_vs"],
-                    draw_vb=comp["draw_vb"],
-                    position_vb=comp["position_vb"],
-                    blend_vb=comp["blend_vb"],
-                    texcoord_vb=comp["texcoord_vb"],
-                    ib=comp["ib"],
+                    root_vs=comp.get("root_vs", ""),
+                    draw_vb=comp.get("draw_vb", ""),
+                    position_vb=comp.get("position_vb", ""),
+                    blend_vb=comp.get("blend_vb", ""),
+                    texcoord_vb=comp.get("texcoord_vb", ""),
+                    ib=comp.get("ib", ""),
                 )
             )
         return comps
