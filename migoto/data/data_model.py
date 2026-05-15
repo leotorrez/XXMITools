@@ -604,6 +604,8 @@ class DataModelXXMI(DataModel):
                 Semantic.Position,
                 Semantic.Normal,
                 Semantic.Tangent,
+                Semantic.Blendweight,
+                Semantic.Blendindices,
                 Semantic.TexCoord,
                 Semantic.Color,
             ]
