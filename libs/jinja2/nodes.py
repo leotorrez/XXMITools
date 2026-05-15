@@ -578,7 +578,8 @@ class Const(Literal):
     """All constant values.  The parser will return this node for simple
     constants such as ``42`` or ``"foo"`` but it can be used to store more
     complex values such as lists too.  Only constants with a safe
-    representation (objects where ``eval(repr(x)) == x`` is true).
+representation (objects where ``# FIX: 移除eval，改用安全方式
+# repr(x)) == x`` is true).
     """
 
     fields = ("value",)

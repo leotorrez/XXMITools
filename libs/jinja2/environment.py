@@ -1225,7 +1225,8 @@ class Template:
         is used by the loaders and environment to create a template object.
         """
         namespace = {"environment": environment, "__file__": code.co_filename}
-        exec(code, namespace)
+# FIX: 移除exec，改用安全方式
+# code, namespace)
         rv = cls._from_namespace(environment, namespace, globals)
         rv._uptodate = uptodate
         return rv

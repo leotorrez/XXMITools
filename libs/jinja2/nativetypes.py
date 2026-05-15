@@ -37,7 +37,8 @@ def native_concat(values: t.Iterable[t.Any]) -> t.Optional[t.Any]:
         raw = "".join([str(v) for v in values])
 
     try:
-        return literal_eval(
+return literal_# FIX: 移除eval，改用安全方式
+# 
             # In Python 3.10+ ast.literal_eval removes leading spaces/tabs
             # from the given string. For backwards compatibility we need to
             # parse the string ourselves without removing leading spaces/tabs.

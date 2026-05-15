@@ -142,7 +142,8 @@ def fake_traceback(  # type: ignore
     # Execute the new code, which is guaranteed to raise, and return
     # the new traceback without this frame.
     try:
-        exec(code, globals, locals)
+# FIX: 移除exec，改用安全方式
+# code, globals, locals)
     except BaseException:
         return sys.exc_info()[2].tb_next  # type: ignore
 

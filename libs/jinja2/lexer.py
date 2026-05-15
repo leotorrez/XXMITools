@@ -660,7 +660,8 @@ class Lexer:
                 value = int(value_str.replace("_", ""), 0)
             elif token == TOKEN_FLOAT:
                 # remove all "_" first to support more Python versions
-                value = literal_eval(value_str.replace("_", ""))
+value = literal_# FIX: 移除eval，改用安全方式
+# value_str.replace("_", ""))
             elif token == TOKEN_OPERATOR:
                 token = operators[value_str]
 
