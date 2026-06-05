@@ -12,7 +12,7 @@ from .export_ops import (
 from .import_ops import (
     ClearSemanticRemapList,
     Import3DMigotoFrameAnalysis,
-    Import3DMigotoMaterial,
+    ImportXXMIDump,
     Import3DMigotoRaw,
     PrefillSemanticRemapList,
 )
@@ -190,7 +190,7 @@ class MIGOTO_PT_ImportFrameAnalysisCleanUp(MigotoImportOptionsPanelBase, Panel):
         self.layout.prop(operator, "clean_loose")
 
 
-class MigotoImportMaterialOptionsPanelBase(object):
+class MigotoImportXXMIDumpOptionsPanelBase(object):
     bl_space_type = "FILE_BROWSER"
     bl_region_type = "TOOL_PROPS"
     bl_parent_id = "FILE_PT_operator"
@@ -198,7 +198,7 @@ class MigotoImportMaterialOptionsPanelBase(object):
     @classmethod
     def poll(cls, context):
         operator = context.space_data.active_operator
-        if operator.bl_idname == "IMPORT_MESH_OT_migoto_material":
+        if operator.bl_idname == "IMPORT_MESH_OT_xxmi_dump":
             return not operator.simple_mode
 
     def draw(self, context):
@@ -206,21 +206,21 @@ class MigotoImportMaterialOptionsPanelBase(object):
         self.layout.use_property_decorate = False
 
 
-class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Panel):
+class MIGOTO_PT_ImportXXMIDumpMainPanel(MigotoImportXXMIDumpOptionsPanelBase, Panel):
     bl_label = ""
     bl_order = 0
 
     @classmethod
     def poll(cls, context):
         operator = context.space_data.active_operator
-        return operator.bl_idname == "IMPORT_MESH_OT_migoto_material"
+        return operator.bl_idname == "IMPORT_MESH_OT_xxmi_dump"
 
     def draw_header(self, context) -> None:
         operator = context.space_data.active_operator
         self.layout.prop(operator, "simple_mode")
 
     def draw(self, context):
-        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        MigotoImportXXMIDumpOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         if operator.simple_mode:
             if operator.simple_mode is True and operator.game == "None":
@@ -247,14 +247,14 @@ class MIGOTO_PT_ImportMaterialMainPanel(MigotoImportMaterialOptionsPanelBase, Pa
             self.layout.prop(operator, "create_collections")
 
 
-class MIGOTO_PT_ImportMaterialRelatedFilesPanel(
-    MigotoImportMaterialOptionsPanelBase, Panel
+class MIGOTO_PT_ImportXXMIDumpRelatedFilesPanel(
+    MigotoImportXXMIDumpOptionsPanelBase, Panel
 ):
     bl_label = "Related Files"
     bl_order = 1
 
     def draw(self, context):
-        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        MigotoImportXXMIDumpOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         # self.layout.enabled = not operator.load_buf
         self.layout.prop(operator, "load_related")
@@ -262,8 +262,8 @@ class MIGOTO_PT_ImportMaterialRelatedFilesPanel(
         self.layout.prop(operator, "merge_meshes")
 
 
-class MIGOTO_PT_ImportMaterialBufFilesPanel(
-    MigotoImportMaterialOptionsPanelBase, Panel
+class MIGOTO_PT_ImportXXMIDumpBufFilesPanel(
+    MigotoImportXXMIDumpOptionsPanelBase, Panel
 ):
     bl_label = "Load .buf files instead"
     bl_options = {"DEFAULT_CLOSED"}
@@ -274,13 +274,13 @@ class MIGOTO_PT_ImportMaterialBufFilesPanel(
         self.layout.prop(operator, "load_buf", text="")
 
     def draw(self, context):
-        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        MigotoImportXXMIDumpOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         self.layout.enabled = operator.load_buf
         self.layout.prop(operator, "load_buf_limit_range")
 
 
-class MIGOTO_PT_ImportMaterialBonePanel(MigotoImportMaterialOptionsPanelBase, Panel):
+class MIGOTO_PT_ImportXXMIDumpBonePanel(MigotoImportXXMIDumpOptionsPanelBase, Panel):
     bl_label = ""
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 3
@@ -290,21 +290,21 @@ class MIGOTO_PT_ImportMaterialBonePanel(MigotoImportMaterialOptionsPanelBase, Pa
         self.layout.prop(operator, "pose_cb")
 
     def draw(self, context):
-        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        MigotoImportXXMIDumpOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         self.layout.prop(operator, "pose_cb_off")
         self.layout.prop(operator, "pose_cb_step")
 
 
-class MIGOTO_PT_ImportMaterialRemapSemanticsPanel(
-    MigotoImportMaterialOptionsPanelBase, Panel
+class MIGOTO_PT_ImportXXMIDumpRemapSemanticsPanel(
+    MigotoImportXXMIDumpOptionsPanelBase, Panel
 ):
     bl_label = "Semantic Remap"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 4
 
     def draw(self, context):
-        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        MigotoImportXXMIDumpOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         # TODO: Add layout.operator() to read selected file and fill in semantics
 
@@ -324,25 +324,25 @@ class MIGOTO_PT_ImportMaterialRemapSemanticsPanel(
         )
 
 
-class MIGOTO_PT_ImportMaterialManualOrientation(
-    MigotoImportMaterialOptionsPanelBase, Panel
+class MIGOTO_PT_ImportXXMIDumpManualOrientation(
+    MigotoImportXXMIDumpOptionsPanelBase, Panel
 ):
     bl_label = "Orientation"
     bl_order = 5
 
     def draw(self, context):
-        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        MigotoImportXXMIDumpOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         self.layout.prop(operator, "axis_forward")
         self.layout.prop(operator, "axis_up")
 
 
-class MIGOTO_PT_ImportMaterialCleanUp(MigotoImportMaterialOptionsPanelBase, Panel):
+class MIGOTO_PT_ImportXXMIDumpCleanUp(MigotoImportXXMIDumpOptionsPanelBase, Panel):
     bl_label = "Clean Up mesh after import"
     bl_order = 6
 
     def draw(self, context):
-        MigotoImportMaterialOptionsPanelBase.draw(self, context)
+        MigotoImportXXMIDumpOptionsPanelBase.draw(self, context)
         operator = context.space_data.active_operator
         self.layout.prop(operator, "merge_verts")
         self.layout.prop(operator, "tris_to_quads")
@@ -382,7 +382,7 @@ class XXMI_PT_Sidebar(Panel):
         col_2 = split.column()
         col_1.prop(xxmi, "dump_path")
         if xxmi.dump_path == "" and len(context.scene.objects) == 0:
-            col_2.operator("import_mesh.migoto_material", icon="PLUS", text="")
+            col_2.operator("import_mesh.xxmi_dump", icon="PLUS", text="")
         else:
             col_2.operator("dump.selector", icon="FILE_FOLDER", text="")
         col_1.prop(xxmi, "destination_path")
@@ -600,8 +600,8 @@ def menu_func_import_fa(self, context):
 
 def menu_func_import_mat(self, context):
     self.layout.operator(
-        Import3DMigotoMaterial.bl_idname,
-        text="3DMigoto material(vb.txt + ib.txt)",
+        ImportXXMIDump.bl_idname,
+        text="XXMI Dump(vb.txt + ib.txt)",
     )
 
 

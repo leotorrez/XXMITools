@@ -1053,11 +1053,11 @@ class Import3DMigotoFrameAnalysis(Operator, ImportHelper, IOOBJOrientationHelper
         pass
 
 
-class Import3DMigotoMaterial(Operator, ImportHelper, IOOBJOrientationHelper):
-    """Import a mesh dumped with 3DMigoto's material"""
+class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
+    """Import a mesh dumped with XXMI Dump"""
 
-    bl_idname = "import_mesh.migoto_material"
-    bl_label = "Import 3DMigoto material"
+    bl_idname = "import_mesh.xxmi_dump"
+    bl_label = "Import XXMI dump folder"
     bl_options = {"PRESET", "UNDO"}
 
     filename_ext = ".txt"
