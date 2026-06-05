@@ -55,7 +55,7 @@ def _extract_path(path_or_tuple: str | tuple | list[str]) -> Path:
     else:
         found = path_or_tuple
 
-    return Path(found) if isinstance(found, str) else found
+    return Path(found).absolute() if isinstance(found, str) else found.absolute()
 
 
 class ObjectImporter:
@@ -70,12 +70,14 @@ class ObjectImporter:
 
         start_time = time.time()
         print(f"Object import started for '{import_folder.stem}' folder")
+        hash_json_data: HashJsonData | None = None
         try:
             hash_json_data = HashJsonData(import_folder / "hash.json")
         except FileNotFoundError:
-            raise Fatal(
-                f"Specified folder is missing hash.json! Expected at: {import_folder / 'hash.json'}",
-            )
+            if cfg.merge_meshes or cfg.create_materials:
+                raise Fatal(
+                    f"Specified folder is missing hash.json! Expected at: {import_folder / 'hash.json'}"
+                )
 
         imported_objects: list[Object] = self.process_objects(
             operator, cfg, hash_json_data
@@ -88,13 +90,17 @@ class ObjectImporter:
         )
         print(f"Total import time: {time.time() - start_time:.3f}s")
 
-    def process_objects(self, operator: Operator, cfg, hash_json_data) -> list[Object]:
+    def process_objects(
+        self, operator: Operator, cfg, hash_json_data: HashJsonData | None
+    ) -> list[Object]:
         imported_objects: list[Object] = []
 
         # We use lists to ensure the order is kept
         grouped_paths: dict[str, list[ImportPaths]] = {}
-        if cfg.merge_meshes:
+        if cfg.merge_meshes and hash_json_data is not None:
             for component in hash_json_data.components:
+                # TODO: Either reimplement this section as traditional import dealt with merged meshes or
+                # at the very least remove dependency on hash.json/dump folder for framedump meshes to be efectively imported
                 fullname: str = component.fullname
                 result: list[ImportPaths] = []
                 for part in component.parts:
@@ -139,7 +145,7 @@ class ObjectImporter:
         operator: Operator,
         cfg: ImporterOptions,
         paths: list[ImportPaths],
-        hash_json_data: HashJsonData,
+        hash_json_data: HashJsonData | None,
         name: str,
         axis_forward="Y",
         axis_up="Z",
@@ -168,6 +174,7 @@ class ObjectImporter:
                 print(new_layout)
                 new_format = copy.deepcopy(migoto_format)
                 new_format.vb_layout = new_layout
+                # TODO: Add proper handling for framedump meshes to be imported
                 numpy_mesh_group.add_mesh(
                     NumpyMesh.from_paths(
                         new_format, vb_path, ib_path, fmt_path, cfg.load_buf
@@ -199,7 +206,7 @@ class ObjectImporter:
         model.flip_texcoord_v = cfg.flip_texcoord_v
         model.legacy_vertex_colors = False
 
-        if cfg.create_materials:
+        if cfg.create_materials and hash_json_data is not None:
             self.set_materials(operator, obj, name, cfg, hash_json_data)
         model.set_data(obj, mesh, numpy_mesh_group, vg_remap, mirror_mesh=cfg.flip_mesh)
         self.set_custom_properties(obj, format, cfg)
@@ -363,7 +370,7 @@ class ObjectImporter:
         operator: Operator,
         context: Context,
         cfg: ImporterOptions,
-        hash_json_data: HashJsonData,
+        hash_json_data: HashJsonData | None,
         objs: list[Object],
         import_folder: Path,
     ):
@@ -386,6 +393,7 @@ class ObjectImporter:
                 self.cleanup_object(operator, context, o, cfg)
             return
 
+        assert hash_json_data is not None
         for component in hash_json_data.components:
             if component_obj := fetch_by_fullname(objs, component.fullname):
                 create_and_link_collection(component.fullname, component_obj)
