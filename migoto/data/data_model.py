@@ -599,7 +599,14 @@ class DataModelXXMI(DataModel):
                 Semantic.Color,
             ]
             tex_semantics = [Semantic.TexCoord]
-        if blend_hash == "":
+        if not is_posed_mesh:
+            pos_semantics: list[Semantic] = [
+                Semantic.Position,
+                Semantic.Normal,
+                Semantic.Tangent,
+                Semantic.TexCoord,
+                Semantic.Color,
+            ]
             blend_semantics: list[Semantic] = []
             if texcoord_hash == "":
                 pos_semantics: list[Semantic] = [
