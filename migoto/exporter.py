@@ -213,7 +213,10 @@ class ModExporter:
                 matching_objs: list[Object] = [
                     obj for obj in candidate_objs if obj.name.startswith(part_name)
                 ]
-                first_index, first_vertex, index_count = 0, 0, 0
+                first_index = component["object_indexes"][j]
+                first_vertex = 0
+                object_index_counts = component.get("object_index_counts")
+                index_count = object_index_counts[j] if object_index_counts else 0
                 if component["draw_vb"] != "":
                     if not matching_objs:
                         raise Fatal(f"Cannot find object {part_name} in the scene.")
@@ -241,7 +244,7 @@ class ModExporter:
                         "3DMigoto:FirstIndex", component["object_indexes"][j]
                     )
                     first_vertex = obj.get("3DMigoto:FirstVertex", 0)
-                    index_count = obj.get("3DMigoto:IndexCount", 0)
+                    index_count = obj.get("3DMigoto:IndexCount", index_count)
                 component_entry.parts.append(
                     Part(
                         name=part,
