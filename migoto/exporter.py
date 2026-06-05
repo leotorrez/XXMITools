@@ -343,8 +343,6 @@ class ModExporter:
             vb_offset: int = 0
             for part in component.parts:
                 print(f"Processing {part.fullname} " + "-" * 10)
-                part_ib = NumpyBuffer(data_model.buffers_format["IB"])
-                ib_offset: int = 0
                 for t in part.textures:
                     tex_name = part.fullname + t.name + t.extension
                     self.files_to_copy[self.dump_path / tex_name] = (
@@ -392,33 +390,22 @@ class ModExporter:
                 if part_ib.data is None or len(part_ib) == 0:
                     print(f"Skipping {part.fullname}.ib due to no index data.")
                     continue
-                component_ib.append(part_ib)
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     part_ib.data
                 )
             if self.outline_optimization and len(out_buffers) > 0:
                 self.optimize_outlines(out_buffers)
             for key, buffer in out_buffers.items():
+                if key == "IB":
+                    continue
                 self.files_to_write[
-                    self.destination / (component.fullname + "Position.buf")
-                ] = out_buffers["Position"].data
-                self.files_to_write[
-                    self.destination / (component.fullname + "Blend.buf")
-                ] = out_buffers["Blend"].data
-                self.files_to_write[
-                    self.destination / (component.fullname + "Texcoord.buf")
-                ] = out_buffers["TexCoord"].data
-                component.strides = {
-                    k.lower(): v.stride
-                    for k, v in data_model.buffers_format.items()
-                    if k != "IB"
-                }
-                continue
-            self.files_to_write[self.destination / (component.fullname + ".buf")] = (
-                out_buffers["Position"].data
-            )
-            if out_buffers["Position"].data is not None:
-                component.strides = {"position": out_buffers["Position"].data.itemsize}
+                    self.destination / (component.fullname + key + ".buf")
+                ] = buffer.data
+            component.strides = {
+                k.lower(): v.stride
+                for k, v in data_model.buffers_format.items()
+                if k != "IB"
+            }
 
     def verify_mesh_requirements(
         self,
