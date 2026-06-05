@@ -1,14 +1,27 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from bpy.types import Mesh, Object
+
+
+@dataclass
+class SubObj:
+    collection_name: str
+    depth: int
+    name: str
+    obj: Object
+    mesh: Mesh
+    vertex_count: int = 0
+    index_count: int = 0
+    index_offset: int = 0
 
 
 @dataclass
 class TextureData:
     name: str
-    fullname: str
     extension: str
     hash: str
+    fullname: str
     path: Path
 
 
@@ -16,8 +29,12 @@ class TextureData:
 class Part:
     name: str
     fullname: str
+    objects: list[SubObj]
     textures: list[TextureData]
     first_index: int
+    index_count: int = 0
+    first_vertex: int = 0
+    vertex_count: int = 0
 
     def __hash__(self):
         return hash(
@@ -32,6 +49,7 @@ class Part:
 
 @dataclass
 class Component:
+    name: str
     fullname: str
     parts: list[Part]
     root_vs: str
@@ -40,6 +58,8 @@ class Component:
     blend_vb: str
     texcoord_vb: str
     ib: str
+    vertex_count: int = 0
+    strides: dict[str, int] = field(default_factory=dict)
 
 
 class HashJsonData:
@@ -80,6 +100,7 @@ class HashJsonData:
             parts = self.parse_parts(comp, name)
             comps.append(
                 Component(
+                    name=comp["component_name"],
                     fullname=name + comp["component_name"],
                     parts=parts,
                     root_vs=comp.get("root_vs", ""),
@@ -94,22 +115,43 @@ class HashJsonData:
 
     def parse_parts(self, comp: dict, name: str) -> list[Part]:
         parts = []
-        for tex_hashes, obj_index, obj_class in zip(
+        for tex_hashes, _, obj_class in zip(
             comp["texture_hashes"],
             comp["object_indexes"],
             comp["object_classifications"],
         ):
             part_fullname = name + comp["component_name"] + obj_class
             textures = self.parse_textures(tex_hashes, part_fullname)
+            ib_path = self.path.parent.glob(part_fullname + "-ib" + "*.txt")
+            ib_path = next(ib_path, None)
+            index_count, first_index = self.parse_ib_metadata(ib_path)
             parts.append(
                 Part(
                     name=obj_class,
                     fullname=part_fullname,
                     textures=textures,
-                    first_index=obj_index,
+                    first_index=first_index,
+                    index_count=index_count,
+                    objects=[],
                 )
             )
         return parts
+
+    def parse_ib_metadata(self, ib_path: Path | None) -> tuple[int, int]:
+        if ib_path is None or not ib_path.exists():
+            return 0, 0
+        index_count = 0
+        first_index = 0
+        with open(ib_path, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                if index_count != 0 and first_index != 0:
+                    break
+                if line.startswith("index count:"):
+                    index_count = int(line.split(":")[1].strip())
+                elif line.startswith("first index:"):
+                    first_index = int(line.split(":")[1].strip())
+        return index_count, first_index
 
     def parse_textures(
         self, tex_hashes: list[list], part_fullname: str
