@@ -1092,6 +1092,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             self.flip_normal = False
             self.axis_forward = "-Z"
             self.axis_up = "Y"
+            self.load_buf = True
         elif self.game == GameEnum.ZenlessZoneZero.name:
             self.flip_texcoord_v = True
             self.flip_mesh = True
@@ -1099,6 +1100,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             self.flip_normal = False
             self.axis_forward = "Y"
             self.axis_up = "Z"
+            self.load_buf = True
         self.block_update = False
 
     def sync_settings_to_preset(self, context):
@@ -1112,6 +1114,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             and self.flip_normal is False
             and self.axis_forward == "-Z"
             and self.axis_up == "Y"
+            and self.load_buf is True
         ) or (
             self.flip_texcoord_v is True
             and self.flip_mesh is True
@@ -1119,6 +1122,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             and self.flip_normal is False
             and self.axis_forward == "Y"
             and self.axis_up == "Z"
+            and self.load_buf is True
         ):
             return  # Matches one of the presets, so don't set to None
         if self.game != "None":
@@ -1484,10 +1488,11 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             importer.import_object(self, context, cfg)
             xxmi: XXMIProperties = context.scene.xxmi
             if xxmi.dump_path == "":
-                print(self.filepath)
                 hash_json_path = Path(self.filepath) / "hash.json"
                 if hash_json_path.exists():
                     xxmi.dump_path = str(hash_json_path.parent)
+            if xxmi.game == "" and self.game != "":
+                xxmi.game = self.game
         except Fatal as e:
             self.report({"ERROR"}, str(e))
         return {"FINISHED"}
