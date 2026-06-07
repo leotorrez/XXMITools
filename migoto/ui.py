@@ -381,7 +381,7 @@ class XXMI_PT_Sidebar(Panel):
         col_1 = split.column()
         col_2 = split.column()
         col_1.prop(xxmi, "dump_path")
-        if xxmi.dump_path == "" and len(context.scene.objects) == 0:
+        if xxmi.dump_path == "":
             col_2.operator("import_mesh.xxmi_dump", icon="PLUS", text="")
         else:
             col_2.operator("dump.selector", icon="FILE_FOLDER", text="")
