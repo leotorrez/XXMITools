@@ -379,6 +379,8 @@ class BlenderDataExtractor:
             else:
                 continue
 
+            # Turns (x, 1) shapes into (x,)
+            data = data.squeeze()
             self.sanitize_blender_data(data)
             vertex_data.set_field(buffer_semantic.get_name(), data)
 
