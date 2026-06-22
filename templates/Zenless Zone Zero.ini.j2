@@ -37,6 +37,9 @@
         [TextureOverride{{component.fullname}}Blend]
         hash = {{ component.blend_vb }}
         handling = skip
+        {% if credit != "" %}
+            $active = 1
+        {% endif %}
         if DRAW_TYPE == 2 || DRAW_TYPE == 4
             vb1 = Resource{{component.fullname}}Texcoord
             vb2 = Resource{{component.fullname}}Blend
