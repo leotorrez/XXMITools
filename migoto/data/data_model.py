@@ -582,7 +582,7 @@ class DataModelXXMI(DataModel):
             ),
             "Position": BufferLayout([]),
             "Blend": BufferLayout([]),
-            "TexCoord": BufferLayout([]),
+            "Texcoord": BufferLayout([]),
         }
         pos_semantics: list[Semantic] = [
             Semantic.Position,
@@ -689,7 +689,7 @@ class DataModelXXMI(DataModel):
                         ]
                     cls.buffers_format["Blend"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in tex_semantics:
-                    cls.buffers_format["TexCoord"].add_element(new_semantic)
+                    cls.buffers_format["Texcoord"].add_element(new_semantic)
         except KeyError:
             raise Fatal(
                 f"Object({obj.name}) doesn't count with the custom properties required for export! Reimport the mesh from dump folder."

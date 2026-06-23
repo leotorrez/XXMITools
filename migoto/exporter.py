@@ -435,7 +435,7 @@ class ModExporter:
         pos_buf: NumpyBuffer = output_buffs["Position"]
         if len(pos_buf) == 0:
             return
-        tex_buf: NumpyBuffer = output_buffs["TexCoord"]
+        tex_buf: NumpyBuffer = output_buffs["Texcoord"]
         ib_data: NDArray = output_buffs["IB"].data["INDEX"]
 
         start_time: int | float = time.time()
