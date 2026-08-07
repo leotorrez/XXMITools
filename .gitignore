@@ -1,9 +1,6 @@
 __pycache__/
-xxmitools_updater/
-.vscode/
-.zip/packfor3.6.py
-pyproject.toml
+*_updater/
+.*
+.*/*
 uv.lock
-.python-version
 TODO.md
-.venv
