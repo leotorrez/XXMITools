@@ -1,0 +1,9 @@
+[project]
+name = "xxmitools"
+version = "1.8.1"
+description = "3DMigoto Tools for Blender"
+requires-python = ">=3.11"
+dependencies = ["fake-bpy-module-latest>=20260220", "numpy>=2.3.0"]
+
+[project.optional-dependencies]
+nvim = ["pynvim>=0.6.0", "debugpy>=1.8.20"]
