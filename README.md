@@ -18,3 +18,14 @@ gh repo clone leotorrez/XXMI-Tools
 ```
 
 Recommended VSCode plugin: <https://marketplace.visualstudio.com/items?itemName=JacquesLucke.blender-development>
+Recommended NVIM plugin: <https://github.com/b0o/blender.nvim>
+
+Also is recommended to use `uv` to manage your virtual environment, however other equivalent methods work as well.
+
+In the case of nvim in particular you'll have to setup the dependencies as follows:
+
+```bash
+uv sync --extras nvim
+# and every time you launch your editor as follows:
+uv run nvim
+```
