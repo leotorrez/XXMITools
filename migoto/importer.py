@@ -1,14 +1,19 @@
 import copy
+import csv
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import bpy
+import numpy as np
+import numpy.typing as npt
+from numpy.lib.recfunctions import append_fields
 from bpy.types import Collection, Context, Mesh, Object, Operator
 from bpy_extras.io_utils import axis_conversion
 
-from .data.byte_buffer import MigotoFormat, Semantic
+from .data.byte_buffer import AbstractSemantic, BufferSemantic, MigotoFormat, Semantic
 from .data.data_model import DataModelXXMI
+from .data.dxgi_format import DXGIFormat
 from .data.hash_json import Component, HashJsonData
 from .data.numpy_mesh import NumpyMesh, NumpyMeshGroup
 from .datahandling import Fatal
@@ -154,6 +159,7 @@ class ObjectImporter:
         numpy_mesh_group: NumpyMeshGroup = NumpyMeshGroup()
 
         migoto_format: MigotoFormat | None | int = -1
+        sk_offsets: None | list[dict[str, int]] = None
         for p in paths:
             vb_paths, ib_path, _, _ = p
             # Extract text path from either string or (binary, text) tuple
@@ -167,25 +173,26 @@ class ObjectImporter:
                 raise Fatal(
                     f"Specified .fmt file for {fmt_path.stem} is missing vertex buffer layout!",
                 )
+            fmt = migoto_format
             if len(cfg.semantic_remap) > 0:
                 new_layout = migoto_format.vb_layout.generate_remapped_layout(
                     cfg.semantic_remap
                 )
-                print(new_layout)
                 new_format = copy.deepcopy(migoto_format)
                 new_format.vb_layout = new_layout
                 # TODO: Add proper handling for framedump meshes to be imported
-                numpy_mesh_group.add_mesh(
-                    NumpyMesh.from_paths(
-                        new_format, vb_path, ib_path, fmt_path, cfg.load_buf
-                    )
-                )
+                fmt = new_format
+
+            new_mesh = NumpyMesh.from_paths(
+                fmt, vb_path, ib_path, fmt_path, cfg.load_buf
+            )
+            if (result := self.import_shapekeys(new_mesh, vb_path)) is not None:
+                new_mesh = result[0]
+                sk_offsets = result[1]
             else:
-                numpy_mesh_group.add_mesh(
-                    NumpyMesh.from_paths(
-                        migoto_format, vb_path, ib_path, fmt_path, cfg.load_buf
-                    )
-                )
+                sk_offsets = None
+
+            numpy_mesh_group.add_mesh(new_mesh)
         if migoto_format == -1 or (format := migoto_format) is None:
             raise Fatal(f"Failed to determine vertex format for component {name}!")
         vg_remap = None
@@ -209,6 +216,8 @@ class ObjectImporter:
         if cfg.create_materials and hash_json_data is not None:
             self.set_materials(operator, obj, name, cfg, hash_json_data)
         model.set_data(obj, mesh, numpy_mesh_group, vg_remap, mirror_mesh=cfg.flip_mesh)
+        if sk_offsets is not None:
+            obj["3DMigoto:SKOffsets"] = sk_offsets
         self.set_custom_properties(obj, format, cfg)
 
         num_shapekeys: int = (
@@ -403,3 +412,78 @@ class ObjectImporter:
             for part in component.parts:
                 if part_obj := fetch_by_fullname(objs, part.fullname):
                     create_and_link_collection(part.fullname, part_obj)
+
+    def import_shapekeys(
+        self, numpy_mesh: NumpyMesh, vb_path: Path
+    ) -> tuple[NumpyMesh, list[dict[str, int]]] | None:
+        """Imports shapekey data from Deltas.buf and Offsets.csv files if they exist.
+        Loads them as vb_buffer Shapekey.X semantics
+        """
+        basename: str = str(vb_path.stem).split("-")[0][:-1]
+        deltas_file: str = basename + "SKDeltas.buf"
+        deltas_path: Path = vb_path.parent / deltas_file
+        offsets_filename: str = basename + "SKOffsets.csv"
+        offsets_path: Path = vb_path.parent / offsets_filename
+
+        if (
+            not deltas_path.exists()
+            or not offsets_path.exists()
+            or numpy_mesh.vertex_buffer is None
+            or numpy_mesh.index_buffer is None
+            or numpy_mesh.vertex_buffer.data is None
+            or numpy_mesh.index_buffer.data is None
+            or numpy_mesh.format is None
+        ):
+            return
+
+        sk_offsets: list[dict[str, int]] = []
+
+        # Might want to merge this data into hash.json
+        with offsets_path.open("r", newline="") as f:
+            csvreader = csv.DictReader(f, delimiter=",")
+            for row in csvreader:
+                sk_offsets.append(
+                    {"offset": int(row["offset"]), "count": int(row["count"])}
+                )
+        sk_dtype = np.dtype(
+            [
+                ("VINDEX", np.uint32),
+                ("POSITION", np.float32, 3),
+                ("NORMAL", np.float32, 3),
+                ("TANGENT", np.float32, 3),
+            ]
+        )
+        sk_buffer: npt.NDArray = np.fromfile((deltas_path).open("rb"), dtype=sk_dtype)
+        deltas_pool: npt.NDArray = np.zeros(
+            (len(numpy_mesh.vertex_buffer.data), len(sk_offsets)), dtype=(np.float32, 3)
+        )
+        combined_layout = copy.deepcopy(numpy_mesh.vertex_buffer.layout)
+        for i, e in enumerate(sk_offsets):
+            offset: int = e["offset"]
+            count: int = e["count"]
+            sk_data: npt.NDArray = sk_buffer[offset : offset + count]
+            deltas_pool[sk_data["VINDEX"], i] = sk_data["POSITION"]
+            abstract: AbstractSemantic = AbstractSemantic(Semantic.ShapeKey, i)
+            format: DXGIFormat = DXGIFormat.R32G32B32_FLOAT
+            semantic: BufferSemantic = BufferSemantic(abstract, format)
+            combined_layout.add_element(semantic)
+
+        sk_labels = [f"SHAPEKEY_{i}" for i in range(len(sk_offsets))]
+        new_dtype = np.dtype(
+            numpy_mesh.vertex_buffer.data.dtype.descr
+            + [(name, np.float32, 3) for name in sk_labels]
+        )
+        combined_mesh = np.zeros(len(numpy_mesh.vertex_buffer.data), dtype=new_dtype)
+        for x in numpy_mesh.vertex_buffer.data.dtype.names:
+            combined_mesh[x] = numpy_mesh.vertex_buffer.data[x]
+        for i, v in enumerate(sk_labels):
+            combined_mesh[v] = deltas_pool[:, i, :]
+
+        ib_bytes = numpy_mesh.index_buffer.data.tobytes()
+        combined_bytes = combined_mesh.tobytes()
+        combined_format: MigotoFormat = copy.deepcopy(numpy_mesh.format)
+        combined_format.vb_layout = combined_layout
+
+        new_numpy_mesh = NumpyMesh.from_bytes(combined_format, combined_bytes, ib_bytes)
+
+        return new_numpy_mesh, sk_offsets
