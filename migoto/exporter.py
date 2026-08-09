@@ -3,7 +3,6 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
 
 import bpy
 import numpy
@@ -55,7 +54,7 @@ class ModExporter:
     ignore_duplicate_textures: bool
     write_buffers: bool
     write_ini: bool
-    template: Optional[Path] = None
+    template: Path | None = None
     outline_rounding_precision: int = 3
     # Internal / not implemented
     ignore_muted_shape_keys: bool = False
@@ -64,7 +63,7 @@ class ModExporter:
     hash_data: list[dict] = field(default_factory=list)
     mod_file: ModFile = field(init=False)
     ini_content: str = field(init=False)
-    files_to_write: dict[Path, Union[str, NDArray]] = field(init=False)
+    files_to_write: dict[Path, str | NDArray] = field(init=False)
     files_to_copy: list[tuple[Path, Path]] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -165,7 +164,7 @@ class ModExporter:
     def obj_from_col(
         self,
         main_obj: Object,
-        collection: Optional[Collection],
+        collection: Collection | None,
         destination: list[SubObj],
         depth: int = 0,
     ) -> None:
@@ -242,7 +241,7 @@ class ModExporter:
                 for key, entry in data_model.buffers_format.items()
             }
             if self.write_buffers is False:
-                for key in out_buffers.keys():
+                for key in out_buffers:
                     excluded_buffers.append(key)
             vb_offset: int = 0
             for part in component.parts:
@@ -260,11 +259,9 @@ class ModExporter:
                 ib_offset: int = 0
                 for entry in part.objects:
                     print(f"Processing {entry.name}...")
-                    v_count: int = 0
                     if len(entry.obj.data.polygons) == 0:
                         continue
                     self.verify_mesh_requirements(
-                        part.objects[0].obj,
                         entry.obj,
                         entry.mesh,
                         data_model.buffers_format,
@@ -301,7 +298,7 @@ class ModExporter:
             if self.outline_optimization and len(out_buffers) > 0:
                 self.optimize_outlines(out_buffers)
             for key, buffer in out_buffers.items():
-                if key == "IB":
+                if key == "IB" or buffer.data is None:
                     continue
                 self.files_to_write[
                     self.destination / (component.fullname + key + ".buf")
@@ -314,7 +311,6 @@ class ModExporter:
 
     def verify_mesh_requirements(
         self,
-        main_obj: Object,
         obj: Object,
         mesh: Mesh,
         buffers_format: dict[str, BufferLayout],
