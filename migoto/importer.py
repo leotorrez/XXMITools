@@ -7,11 +7,16 @@ from pathlib import Path
 import bpy
 import numpy as np
 import numpy.typing as npt
-from numpy.lib.recfunctions import append_fields
 from bpy.types import Collection, Context, Mesh, Object, Operator
 from bpy_extras.io_utils import axis_conversion
 
-from .data.byte_buffer import AbstractSemantic, BufferSemantic, MigotoFormat, Semantic
+from .data.byte_buffer import (
+    AbstractSemantic,
+    BufferLayout,
+    BufferSemantic,
+    MigotoFormat,
+    Semantic,
+)
 from .data.data_model import DataModelXXMI
 from .data.dxgi_format import DXGIFormat
 from .data.hash_json import Component, HashJsonData
@@ -457,23 +462,23 @@ class ObjectImporter:
         deltas_pool: npt.NDArray = np.zeros(
             (len(numpy_mesh.vertex_buffer.data), len(sk_offsets)), dtype=(np.float32, 3)
         )
-        combined_layout = copy.deepcopy(numpy_mesh.vertex_buffer.layout)
+        combined_layout: BufferLayout = copy.deepcopy(numpy_mesh.vertex_buffer.layout)
         for i, e in enumerate(sk_offsets):
-            offset: int = e["offset"]
-            count: int = e["count"]
-            sk_data: npt.NDArray = sk_buffer[offset : offset + count]
+            sk_data: npt.NDArray = sk_buffer[e["offset"] : e["offset"] + e["count"]]
             deltas_pool[sk_data["VINDEX"], i] = sk_data["POSITION"]
             abstract: AbstractSemantic = AbstractSemantic(Semantic.ShapeKey, i)
             format: DXGIFormat = DXGIFormat.R32G32B32_FLOAT
             semantic: BufferSemantic = BufferSemantic(abstract, format)
             combined_layout.add_element(semantic)
 
-        sk_labels = [f"SHAPEKEY_{i}" for i in range(len(sk_offsets))]
+        sk_labels: list[str] = [f"SHAPEKEY{i}" for i in range(len(sk_offsets))]
         new_dtype = np.dtype(
             numpy_mesh.vertex_buffer.data.dtype.descr
             + [(name, np.float32, 3) for name in sk_labels]
         )
-        combined_mesh = np.zeros(len(numpy_mesh.vertex_buffer.data), dtype=new_dtype)
+        combined_mesh: npt.NDArray = np.zeros(
+            len(numpy_mesh.vertex_buffer.data), dtype=new_dtype
+        )
         for x in numpy_mesh.vertex_buffer.data.dtype.names:
             combined_mesh[x] = numpy_mesh.vertex_buffer.data[x]
         for i, v in enumerate(sk_labels):
