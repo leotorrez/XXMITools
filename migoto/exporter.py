@@ -57,6 +57,7 @@ class ModExporter:
     outline_rounding_precision: int = 8
     outline_gate_divergence: float = 14.0
     outline_custom_normals: bool = False
+    outline_rounding_precision: int = 3
     # Internal / not implemented
     ignore_muted_shape_keys: bool = False
     # Output
@@ -260,11 +261,9 @@ class ModExporter:
                 ib_offset: int = 0
                 for entry in part.objects:
                     print(f"Processing {entry.name}...")
-                    v_count: int = 0
                     if len(entry.obj.data.polygons) == 0:
                         continue
                     self.verify_mesh_requirements(
-                        part.objects[0].obj,
                         entry.obj,
                         entry.mesh,
                         data_model.buffers_format,
@@ -301,7 +300,7 @@ class ModExporter:
             if self.outline_optimization and len(out_buffers) > 0:
                 self.optimize_outlines(out_buffers)
             for key, buffer in out_buffers.items():
-                if key == "IB":
+                if key == "IB" or buffer.data is None:
                     continue
                 self.files_to_write[
                     self.destination / (component.fullname + key + ".buf")
@@ -314,7 +313,6 @@ class ModExporter:
 
     def verify_mesh_requirements(
         self,
-        main_obj: Object,
         obj: Object,
         mesh: Mesh,
         buffers_format: dict[str, BufferLayout],
