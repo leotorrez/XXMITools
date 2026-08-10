@@ -1,19 +1,18 @@
 import bpy
-from bpy.props import BoolProperty, IntProperty, StringProperty
-from bpy.types import Operator, AddonPreferences
+from bpy.props import BoolProperty, CollectionProperty, IntProperty, StringProperty
+from bpy.types import AddonPreferences, Context, Operator, UILayout
 from bpy_extras.io_utils import ImportHelper, orientation_helper
 
 from .. import __name__ as package_name
 from .. import addon_updater_ops
+from .blender.utils import apply_modifiers_to_shapekey_objects
 from .datahandling import (
-    Fatal,
     apply_vgmap,
     import_pose,
     merge_armatures,
     update_vgmap,
 )
-
-from .datastructures import IOOBJOrientationHelper
+from .datastructures import Fatal, IOOBJOrientationHelper
 
 
 class ApplyVGMap(Operator, ImportHelper):
@@ -400,8 +399,7 @@ class VGROUP_SN_fill(bpy.types.Operator):
             largest = 0
             for vg in ob.vertex_groups:
                 try:
-                    if int(vg.name.split(".")[0]) > largest:
-                        largest = int(vg.name.split(".")[0])
+                    largest = max(largest, int(vg.name.split(".")[0]))
                 except ValueError:
                     print("Vertex group not named as integer, skipping")
 
@@ -559,6 +557,54 @@ class RESET_VERTEX_COLORS(bpy.types.Operator):
             )
 
         return {"FINISHED"}
+
+
+class PropertyCollectionModifierItem(bpy.types.PropertyGroup):
+    checked: BoolProperty(name="", default=False)
+
+
+class OBJECT_OT_apply_modifiers_to_sk_objects(bpy.types.Operator):
+    bl_idname: str = "object.apply_modifiers_to_sk_objects"
+    bl_label: str = "Apply Modifiers to Objects with Shapekeys"
+    bl_description: str = "Applies modifiers to objects with shapekeys, also allows you to select which modifiers to ignore."
+    bl_options = {"UNDO"}
+
+    def item_list(self, context: Context):
+        return [(m.name, m.name, m.name) for m in bpy.context.object.modifiers]
+
+    my_collection: CollectionProperty(type=PropertyCollectionModifierItem)
+
+    def execute(self, context: Context):
+        ob = bpy.context.object
+        assert ob is not None
+        bpy.ops.object.select_all(action="DESELECT")
+        context.view_layer.objects.active = ob
+        ob.select_set(True)
+
+        selected_modifiers: list[str] = [
+            o.name for o in self.my_collection if o.checked
+        ]
+
+        if not selected_modifiers:
+            self.report({"ERROR"}, "No modifier selected!")
+            return {"FINISHED"}
+
+        apply_modifiers_to_shapekey_objects(context, ob, selected_modifiers)
+        return {"FINISHED"}
+
+    def draw(self, context: Context):
+        box: UILayout = self.layout.box()
+        for prop in self.my_collection:
+            box.prop(prop, "checked", text=prop["name"])
+
+    def invoke(self, context, event):
+        self.my_collection.clear()
+        for mod in bpy.context.object.modifiers:
+            item = self.my_collection.add()
+            item.name = mod.name
+            item.checked = False
+            item.data = mod
+        return context.window_manager.invoke_props_dialog(self)
 
 
 def draw_menu(self, context):
