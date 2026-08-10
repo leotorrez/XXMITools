@@ -4,7 +4,7 @@ from typing import TypedDict
 
 import bpy
 import numpy as np
-from bpy.types import Context, Mesh, Object
+from bpy.types import Context, Key, Mesh, Modifier, Object, ShapeKey
 from numpy.typing import NDArray
 
 
@@ -18,8 +18,8 @@ class Shapekey_Properties(TypedDict):
 
 
 def apply_modifiers_to_shapekey_objects(
-    context: Context, base_obj: Object, valid_modifiers: list[str]
-) -> Object:
+    context: Context, base_obj: Object, modifiers_to_apply: list[str]
+) -> None:
     """Applies modifiers to objects with shapekeys"""
     # TODO: Add list of SK to actually apply
     start_time = time.time()
@@ -27,8 +27,8 @@ def apply_modifiers_to_shapekey_objects(
         "Invalid mesh object."
     )
 
-    shape_keys = base_obj.data.shape_keys
-    if shape_keys is None or not valid_modifiers:
+    shape_keys: Key | None = base_obj.data.shape_keys
+    if shape_keys is None or not modifiers_to_apply:
         return base_obj
 
     # Backup shape key settings & modifier visibility
@@ -39,8 +39,7 @@ def apply_modifiers_to_shapekey_objects(
     modifier_visibility: dict[str, bool] = {}
     for m in base_obj.modifiers:
         modifier_visibility[m.name] = m.show_viewport
-        if m.name not in valid_modifiers:
-            m.show_viewport = False
+        m.show_viewport = m.name in modifiers_to_apply
 
     # We setup basis_obj to return
     key_blocks = shape_keys.key_blocks
@@ -48,12 +47,15 @@ def apply_modifiers_to_shapekey_objects(
         b.value = 0.0
 
     depsgraph = context.evaluated_depsgraph_get()
+    assert depsgraph is not None, "Failed to get evaluated depsgraph."
     eval_obj = base_obj.evaluated_get(depsgraph)
     result_obj = base_obj.copy()
+    assert result_obj is not None, "Failed to create new mesh data."
     result_obj.data = bpy.data.meshes.new_from_object(eval_obj)
+    assert result_obj.data is not None, "Failed to create new mesh data."
 
     result_obj.modifiers.clear()
-    result_obj.shape_key_add(name="Basis", from_mix=False)
+    _ = result_obj.shape_key_add(name="Basis", from_mix=False)
 
     # Apply modifiers to virtual meshes for efficiency
     vertex_count = len(result_obj.data.vertices)
@@ -87,13 +89,17 @@ def apply_modifiers_to_shapekey_objects(
     restore_shape_key_settings(result_obj.data.shape_keys, sk_settings)
 
     # Restore modifier visibility
-    for mod, visible in modifier_visibility.items():
-        base_obj.modifiers[mod].show_viewport = visible
+    for mod_name, visible in modifier_visibility.items():
+        if mod_name in modifiers_to_apply:
+            mod: Modifier = base_obj.modifiers[mod_name]
+            base_obj.modifiers.remove(mod)
+            continue
+        base_obj.modifiers[mod_name].show_viewport = visible
 
+    base_obj.data = result_obj.data
+    base_obj = result_obj
     total_time = time.time() - start_time
     print(f"Applied modifiers in {total_time:.4f} seconds")
-
-    return result_obj
 
 
 def backup_shape_key_settings(shape_keys) -> OrderedDict[str, Shapekey_Properties]:
@@ -113,13 +119,13 @@ def backup_shape_key_settings(shape_keys) -> OrderedDict[str, Shapekey_Propertie
 
 
 def restore_shape_key_settings(
-    shape_keys, sk_settings: OrderedDict[str, Shapekey_Properties]
+    shape_keys: Key, sk_settings: OrderedDict[str, Shapekey_Properties]
 ) -> None:
     """Restore shape key settings from an ordered dictionary"""
     key_blocks = shape_keys.key_blocks
     for i, sk_name in enumerate(sk_settings.keys()):
-        settings = sk_settings[sk_name]
-        key_block = key_blocks[i]
+        settings: Shapekey_Properties = sk_settings[sk_name]
+        key_block: ShapeKey = key_blocks[i]
         key_block.name = sk_name
         key_block.slider_min = settings["slider_min"]
         key_block.slider_max = settings["slider_max"]

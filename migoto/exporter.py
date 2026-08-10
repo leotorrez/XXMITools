@@ -10,8 +10,8 @@ from bpy.types import Collection, Context, Depsgraph, Mesh, Object, Operator, Sc
 from numpy.typing import NDArray
 
 from .. import bl_info
-from ..blender.utils import apply_modifiers_to_shapekey_objects
 from ..libs.jinja2 import Environment, FileSystemLoader
+from .blender.utils import apply_modifiers_to_shapekey_objects
 from .data.byte_buffer import (
     AbstractSemantic,
     BufferLayout,
