@@ -10,6 +10,7 @@ from bpy.types import Collection, Context, Depsgraph, Mesh, Object, Operator, Sc
 from numpy.typing import NDArray
 
 from .. import bl_info
+from ..blender.utils import apply_modifiers_to_shapekey_objects
 from ..libs.jinja2 import Environment, FileSystemLoader
 from .data.byte_buffer import (
     AbstractSemantic,
@@ -196,12 +197,24 @@ class ModExporter:
 
     def process_mesh(self, main_obj: Object, obj: Object) -> Mesh:
         """Process the mesh of the object."""
-        # TODO: Add moddifier application for SK'd meshes here
-        final_mesh: Mesh = (
-            obj.evaluated_get(self.__depsgraph).to_mesh()
-            if self.apply_modifiers
-            else obj.to_mesh()
-        )
+        assert isinstance(obj.data, Mesh), "Object does not have mesh data."
+        if obj.data.shape_keys is not None and len(obj.data.shape_keys.key_blocks) > 1:
+            valid_modifiers: list[str] = [
+                mod.name for mod in obj.modifiers if mod.show_viewport
+            ]
+            tmp_obj = apply_modifiers_to_shapekey_objects(
+                self.context, obj, valid_modifiers
+            )
+            assert isinstance(tmp_obj.data, Mesh), (
+                "Processed object does not have mesh data."
+            )
+            final_mesh: Mesh = tmp_obj.data
+        else:
+            final_mesh: Mesh = (
+                obj.evaluated_get(self.__depsgraph).to_mesh()
+                if self.apply_modifiers
+                else obj.to_mesh()
+            )
         if main_obj != obj:
             # Matrix world seems to be the summatory of all transforms parents included
             # Might need to test for more edge cases and to confirm these suspicious,
@@ -566,7 +579,7 @@ class ModExporter:
                         file.write(content)
                 elif isinstance(content, numpy.ndarray) and self.write_buffers:
                     content.tofile(file_path)
-            except (OSError, IOError) as e:
+            except OSError as e:
                 raise Fatal(f"Error writing file {file_path}: {e}")
         if not self.copy_textures:
             return
