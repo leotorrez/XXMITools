@@ -65,8 +65,10 @@ class ModExporter:
     ini_content: str = field(init=False)
     files_to_write: dict[Path, str | NDArray] = field(init=False)
     files_to_copy: list[tuple[Path, Path]] = field(init=False)
+    _start_time: float = 0.0
 
     def __post_init__(self) -> None:
+        self._start_time = time.time()
         print("Initializing data for export...")
         self.__objs_to_cleanup: list[Object] = []
         self.__depsgraph: Depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -590,7 +592,6 @@ class ModExporter:
 
     def export(self) -> None:
         """Export the mod file."""
-        start: float = time.time()
         if len(self.mod_file.components) == 0:
             raise Fatal("No components found to export. Aborting export.")
         print(f"Exporting {self.mod_name} to {self.destination}")
@@ -601,7 +602,7 @@ class ModExporter:
         print()
         self.operator.report(
             {"INFO"},
-            f"Exported {self.mod_name} to {self.destination} in {(time.time() - start):2f} seconds",
+            f"Exported {self.mod_name} to {self.destination} in {(time.time() - self._start_time):2f} seconds",
         )
 
     def load_hashes(self, path: Path) -> list[dict]:
