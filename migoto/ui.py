@@ -12,8 +12,8 @@ from .export_ops import (
 from .import_ops import (
     ClearSemanticRemapList,
     Import3DMigotoFrameAnalysis,
-    ImportXXMIDump,
     Import3DMigotoRaw,
+    ImportXXMIDump,
     PrefillSemanticRemapList,
 )
 from .operators import (
@@ -21,6 +21,7 @@ from .operators import (
     RESET_VERTEX_COLORS,
     ApplyVGMap,
     Import3DMigotoPose,
+    OBJECT_OT_apply_modifiers_to_sk_objects,
     VGROUP_SN_fill,
     VGROUP_SN_merge,
     VGROUP_SN_merge_ONE,
@@ -369,9 +370,9 @@ class XXMI_PT_Sidebar(Panel):
         version: str = ".".join(str(i) for i in version)
         layout: UILayout = self.layout
         row = layout.row()
-        row.operator("wm.url_open", text="", icon="HELP").url = (
-            "https://leotorrez.github.io/modding/guides/xxmi_tools"
-        )
+        row.operator(
+            "wm.url_open", text="", icon="HELP"
+        ).url = "https://leotorrez.github.io/modding/guides/xxmi_tools"
         row.label(text=f"v{version}")
 
     def draw(self, context):
@@ -504,6 +505,10 @@ class XXMI_PT_Toolbox(Panel):
         layout = self.layout
         if layout is None:
             return
+        layout.operator(
+            OBJECT_OT_apply_modifiers_to_sk_objects.bl_idname,
+            text=OBJECT_OT_apply_modifiers_to_sk_objects.bl_label,
+        )
         layout.operator(VGROUP_SN_remove.bl_idname, text=VGROUP_SN_remove.bl_label)
         layout.operator(VGROUP_SN_merge.bl_idname, text=VGROUP_SN_merge.bl_label)
         layout.operator(

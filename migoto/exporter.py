@@ -202,13 +202,12 @@ class ModExporter:
             valid_modifiers: list[str] = [
                 mod.name for mod in obj.modifiers if mod.show_viewport
             ]
-            tmp_obj = apply_modifiers_to_shapekey_objects(
-                self.context, obj, valid_modifiers
-            )
-            assert isinstance(tmp_obj.data, Mesh), (
+            temp_obj: Object = obj.copy()
+            apply_modifiers_to_shapekey_objects(self.context, temp_obj, valid_modifiers)
+            assert isinstance(temp_obj.data, Mesh), (
                 "Processed object does not have mesh data."
             )
-            final_mesh: Mesh = tmp_obj.data
+            final_mesh: Mesh = temp_obj.data
         else:
             final_mesh: Mesh = (
                 obj.evaluated_get(self.__depsgraph).to_mesh()
