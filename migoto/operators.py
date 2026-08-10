@@ -610,10 +610,10 @@ class OBJECT_OT_apply_modifiers_to_sk_objects(bpy.types.Operator):
 def draw_menu(self, context):
     layout = self.layout
     layout.separator()
-    layout.operator(VGROUP_SN_merge.bl_idname, icon="BRUSH_GRAB")
-    layout.operator(VGROUP_SN_merge_ONE.bl_idname, icon="BRUSH_INFLATE")
-    layout.operator(VGROUP_SN_fill.bl_idname, icon="BRUSH_FILL")
-    layout.operator(VGROUP_SN_remove.bl_idname, icon="GPBRUSH_ERASE_STROKE")
+    layout.operator(VGROUP_SN_merge.bl_idname, icon="SELECT_EXTEND")
+    layout.operator(VGROUP_SN_merge_ONE.bl_idname, icon="SELECT_SET")
+    layout.operator(VGROUP_SN_fill.bl_idname, icon="KEY_MENU_FILLED")
+    layout.operator(VGROUP_SN_remove.bl_idname, icon="REMOVE")
 
 
 def register():
