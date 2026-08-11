@@ -1,18 +1,16 @@
 import copy
+import math
 import time
-from typing import Callable, Optional, Union
+from collections.abc import Callable
 
 import bpy
+import mathutils
 import numpy
 from bpy.types import Collection, Context, Mesh, Object
 from numpy.typing import NDArray
-import math
-import mathutils
-
 
 from ..data.numpy_mesh import NumpyMesh, NumpyMeshGroup
-from ..datahandling import Fatal
-from ..datastructures import GameEnum
+from ..datastructures import Fatal, GameEnum
 from .byte_buffer import (
     AbstractSemantic,
     BufferLayout,
@@ -25,7 +23,7 @@ from .data_importer import BlenderDataImporter
 from .dxgi_format import DXGIFormat
 
 
-class DataModel(object):
+class DataModel:
     flip_winding: bool = False
     flip_normal: bool = False
     flip_tangent: bool = False
@@ -34,7 +32,7 @@ class DataModel(object):
     legacy_vertex_colors: bool = False
 
     data_extractor: BlenderDataExtractor = BlenderDataExtractor()
-    data_importer: Optional[BlenderDataImporter] = None
+    data_importer: BlenderDataImporter | None = None
 
     buffers_format: dict[str, BufferLayout] = {}
     semantic_converters: dict[AbstractSemantic, list[Callable]] = {}
@@ -60,7 +58,7 @@ class DataModel(object):
         obj: Object,
         mesh: Mesh,
         numpy_mesh: NumpyMesh | NumpyMeshGroup,
-        vg_remap: Optional[numpy.ndarray],
+        vg_remap: numpy.ndarray | None,
         mirror_mesh: bool = False,
         mesh_scale: float = 1.0,
         mesh_rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
@@ -410,7 +408,7 @@ class DataModel(object):
 
     @staticmethod
     def converter_resize_second_dim(
-        data: NDArray, width: int, fill: Union[int, float] = 0
+        data: NDArray, width: int, fill: float = 0
     ) -> NDArray:
         """
         Restructures 2-dim numpy array's 2-nd dimension to given width by padding or dropping values
@@ -481,7 +479,7 @@ class DataModel(object):
         attr_name,
         object_name,
         vertex_data: numpy.ndarray,
-        vertex_ids: Optional[numpy.ndarray] = None,
+        vertex_ids: numpy.ndarray | None = None,
     ):
         """
         DEBUG: Creates float colors vertex attribute with provided data
@@ -514,6 +512,7 @@ class DataModelXXMI(DataModel):
     buffers_format: dict[str, BufferLayout]
     format_converters: dict[AbstractSemantic, list[Callable]]
     semantic_converters: dict[AbstractSemantic, list[Callable]]
+    ib_format: DXGIFormat
     mirror_mesh: bool = False
     flip_winding: bool = False
     flip_normal: bool = False
@@ -521,24 +520,7 @@ class DataModelXXMI(DataModel):
     flip_bitangent_sign: bool = False
     normalize_weights: bool = False
 
-    @classmethod
-    def from_obj(
-        cls,
-        obj: Object | None,
-        game: GameEnum,
-        normalize_weights: bool = False,
-        blend_hash: str = "",
-        texcoord_hash: str = "",
-    ) -> "DataModelXXMI":
-        cls = super().__new__(cls)
-        cls.format_converters = {}
-        cls.semantic_converters = {}
-        cls.flip_texcoords_vertical = {}
-        cls.buffers_format = {}
-        cls.game = game
-        cls.normalize_weights = normalize_weights
-        if obj is None:
-            return cls
+    def read_custom_properties(self, obj: Object) -> None:
         for prop in [
             "3DMigoto:FlipNormal",
             "3DMigoto:FlipTangent",
@@ -547,11 +529,12 @@ class DataModelXXMI(DataModel):
         ]:
             if prop not in obj:
                 obj[prop] = False
-        cls.flip_winding = obj.get("3DMigoto:FlipWinding", False)
-        cls.flip_normal = obj.get("3DMigoto:FlipNormal", False)
-        cls.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
-        cls.flip_bitangent_sign = obj.get("3DMigoto:Tangent", False)
-        cls.mirror_mesh = obj.get("3DMigoto:FlipMesh", False)
+        self.flip_winding = obj.get("3DMigoto:FlipWinding", False)
+        self.flip_normal = obj.get("3DMigoto:FlipNormal", False)
+        self.flip_tangent = obj.get("3DMigoto:FlipTangent", False)
+        self.flip_bitangent_sign = obj.get("3DMigoto:Tangent", False)
+        self.mirror_mesh = obj.get("3DMigoto:FlipMesh", False)
+        self.flip_texcoords_vertical = {}
         if obj.get("3DMigoto:VBLayout") is None:
             raise Fatal(
                 f"Object({obj.name}) is missing custom properties required for export! Reimport the mesh from dump folder."
@@ -561,62 +544,83 @@ class DataModelXXMI(DataModel):
         for uv_layer in obj.data.uv_layers:
             if obj.get("3DMigoto:" + uv_layer.name) is None:
                 continue
-            cls.flip_texcoords_vertical[uv_layer.name] = obj[
+            self.flip_texcoords_vertical[uv_layer.name] = obj[
                 "3DMigoto:" + uv_layer.name
             ]["flip_v"]
-        ib_format: DXGIFormat = DXGIFormat(ib_f)
-        if ib_format.dxgi_type == DXGIFormat.R16_UINT.dxgi_type:
+        self.ib_format = DXGIFormat(ib_f)
+        if self.ib_format.dxgi_type == DXGIFormat.R16_UINT.dxgi_type:
             # 16-bit index buffer promoted to 32-bit
-            ib_format = DXGIFormat.from_type(
+            self.ib_format = DXGIFormat.from_type(
                 DXGIFormat.R32_UINT.dxgi_type,
-                ib_format.get_num_values(),
+                self.ib_format.get_num_values(),
             )
-        cls.buffers_format: dict[str, BufferLayout] = {
+
+    def generate_semantic_filters(
+        self, game: GameEnum, blend_hash: str, texcoord_hash: str
+    ) -> tuple[list[Semantic], list[Semantic], list[Semantic], list[Semantic]]:
+        pos: list[Semantic] = (
+            [
+                Semantic.Position,
+                Semantic.Normal,
+                Semantic.Tangent,
+            ]
+            if texcoord_hash != ""
+            else [
+                Semantic.Position,
+                Semantic.Normal,
+                Semantic.Tangent,
+                Semantic.TexCoord,
+                Semantic.Color,
+            ]
+        )
+        blend: list[Semantic] = (
+            [Semantic.Blendweights, Semantic.Blendindices] if blend_hash != "" else []
+        )
+        tex: list[Semantic] = (
+            [Semantic.TexCoord, Semantic.Color] if texcoord_hash != "" else []
+        )
+        sk: list[Semantic] = [Semantic.ShapeKey]
+        if game == GameEnum.HonkaiImpactPart2 and texcoord_hash != "":
+            pos = [
+                Semantic.Position,
+                Semantic.Normal,
+                Semantic.Tangent,
+                Semantic.Color,
+            ]
+            tex = [Semantic.TexCoord]
+
+        return pos, blend, tex, sk
+
+    def __init__(
+        self,
+        obj: Object | None,
+        game: GameEnum,
+        normalize_weights: bool = False,
+        blend_hash: str = "",
+        texcoord_hash: str = "",
+    ) -> None:
+        self.game = game
+        self.normalize_weights = normalize_weights
+        if obj is None:
+            return
+        self.read_custom_properties(obj)
+        self.buffers_format = {
             "IB": BufferLayout(
                 [
                     BufferSemantic(
                         AbstractSemantic(Semantic.Index),
-                        ib_format,
+                        self.ib_format,
                     )
                 ]
             ),
             "Position": BufferLayout([]),
             "Blend": BufferLayout([]),
             "Texcoord": BufferLayout([]),
+            "Shapekey": BufferLayout([]),
         }
-        pos_semantics: list[Semantic] = [
-            Semantic.Position,
-            Semantic.Normal,
-            Semantic.Tangent,
-        ]
-        blend_semantics: list[Semantic] = [Semantic.Blendweights, Semantic.Blendindices]
-        tex_semantics: list[Semantic] = [Semantic.TexCoord, Semantic.Color]
-        if game == GameEnum.HonkaiImpactPart2:
-            pos_semantics = [
-                Semantic.Position,
-                Semantic.Normal,
-                Semantic.Tangent,
-                Semantic.Color,
-            ]
-            tex_semantics = [Semantic.TexCoord]
-        if blend_hash == "":
-            blend_semantics: list[Semantic] = []
-            if texcoord_hash == "":
-                pos_semantics: list[Semantic] = [
-                    Semantic.Position,
-                    Semantic.Normal,
-                    Semantic.Tangent,
-                    Semantic.TexCoord,
-                    Semantic.Color,
-                ]
-                tex_semantics: list[Semantic] = []
-            else:
-                pos_semantics: list[Semantic] = [
-                    Semantic.Position,
-                    Semantic.Normal,
-                    Semantic.Tangent,
-                ]
-                tex_semantics: list[Semantic] = [Semantic.TexCoord, Semantic.Color]
+        pos_semantics, blend_semantics, tex_semantics, sk_semantics = (
+            self.generate_semantic_filters(game, blend_hash, texcoord_hash)
+        )
         try:
             for entry in obj.get("3DMigoto:VBLayout", []):
                 s_dict = entry.to_dict()
@@ -647,8 +651,8 @@ class DataModelXXMI(DataModel):
                         in [Semantic.Normal, Semantic.Position]
                         and new_semantic.get_num_values() == 4
                     ):
-                        cls.semantic_converters[new_semantic.abstract] = [
-                            lambda data: cls.converter_resize_second_dim(
+                        self.semantic_converters[new_semantic.abstract] = [
+                            lambda data: self.converter_resize_second_dim(
                                 data, 4, fill=1
                             )
                         ]
@@ -657,7 +661,7 @@ class DataModelXXMI(DataModel):
                         and new_semantic.get_num_values() == 4
                     ):
                         # Tangent is 4D vector, we need to convert it to 3D, 1D BitangentSign
-                        cls.buffers_format["Position"].add_element(
+                        self.buffers_format["Position"].add_element(
                             BufferSemantic(
                                 new_semantic.abstract,
                                 DXGIFormat.from_type(new_semantic.format.dxgi_type, 3),
@@ -666,7 +670,7 @@ class DataModelXXMI(DataModel):
                                 remapped_abstract=new_semantic.remapped_abstract,
                             )
                         )
-                        cls.buffers_format["Position"].add_element(
+                        self.buffers_format["Position"].add_element(
                             BufferSemantic(
                                 AbstractSemantic(
                                     Semantic.BitangentSign, new_semantic.abstract.index
@@ -678,29 +682,31 @@ class DataModelXXMI(DataModel):
                             )
                         )
                         continue
-                    cls.buffers_format["Position"].add_element(new_semantic)
+                    self.buffers_format["Position"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in blend_semantics:
                     if (
                         new_semantic.abstract.enum is Semantic.Blendweights
-                        and cls.normalize_weights
+                        and self.normalize_weights
                     ):
-                        cls.format_converters[new_semantic.abstract] = [
-                            lambda data: cls.converter_normalize_weights(data)
+                        self.format_converters[new_semantic.abstract] = [
+                            lambda data: self.converter_normalize_weights(data)
                         ]
-                    cls.buffers_format["Blend"].add_element(new_semantic)
+                    self.buffers_format["Blend"].add_element(new_semantic)
                 elif new_semantic.abstract.enum in tex_semantics:
-                    cls.buffers_format["Texcoord"].add_element(new_semantic)
+                    self.buffers_format["Texcoord"].add_element(new_semantic)
+                elif new_semantic.abstract.enum in sk_semantics:
+                    self.buffers_format["Shapekey"].add_element(new_semantic)
         except KeyError:
             raise Fatal(
                 f"Object({obj.name}) doesn't count with the custom properties required for export! Reimport the mesh from dump folder."
             )
-        if cls.game == GameEnum.ZenlessZoneZero:
+            # TODO: Try to restore properties from dump folder
+        if self.game == GameEnum.ZenlessZoneZero:
             bitan_abstract: AbstractSemantic = AbstractSemantic(Semantic.BitangentSign)
-            if cls.buffers_format["Position"].get_element(bitan_abstract) is not None:
-                cls.format_converters[bitan_abstract] = [
-                    lambda data: cls.converter_flip_bitangent_sign(data)
+            if self.buffers_format["Position"].get_element(bitan_abstract) is not None:
+                self.format_converters[bitan_abstract] = [
+                    lambda data: self.converter_flip_bitangent_sign(data)
                 ]
-        return cls
 
     def converter_normalize_weights(self, data: NDArray) -> NDArray:
         """Normalizes weight values to ensure they sum to 1.0 for each vertex"""
