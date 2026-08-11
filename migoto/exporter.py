@@ -238,12 +238,14 @@ class ModExporter:
         self.files_to_write = {}
         self.files_to_copy = []
         for component in self.mod_file.components:
-            data_model: DataModelXXMI = DataModelXXMI.from_obj(
-                (
-                    component.parts[0].objects[0].obj
-                    if len(component.parts[0].objects)
-                    else None
-                ),
+            obj: Object | None = (
+                component.parts[0].objects[0].obj
+                if len(component.parts[0].objects)
+                else None
+            )
+
+            data_model: DataModelXXMI = DataModelXXMI(
+                obj,
                 self.game,
                 self.normalize_weights,
                 component.blend_vb,
