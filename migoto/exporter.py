@@ -22,8 +22,8 @@ from .data.byte_buffer import (
 from .data.data_model import DataModelXXMI
 from .data.hash_json import Component, HashJsonData, SubObj
 from .data.ini_format import INI_file
-from .datahandling import mesh_triangulate
 from .datastructures import Fatal, GameEnum
+from .datahandling import mesh_triangulate
 
 
 @dataclass
