@@ -18,7 +18,7 @@ from .import_ops import (
 )
 from .operators import (
     CLEAN_UV_NAMES,
-    RESET_VERTEX_COLORS,
+    MESH_OT_reset_vertex_color,
     ApplyVGMap,
     Import3DMigotoPose,
     OBJECT_OT_apply_modifiers_to_sk_objects,
@@ -517,7 +517,8 @@ class XXMI_PT_Toolbox(Panel):
         layout.operator(VGROUP_SN_fill.bl_idname, text=VGROUP_SN_fill.bl_label)
         layout.operator(CLEAN_UV_NAMES.bl_idname, text=CLEAN_UV_NAMES.bl_label)
         layout.operator(
-            RESET_VERTEX_COLORS.bl_idname, text=RESET_VERTEX_COLORS.bl_label
+            MESH_OT_reset_vertex_color.bl_idname,
+            text=MESH_OT_reset_vertex_color.bl_label,
         )
 
 

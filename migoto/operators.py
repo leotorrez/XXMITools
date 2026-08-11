@@ -1,6 +1,14 @@
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, IntProperty, StringProperty
-from bpy.types import AddonPreferences, Context, Operator, UILayout
+from bpy.types import (
+    AddonPreferences,
+    Context,
+    MESH_MT_color_attribute_context_menu,
+    MESH_MT_vertex_group_context_menu,
+    Operator,
+    UILayout,
+    VIEW3D_MT_vertex_group,
+)
 from bpy_extras.io_utils import ImportHelper, orientation_helper
 
 from .. import __name__ as package_name
@@ -494,7 +502,7 @@ class CLEAN_UV_NAMES(bpy.types.Operator):
             return {"FINISHED"}
 
 
-class RESET_VERTEX_COLORS(bpy.types.Operator):
+class MESH_OT_reset_vertex_color(bpy.types.Operator):
     bl_description = "Resets vertex colors to a color selected by the user"
     bl_idname = "mesh.reset_vertex_colors"
     bl_label = "Reset Vertex Colors"
@@ -565,7 +573,7 @@ class PropertyCollectionModifierItem(bpy.types.PropertyGroup):
 
 class OBJECT_OT_apply_modifiers_to_sk_objects(bpy.types.Operator):
     bl_idname: str = "object.apply_modifiers_to_sk_objects"
-    bl_label: str = "Apply Modifiers to Objects with Shapekeys"
+    bl_label: str = "Apply modifiers to Objects with Shapekeys"
     bl_description: str = "Applies modifiers to objects with shapekeys, also allows you to select which modifiers to ignore."
     bl_options = {"UNDO"}
 
@@ -607,7 +615,7 @@ class OBJECT_OT_apply_modifiers_to_sk_objects(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self)
 
 
-def draw_menu(self, context):
+def draw_vg_menu(self, context):
     layout = self.layout
     layout.separator()
     layout.operator(VGROUP_SN_merge.bl_idname, icon="SELECT_EXTEND")
@@ -616,11 +624,19 @@ def draw_menu(self, context):
     layout.operator(VGROUP_SN_remove.bl_idname, icon="REMOVE")
 
 
+def draw_vcolor_menu(self, context):
+    layout = self.layout
+    layout.separator()
+    layout.operator(MESH_OT_reset_vertex_color.bl_idname, icon="LOOP_BACK")
+
+
 def register():
-    bpy.types.MESH_MT_vertex_group_context_menu.append(draw_menu)
-    bpy.types.VIEW3D_MT_vertex_group.append(draw_menu)
+    MESH_MT_vertex_group_context_menu.append(draw_vg_menu)
+    MESH_MT_color_attribute_context_menu.append(draw_vcolor_menu)
+    VIEW3D_MT_vertex_group.append(draw_vg_menu)
 
 
 def unregister():
-    bpy.types.VIEW3D_MT_vertex_group.remove(draw_menu)
-    bpy.types.MESH_MT_vertex_group_context_menu.remove(draw_menu)
+    VIEW3D_MT_vertex_group.remove(draw_vg_menu)
+    MESH_MT_color_attribute_context_menu.remove(draw_vcolor_menu)
+    MESH_MT_vertex_group_context_menu.remove(draw_vg_menu)
