@@ -3,11 +3,17 @@ from bpy.props import BoolProperty, CollectionProperty, IntProperty, StringPrope
 from bpy.types import (
     AddonPreferences,
     Context,
+    Event,
+    Mesh,
     MESH_MT_color_attribute_context_menu,
     MESH_MT_vertex_group_context_menu,
+    Object,
     Operator,
     UILayout,
+    VertexGroup,
     VIEW3D_MT_vertex_group,
+    ViewLayer,
+    WindowManager,
 )
 from bpy_extras.io_utils import ImportHelper, orientation_helper
 
@@ -26,11 +32,10 @@ from .datastructures import Fatal, IOOBJOrientationHelper
 class ApplyVGMap(Operator, ImportHelper):
     """Apply vertex group map to the selected object"""
 
-    bl_idname = "mesh.migoto_vertex_group_map"
-    bl_label = "Apply 3DMigoto vgmap"
+    bl_idname: str = "mesh.migoto_vertex_group_map"
+    bl_label: str = "Apply 3DMigoto vgmap"
     bl_options = {"UNDO"}
-
-    filename_ext = ".vgmap"
+    filename_ext: str = ".vgmap"
     filter_glob: StringProperty(
         default="*.vgmap",
         options={"HIDDEN"},
@@ -66,11 +71,11 @@ class ApplyVGMap(Operator, ImportHelper):
         default="",
     )
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event) -> set[str]:
         self.suffix = ""
         return ImportHelper.invoke(self, context, event)
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         try:
             keywords = self.as_keywords(ignore=("filter_glob",))
             apply_vgmap(self, context, **keywords)
@@ -82,8 +87,8 @@ class ApplyVGMap(Operator, ImportHelper):
 class UpdateVGMap(Operator):
     """Assign new 3DMigoto vertex groups"""
 
-    bl_idname = "mesh.update_migoto_vertex_group_map"
-    bl_label = "Assign new 3DMigoto vertex groups"
+    bl_idname: str = "mesh.update_migoto_vertex_group_map"
+    bl_label: str = "Assign new 3DMigoto vertex groups"
     bl_options = {"UNDO"}
 
     vg_step: bpy.props.IntProperty(
@@ -93,11 +98,11 @@ class UpdateVGMap(Operator):
         min=1,
     )
 
-    def invoke(self, context, event):
-        wm = context.window_manager
+    def invoke(self, context: Context, event: Event):
+        wm: WindowManager | None = context.window_manager
         return wm.invoke_props_dialog(self)
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         try:
             keywords = self.as_keywords()
             update_vgmap(self, context, **keywords)
@@ -106,15 +111,15 @@ class UpdateVGMap(Operator):
         return {"FINISHED"}
 
 
-@orientation_helper(axis_forward="-Z", axis_up="Y")
+@orientation_helper("-Z", "Y")
 class Import3DMigotoPose(Operator, ImportHelper, IOOBJOrientationHelper):
     """Import a pose from a 3DMigoto constant buffer dump"""
 
-    bl_idname = "armature.migoto_pose"
-    bl_label = "Import 3DMigoto Pose"
+    bl_idname: str = "armature.migoto_pose"
+    bl_label: str = "Import 3DMigoto Pose"
     bl_options = {"UNDO"}
 
-    filename_ext = ".txt"
+    filename_ext: str = ".txt"
     filter_glob: StringProperty(
         default="*.txt",
         options={"HIDDEN"},
@@ -141,7 +146,7 @@ class Import3DMigotoPose(Operator, ImportHelper, IOOBJOrientationHelper):
         min=1,
     )
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         try:
             keywords = self.as_keywords(ignore=("filter_glob",))
             import_pose(self, context, **keywords)
@@ -153,11 +158,11 @@ class Import3DMigotoPose(Operator, ImportHelper, IOOBJOrientationHelper):
 class Merge3DMigotoPose(Operator):
     """Merge identically posed bones of related armatures into one"""
 
-    bl_idname = "armature.merge_pose"
-    bl_label = "Merge 3DMigoto Poses"
+    bl_idname: str = "armature.merge_pose"
+    bl_label: str = "Merge 3DMigoto Poses"
     bl_options = {"UNDO"}
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         try:
             merge_armatures(self, context)
         except Fatal as e:
@@ -168,13 +173,13 @@ class Merge3DMigotoPose(Operator):
 class DeleteNonNumericVertexGroups(Operator):
     """Remove vertex groups with non-numeric names"""
 
-    bl_idname = "vertex_groups.delete_non_numeric"
-    bl_label = "Remove non-numeric vertex groups"
+    bl_idname: str = "vertex_groups.delete_non_numeric"
+    bl_label: str = "Remove non-numeric vertex groups"
     bl_options = {"UNDO"}
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         try:
-            for obj in context.selected_objects:
+            for obj in context.selected_objects or []:
                 for vg in reversed(obj.vertex_groups):
                     if vg.name.isdecimal():
                         continue
@@ -188,7 +193,7 @@ class DeleteNonNumericVertexGroups(Operator):
 class Preferences(AddonPreferences):
     """Preferences updater"""
 
-    bl_idname = package_name
+    bl_idname: str = package_name
     # Addon updater preferences.
 
     auto_check_update: BoolProperty(
@@ -228,11 +233,11 @@ class Preferences(AddonPreferences):
         max=59,
     )
 
-    def draw(self, context):
+    def draw(self, context: Context) -> None:
         layout = self.layout
-        print(addon_updater_ops.get_user_preferences(context))
+        # print(addon_updater_ops.get_user_preferences(context))
         # Works best if a column, or even just self.layout.
-        mainrow = layout.row()
+        mainrow: UILayout = layout.row()
         _ = mainrow.column()
         # Updater draw function, could also pass in col as third arg.
         addon_updater_ops.update_settings_ui(self, context)
@@ -251,31 +256,36 @@ class Preferences(AddonPreferences):
 
 
 class VGROUP_SN_merge(bpy.types.Operator):
-    bl_description = "Merge the vertex groups with shared name"
-    bl_idname = "mesh.merge_shared_name_vgs"
-    bl_label = "Merge shared name Vertex Groups"
+    bl_description: str = "Merge the vertex groups with shared name"
+    bl_idname: str = "mesh.merge_shared_name_vgs"
+    bl_label: str = "Merge shared name Vertex Groups"
     bl_options = {"UNDO"}
-    selected = []
+    selected: list[Object | None] = []
 
     @classmethod
-    def poll(cls, context):
-        return (
+    def poll(cls, context: Context) -> bool:
+        return bool(
             context.object
             and context.object.type == "MESH"
             and context.object.vertex_groups
         )
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event) -> set[str]:
         if event.alt:
-            self.selected = [*{context.object, *context.selected_objects}]
+            self.selected = [*{context.object, *(context.selected_objects or [])}]
         return self.execute(context)
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         if not self.selected:
             self.selected = [context.object]
 
         for ob in self.selected:
-            if not getattr(ob, "type", None) == "MESH":
+            if (
+                ob is None
+                or ob.data is None
+                or ob.vertex_groups.active is None
+                or not isinstance(ob.data, Mesh)
+            ):
                 continue
 
             # myyy
@@ -287,7 +297,9 @@ class VGROUP_SN_merge(bpy.types.Operator):
                     if x.name.split(".")[0] == f"{vname}"
                 ]
                 if relevant:
-                    vgroup = ob.vertex_groups.new(name=f"x{vname}")
+                    vgroup: VertexGroup | None = ob.vertex_groups.new(name=f"x{vname}")
+                    if vgroup is None:
+                        continue
                     for vert_id, vert in enumerate(ob.data.vertices):
                         available_groups = [
                             v_group_elem.group for v_group_elem in vert.groups
@@ -309,51 +321,55 @@ class VGROUP_SN_merge(bpy.types.Operator):
                         if vg.name[0].lower() == "x":
                             vg.name = vg.name[1:]
 
-            bpy.ops.object.vertex_group_sort()
+            _ = bpy.ops.object.vertex_group_sort()
 
         return {"FINISHED"}
 
 
 class VGROUP_SN_merge_ONE(bpy.types.Operator):
-    bl_description = "Merge the vertex groups with shared name with the active VG"
-    bl_idname = "mesh.merge_shared_name_vgs_one"
-    bl_label = "Merge shared name VGs with the active Vertex Group"
+    bl_description: str = "Merge the vertex groups with shared name with the active VG"
+    bl_idname: str = "mesh.merge_shared_name_vgs_one"
+    bl_label: str = "Merge shared name VGs with the active Vertex Group"
     bl_options = {"UNDO"}
-    selected = []
+    selected: list[Object | None] = []
 
     @classmethod
-    def poll(cls, context):
-        return (
+    def poll(cls, context: Context) -> bool:
+        return bool(
             context.object
             and context.object.type == "MESH"
             and context.object.vertex_groups
         )
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event) -> set[str]:
         if event.alt:
-            self.selected = [*{context.object, *context.selected_objects}]
+            self.selected = [*{context.object, *(context.selected_objects or [])}]
         return self.execute(context)
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         if not self.selected:
             self.selected = [context.object]
         for ob in self.selected:
-            if not getattr(ob, "type", None) == "MESH":
+            if (
+                ob is None
+                or ob.data is None
+                or ob.vertex_groups.active is None
+                or not isinstance(ob.data, Mesh)
+            ):
                 continue
 
             # myyy
-            vname = ob.vertex_groups.active.name
-            if "." in vname:
-                vname = vname.split(".")[0]
-            vgroup_names = [x.name.split(".")[0] for x in ob.vertex_groups]
-            relevant = [
+            vname: str = ob.vertex_groups.active.name.split(".")[0]
+            relevant: list[str] = [
                 x.name for x in ob.vertex_groups if x.name.split(".")[0] == f"{vname}"
             ]
 
             if relevant:
-                vgroup = ob.vertex_groups.new(name=f"x{vname}")
+                vgroup: VertexGroup | None = ob.vertex_groups.new(name=f"x{vname}")
+                if vgroup is None:
+                    continue
                 for vert_id, vert in enumerate(ob.data.vertices):
-                    available_groups = [
+                    available_groups: list[int] = [
                         v_group_elem.group for v_group_elem in vert.groups
                     ]
                     combined = 0
@@ -370,37 +386,42 @@ class VGROUP_SN_merge_ONE(bpy.types.Operator):
                     if vg.name[0].lower() == "x":
                         vg.name = vg.name[1:]
 
-            bpy.ops.object.vertex_group_sort()
+            _ = bpy.ops.object.vertex_group_sort()
 
         return {"FINISHED"}
 
 
 class VGROUP_SN_fill(bpy.types.Operator):
-    bl_description = "Fill VGs from the lowest to highest existing one "
-    bl_idname = "mesh.fill_vg"
-    bl_label = "Fill gaps in Vertex Groups"
+    bl_description: str = "Fill VGs from the lowest to highest existing one "
+    bl_idname: str = "mesh.fill_vg"
+    bl_label: str = "Fill gaps in Vertex Groups"
     bl_options = {"UNDO"}
 
-    selected = []
+    selected: list[Object | None] = []
 
     @classmethod
-    def poll(cls, context):
-        return (
+    def poll(cls, context: Context) -> bool:
+        return bool(
             context.object
             and context.object.type == "MESH"
             and context.object.vertex_groups
         )
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event) -> set[str]:
         if event.alt:
-            self.selected = [*{context.object, *context.selected_objects}]
+            self.selected = [*{context.object, *(context.selected_objects or [])}]
         return self.execute(context)
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         if not self.selected:
             self.selected = [context.object]
         for ob in self.selected:
-            if not getattr(ob, "type", None) == "MESH":
+            if (
+                ob is None
+                or ob.data is None
+                or ob.vertex_groups.active is None
+                or not isinstance(ob.data, Mesh)
+            ):
                 continue
 
             # myyy
@@ -411,85 +432,94 @@ class VGROUP_SN_fill(bpy.types.Operator):
                 except ValueError:
                     print("Vertex group not named as integer, skipping")
 
-            missing = set([f"{i}" for i in range(largest + 1)]) - set(
-                [x.name.split(".")[0] for x in ob.vertex_groups]
-            )
+            missing: set[str] = {f"{i}" for i in range(largest + 1)} - {
+                x.name.split(".")[0] for x in ob.vertex_groups
+            }
             for number in missing:
-                ob.vertex_groups.new(name=f"{number}")
-
-            bpy.ops.object.vertex_group_sort()
+                _ = ob.vertex_groups.new(name=f"{number}")
+            _ = bpy.ops.object.vertex_group_sort()
 
         return {"FINISHED"}
 
 
 class VGROUP_SN_remove(bpy.types.Operator):
-    bl_description = (
+    bl_description: str = (
         "Remove unused VGs checks ONLY the weight paints, not shapekeys and others"
     )
-    bl_idname = "mesh.remove_vg"
-    bl_label = "Remove unused Vertex Groups"
+    bl_idname: str = "mesh.remove_vg"
+    bl_label: str = "Remove unused Vertex Groups"
     bl_options = {"UNDO"}
 
-    selected = []
+    selected: list[Object | None] = []
 
     @classmethod
-    def poll(cls, context):
-        return (
+    def poll(cls, context: Context) -> bool:
+        return bool(
             context.object
             and context.object.type == "MESH"
             and context.object.vertex_groups
         )
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event) -> set[str]:
         if event.alt:
-            self.selected = [*{context.object, *context.selected_objects}]
+            self.selected = [*{context.object, *(context.selected_objects or [])}]
         return self.execute(context)
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         if not self.selected:
             self.selected = [context.object]
         for ob in self.selected:
-            if not getattr(ob, "type", None) == "MESH":
+            if (
+                getattr(ob, "type", None) != "MESH"
+                or ob is None
+                or ob.data is None
+                or ob.vertex_groups.active is None
+                or not isinstance(ob.data, Mesh)
+            ):
                 continue
 
             # myyy
-            used_groups = set()
+            used_groups: set[int] = set()
 
             # Used groups from weight paint
-            for id, vert in enumerate(ob.data.vertices):
+            for vert in ob.data.vertices:
                 for vg in vert.groups:
-                    vgi = vg.group
+                    vgi: int = vg.group
                     used_groups.add(vgi)
             # removing
             for vg in list(reversed(ob.vertex_groups)):
                 if vg.index not in used_groups:
                     ob.vertex_groups.remove(vg)
 
-        # bpy.ops.object.vertex_group_sort()
-
         return {"FINISHED"}
 
 
 class CLEAN_UV_NAMES(bpy.types.Operator):
-    bl_description = (
+    bl_description: str = (
         "Ensures the format TEXCOORD[n].xy for UV names, as expected by 3DMigoto"
     )
-    bl_idname = "mesh.clean_uv_names"
-    bl_label = "Clean UV Names"
+    bl_idname: str = "mesh.clean_uv_names"
+    bl_label: str = "Clean UV Names"
     bl_options = {"UNDO"}
 
-    selected = []
+    selected: list[Object | None] = []
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event) -> set[str]:
         if event.alt:
-            self.selected = [*{context.object, *context.selected_objects}]
+            self.selected = [*{context.object, *(context.selected_objects or [])}]
         return self.execute(context)
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         if not self.selected:
             self.selected = [context.object]
         for ob in self.selected:
-            if not getattr(ob, "type", None) == "MESH":
+            if (
+                getattr(ob, "type", None) != "MESH"
+                or ob is None
+                or ob.data is None
+                or ob.vertex_groups.active is None
+                or not isinstance(ob.data, Mesh)
+            ):
                 continue
 
             for id, uv_layer in enumerate(ob.data.uv_layers):
@@ -500,12 +530,14 @@ class CLEAN_UV_NAMES(bpy.types.Operator):
                 if uv_layer.name != expected_name:
                     uv_layer.name = expected_name
             return {"FINISHED"}
+        self.report({"WARNING"}, "No changes were made")
+        return {"CANCELLED"}
 
 
 class MESH_OT_reset_vertex_color(bpy.types.Operator):
-    bl_description = "Resets vertex colors to a color selected by the user"
-    bl_idname = "mesh.reset_vertex_colors"
-    bl_label = "Reset Vertex Colors"
+    bl_description: str = "Resets vertex colors to a color selected by the user"
+    bl_idname: str = "mesh.reset_vertex_colors"
+    bl_label: str = "Reset Vertex Colors"
     bl_options = {"UNDO"}
 
     color: bpy.props.FloatVectorProperty(
@@ -537,27 +569,33 @@ class MESH_OT_reset_vertex_color(bpy.types.Operator):
         description="Choose the domain for vertex colors",
     )
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event):
         # Open a dialog with the color picker UI.
         return context.window_manager.invoke_props_dialog(self)
 
-    def draw(self, context):
-        layout = self.layout
+    def draw(self, context: Context) -> None:
+        layout: UILayout | None = self.layout
+        if layout is None:
+            return
         layout.prop(self, "color", text="Reset Color")
         layout.prop(self, "data_type", text="Data Type")
         layout.prop(self, "domain", text="Domain")
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
+        view_layer: ViewLayer | None = context.view_layer
+        if context.selected_objects is None or view_layer is None:
+            return {"FINISHED"}
+
         for obj in context.selected_objects:
-            if obj.type != "MESH":
+            if not isinstance(obj.data, Mesh):
                 continue
 
-            bpy.ops.object.select_all(action="DESELECT")
+            _ = bpy.ops.object.select_all(action="DESELECT")
             obj.select_set(True)
-            context.view_layer.objects.active = obj
+            view_layer.objects.active = obj
             if "COLOR" in obj.data.color_attributes:
                 obj.data.color_attributes.remove(obj.data.color_attributes["COLOR"])
-            bpy.ops.geometry.color_attribute_add(
+            _ = bpy.ops.geometry.color_attribute_add(
                 name="COLOR",
                 domain="CORNER",
                 data_type="BYTE_COLOR",
@@ -577,15 +615,15 @@ class OBJECT_OT_apply_modifiers_to_sk_objects(bpy.types.Operator):
     bl_description: str = "Applies modifiers to objects with shapekeys, also allows you to select which modifiers to ignore."
     bl_options = {"UNDO"}
 
-    def item_list(self, context: Context):
+    def item_list(self, _: Context):
         return [(m.name, m.name, m.name) for m in bpy.context.object.modifiers]
 
     my_collection: CollectionProperty(type=PropertyCollectionModifierItem)
 
-    def execute(self, context: Context):
-        ob = bpy.context.object
+    def execute(self, context: Context) -> set[str]:
+        ob: Object | None = bpy.context.object
         assert ob is not None
-        bpy.ops.object.select_all(action="DESELECT")
+        _ = bpy.ops.object.select_all(action="DESELECT")
         context.view_layer.objects.active = ob
         ob.select_set(True)
 
@@ -601,22 +639,26 @@ class OBJECT_OT_apply_modifiers_to_sk_objects(bpy.types.Operator):
         return {"FINISHED"}
 
     def draw(self, context: Context):
-        box: UILayout = self.layout.box()
+        box: UILayout | None = self.layout.box()
+        if box is None:
+            return
+
         for prop in self.my_collection:
             box.prop(prop, "checked", text=prop["name"])
 
-    def invoke(self, context, event):
+    def invoke(self, context: Context, event: Event):
         self.my_collection.clear()
         for mod in bpy.context.object.modifiers:
-            item = self.my_collection.add()
+            item: PropertyCollectionModifierItem = self.my_collection.add()
             item.name = mod.name
             item.checked = False
-            item.data = mod
         return context.window_manager.invoke_props_dialog(self)
 
 
-def draw_vg_menu(self, context):
-    layout = self.layout
+def draw_vg_menu(self, context: Context) -> None:
+    layout: UILayout | None = self.layout
+    if layout is None:
+        return
     layout.separator()
     layout.operator(VGROUP_SN_merge.bl_idname, icon="SELECT_EXTEND")
     layout.operator(VGROUP_SN_merge_ONE.bl_idname, icon="SELECT_SET")
@@ -624,8 +666,10 @@ def draw_vg_menu(self, context):
     layout.operator(VGROUP_SN_remove.bl_idname, icon="REMOVE")
 
 
-def draw_vcolor_menu(self, context):
-    layout = self.layout
+def draw_vcolor_menu(self, context: Context) -> None:
+    layout: UILayout | None = self.layout
+    if layout is None:
+        return
     layout.separator()
     layout.operator(MESH_OT_reset_vertex_color.bl_idname, icon="LOOP_BACK")
 
