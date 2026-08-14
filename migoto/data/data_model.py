@@ -507,7 +507,7 @@ class DataModel:
 
 
 class DataModelXXMI(DataModel):
-    game: GameEnum
+    game: GameEnum | None
     flip_texcoords_vertical: dict[str, bool]
     buffers_format: dict[str, BufferLayout]
     format_converters: dict[AbstractSemantic, list[Callable]]
@@ -593,16 +593,16 @@ class DataModelXXMI(DataModel):
 
     def __init__(
         self,
-        obj: Object | None,
-        game: GameEnum,
+        obj: Object | None = None,
+        game: GameEnum | None = None,
         normalize_weights: bool = False,
         blend_hash: str = "",
         texcoord_hash: str = "",
     ) -> None:
         self.game = game
-        self.normalize_weights = normalize_weights
-        if obj is None:
+        if obj is None or game is None:
             return
+        self.normalize_weights = normalize_weights
         self.read_custom_properties(obj)
         self.buffers_format = {
             "IB": BufferLayout(
