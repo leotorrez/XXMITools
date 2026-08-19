@@ -895,3 +895,22 @@ class MigotoFormat:
             vb_layout=vb_layout,
         )
         return fmt
+
+    def to_dict(self) -> dict[str, str | int | list[dict]]:
+        assert (
+            self.vb_layout is not None
+            and self.format is not None
+            and self.topology is not None
+        )
+        # for raw_vb in vb.vbs:
+        #     obj["3DMigoto:VB%iStride" % raw_vb.idx] = raw_vb.stride
+        return {
+            "VBLayout": self.vb_layout.serialise(),
+            "Topology": self.topology,
+            "VB0Stride": self.stride,
+            "FirstVertex": self.first_vertex,
+            "VertexCount": self.vertex_count,
+            "IBFormat": self.format.get_format(),
+            "FirstIndex": self.first_index,
+            "IndexCount": self.index_count,
+        }

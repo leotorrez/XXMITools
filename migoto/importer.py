@@ -275,19 +275,12 @@ class ObjectImporter:
             raise Fatal(
                 f"Specified .fmt file is missing vertex buffer layout for object {obj.name}!",
             )
-        obj["3DMigoto:VBLayout"] = migoto_format.vb_layout.serialise()
-        obj["3DMigoto:Topology"] = migoto_format.topology
-        # for raw_vb in vb.vbs:
-        #     obj["3DMigoto:VB%iStride" % raw_vb.idx] = raw_vb.stride
-        obj["3DMigoto:VB0Stride"] = migoto_format.vb_layout.stride
-        obj["3DMigoto:FirstVertex"] = migoto_format.first_vertex
-        obj["3DMigoto:VertexCount"] = migoto_format.vertex_count
+        fmt_dict: dict[str, str | int | list[dict]] = migoto_format.to_dict()
+        for k, v in fmt_dict:
+            obj[f"3DMigoto:{k}"] = v
         obj["3DMigoto:FlipWinding"] = cfg.flip_winding
         obj["3DMigoto:FlipNormal"] = cfg.flip_normal
         obj["3DMigoto:FlipMesh"] = cfg.flip_mesh
-        obj["3DMigoto:IBFormat"] = migoto_format.format.get_format()
-        obj["3DMigoto:FirstIndex"] = migoto_format.first_index
-        obj["3DMigoto:IndexCount"] = migoto_format.index_count
         for uv in obj.data.uv_layers:
             obj[f"3DMigoto:{uv.name}"] = {"flip_v": cfg.flip_texcoord_v}
 
