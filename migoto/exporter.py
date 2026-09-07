@@ -241,7 +241,7 @@ class ModExporter:
                 for key, entry in data_model.buffers_format.items()
             }
             if self.write_buffers is False:
-                for key in out_buffers.keys():
+                for key in out_buffers:
                     excluded_buffers.append(key)
             vb_offset: int = 0
             for part in component.parts:
