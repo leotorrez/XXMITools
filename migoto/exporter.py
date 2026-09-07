@@ -3,7 +3,6 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
 
 import bpy
 import numpy
@@ -55,7 +54,7 @@ class ModExporter:
     ignore_duplicate_textures: bool
     write_buffers: bool
     write_ini: bool
-    template: Optional[Path] = None
+    template: Path | None = None
     outline_rounding_precision: int = 3
     # Internal / not implemented
     ignore_muted_shape_keys: bool = False
@@ -64,7 +63,7 @@ class ModExporter:
     hash_data: list[dict] = field(default_factory=list)
     mod_file: ModFile = field(init=False)
     ini_content: str = field(init=False)
-    files_to_write: dict[Path, Union[str, NDArray]] = field(init=False)
+    files_to_write: dict[Path, str | NDArray] = field(init=False)
     files_to_copy: list[tuple[Path, Path]] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -165,7 +164,7 @@ class ModExporter:
     def obj_from_col(
         self,
         main_obj: Object,
-        collection: Optional[Collection],
+        collection: Collection | None,
         destination: list[SubObj],
         depth: int = 0,
     ) -> None:
