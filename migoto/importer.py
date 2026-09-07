@@ -75,8 +75,9 @@ class ObjectImporter:
             hash_json_data = HashJsonData(import_folder / "hash.json")
         except FileNotFoundError:
             if cfg.merge_meshes or cfg.create_materials:
-                raise Fatal(
-                    f"Specified folder is missing hash.json! Expected at: {import_folder / 'hash.json'}"
+                operator.report(
+                    {"WARNING"},
+                    f"Specified folder is missing hash.json! Expected at: {import_folder / 'hash.json'}",
                 )
 
         imported_objects: list[Object] = self.process_objects(
