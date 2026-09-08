@@ -43,19 +43,46 @@ class ImporterOptions:
 # TODO: Support multiple vertex buffers and pose data
 
 
-def _extract_path(path_or_tuple: str | tuple | list[str]) -> Path:
+def _extract_path(path_or_tuple: str | tuple[str, str] | list[str] | None) -> Path | None:
     """
     Extract the text path from either a string path or a (binary, text) tuple.
     When use_bin=True, paths are tuples of (binary_path, text_path).
     When use_bin=False, paths are simple strings.
+    A None input (or a pair with no text path) yields None for no-IB meshes.
     """
+    if path_or_tuple is None:
+        return None
+
     if isinstance(path_or_tuple, (tuple, list)):
         # Return the text path (second element of the tuple)
         found = path_or_tuple[1] if len(path_or_tuple) > 1 else path_or_tuple[0]
     else:
         found = path_or_tuple
 
-    return Path(found).absolute() if isinstance(found, str) else found.absolute()
+    if found is None:
+        return None
+
+    if isinstance(found, str):
+        return Path(found).absolute()
+    return found.absolute()
+
+
+def _component_name_from_paths(paths: ImportPaths) -> str:
+    """
+    Derive the component (mesh) name for grouping purposes.
+    Prefers the index buffer name; falls back to the vertex buffer name when
+    a mesh has no index buffer (use_bin tuples or no-IB dumps).
+    """
+    ib_path = _extract_path(paths.ib_paths)
+    if ib_path is not None:
+        return ib_path.stem.split("-ib")[0]
+
+    if paths.vb_paths:
+        vb_path = _extract_path(paths.vb_paths[0])
+        if vb_path is not None:
+            return vb_path.stem.split("-vb")[0]
+
+    return "unamed"
 
 
 class ObjectImporter:
@@ -109,8 +136,7 @@ class ObjectImporter:
                         (
                             paths
                             for paths in cfg.import_paths
-                            if Path(_extract_path(paths.ib_paths)).stem.split("-ib")[0]
-                            == part.fullname
+                            if _component_name_from_paths(paths) == part.fullname
                         ),
                         None,
                     )
@@ -120,8 +146,7 @@ class ObjectImporter:
                     grouped_paths[fullname] = result
         else:
             for paths in cfg.import_paths:
-                ib_path = Path(_extract_path(paths.ib_paths))
-                fullname: str = ib_path.stem.split("-ib")[0]
+                fullname: str = _component_name_from_paths(paths)
                 if fullname not in grouped_paths:
                     grouped_paths[fullname] = []
                 grouped_paths[fullname].append(paths)
