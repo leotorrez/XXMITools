@@ -567,7 +567,7 @@ class ModExporter:
                         file.write(content)
                 elif isinstance(content, numpy.ndarray) and self.write_buffers:
                     content.tofile(file_path)
-            except (OSError, IOError) as e:
+            except OSError as e:
                 raise Fatal(f"Error writing file {file_path}: {e}")
         if not self.copy_textures:
             return
