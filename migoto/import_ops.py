@@ -1060,9 +1060,9 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
     bl_label = "Import XXMI dump folder"
     bl_options = {"PRESET", "UNDO"}
 
-    filename_ext = ".txt"
+    filename_ext = ".txt;.fmt;.buf"
     filter_glob: StringProperty(
-        default="*.txt",
+        default="*.buf;*.txt;*.fmt",
         options={"HIDDEN"},
     )
 
