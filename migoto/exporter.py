@@ -422,8 +422,8 @@ class ModExporter:
 
         def calc_angle(edge_a: NDArray, edge_b: NDArray) -> NDArray:
             """Calculate the angle between two edges in radians."""
-            vector_a = numpy.abs(unit_vector(edge_a))
-            vector_b = numpy.abs(unit_vector(edge_b))
+            vector_a = unit_vector(edge_a)
+            vector_b = unit_vector(edge_b)
             return numpy.arccos(
                 numpy.clip(
                     numpy.einsum("ij, ij->i", vector_a, vector_b),
@@ -445,9 +445,9 @@ class ModExporter:
         edge0: NDArray = triangles[:, 1] - triangles[:, 2]
         edge1: NDArray = triangles[:, 2] - triangles[:, 0]
         edge2: NDArray = triangles[:, 0] - triangles[:, 1]
-        angle0: NDArray = calc_angle(edge2, edge1)
-        angle1: NDArray = calc_angle(edge0, edge2)
-        angle2: NDArray = calc_angle(edge1, edge0)
+        angle0: NDArray = calc_angle(-edge2, edge1)
+        angle1: NDArray = calc_angle(-edge0, edge2)
+        angle2: NDArray = calc_angle(-edge1, edge0)
         loops_angle: NDArray = numpy.zeros((len(triangles), 3), dtype=numpy.float32)
         loops_angle[:, 0] = angle0
         loops_angle[:, 1] = angle1
@@ -474,7 +474,6 @@ class ModExporter:
         )
 
         accumulated_normals: NDArray = numpy.zeros((len(u), 3), dtype=numpy.float32)
-        # Use numpy.add.at to efficiently sum weighted normals for each unique vertex
         numpy.add.at(accumulated_normals, u_inverse, loops_weighted_normal)
         magnitudes: NDArray = numpy.linalg.norm(
             accumulated_normals, axis=1, keepdims=True
@@ -525,10 +524,10 @@ class ModExporter:
                 )
                 pos_buf.data["COLOR"][:, 3] = copy[:, 3]
         elif self.game == GameEnum.ZenlessZoneZero:
-            norm: NDArray = numpy.empty_like(verts_outline_vector)
-            norm[ib_data] = loops_face_normal
+            norm: NDArray = unit_vector(pos_buf.data["NORMAL"])
             tan: NDArray = unit_vector(pos_buf.data["TANGENT"])
-            bitan: NDArray = numpy.cross(norm, tan)
+            bitangent_sign: NDArray = pos_buf.data["BITANGENTSIGN"].reshape(-1, 1)
+            bitan: NDArray = numpy.cross(norm, tan) * bitangent_sign
             texcoord1_element = tex_buf.layout.get_element(
                 AbstractSemantic(Semantic.TexCoord, 1)
             )
@@ -543,12 +542,9 @@ class ModExporter:
                     (len(verts_outline_vector), 2), dtype=numpy.float32
                 )
                 dot_prods[:, 0] = numpy.einsum("ij,ij->i", tan, verts_outline_vector)
-                dot_prods[:, 1] = (
-                    numpy.einsum("ij,ij->i", bitan, verts_outline_vector) + 1
+                dot_prods[:, 1] = numpy.einsum(
+                    "ij,ij->i", bitan, verts_outline_vector
                 )
-                # TODO: prolly gotta flip again based on custom props
-                dot_prods[:, 1] *= -1.0
-                dot_prods[:, 1] += 1.0
                 tex_buf.import_semantic_data(
                     dot_prods,
                     texcoord1_element,
