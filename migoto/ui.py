@@ -451,6 +451,9 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
         col_1.prop(xxmi, "outline_optimization")
         col_2.enabled = xxmi.outline_optimization
         col_2.prop(xxmi, "outline_rounding_precision")
+        if xxmi.game == "ZenlessZoneZero":
+            col_2.prop(xxmi, "outline_gate_divergence")
+        col_2.prop(xxmi, "outline_custom_normals")
         # col.prop(xxmi, 'export_shapekeys')
         # col.prop(xxmi, "export_materials")
 

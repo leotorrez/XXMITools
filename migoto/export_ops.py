@@ -9,6 +9,7 @@ import bpy
 from bpy.props import (
     BoolProperty,
     EnumProperty,
+    FloatProperty,
     IntProperty,
     PointerProperty,
     StringProperty,
@@ -139,15 +140,28 @@ class XXMIProperties(PropertyGroup):
 
     outline_optimization: BoolProperty(
         name="Outline Optimization",
-        description="Recalculate outlines data to optimize outline shape for the game. Somewhat slow. Recommended for final export.",
-        default=False,
+        description="Recalculates outline data for optimized in-game look",
+        default=True,
     )
     outline_rounding_precision: IntProperty(
         name="Outline decimal rounding precision",
         description="Higher values merge farther away vertices into a single outline vertex. Lower values produce more accurate outlines, but may result in split edges",
-        default=4,
+        default=8,
         min=1,
         max=10,
+    )
+
+    outline_gate_divergence: FloatProperty(
+        name="Outline gate divergence",
+        description="Outline strength is zero below this many degrees of divergence between the outline normal and the vertex normal, and full above it; the game applies a hard cut here with no fade band",
+        default=10.0,
+        min=0.0,
+        max=90.0,
+    )
+    outline_custom_normals: BoolProperty(
+        name="Use custom normals for outlines",
+        description="Build the outline weld from the mesh's authored/split vertex normals instead of recomputing face normals from geometry",
+        default=False,
     )
     game: EnumProperty(
         name="Game to mod",
@@ -267,6 +281,9 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         col_1.prop(xxmi, "outline_optimization")
         col_2.enabled = xxmi.outline_optimization
         col_2.prop(xxmi, "outline_rounding_precision")
+        if xxmi.game == "ZenlessZoneZero":
+            col_2.prop(xxmi, "outline_gate_divergence")
+        col_2.prop(xxmi, "outline_custom_normals")
         # col.prop(xxmi, 'export_shapekeys')
         # col.prop(xxmi, "export_materials")
 
@@ -293,6 +310,8 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
                 credit=xxmi.credit,
                 outline_optimization=xxmi.outline_optimization,
                 outline_rounding_precision=xxmi.outline_rounding_precision,
+                outline_gate_divergence=xxmi.outline_gate_divergence,
+                outline_custom_normals=xxmi.outline_custom_normals,
                 apply_modifiers=xxmi.apply_modifiers_and_shapekeys,
                 normalize_weights=xxmi.normalize_weights,
                 write_ini=xxmi.write_ini,
@@ -423,6 +442,8 @@ class ExportAdvancedOperator(Operator):
                 credit=xxmi.credit,
                 outline_optimization=xxmi.outline_optimization,
                 outline_rounding_precision=xxmi.outline_rounding_precision,
+                outline_gate_divergence=xxmi.outline_gate_divergence,
+                outline_custom_normals=xxmi.outline_custom_normals,
                 apply_modifiers=xxmi.apply_modifiers_and_shapekeys,
                 normalize_weights=xxmi.normalize_weights,
                 write_buffers=xxmi.write_buffers,
