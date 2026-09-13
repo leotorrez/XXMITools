@@ -2,10 +2,10 @@ import itertools
 import os
 import re
 import struct
+from collections.abc import Callable
 from glob import escape as glob_escape
 from glob import glob
 from pathlib import Path
-from typing import Callable
 
 import bpy
 import numpy
@@ -30,7 +30,6 @@ from bpy_extras.io_utils import (
 )
 
 from .data.byte_buffer import Semantic
-
 from .datahandling import (
     apply_vgmap,
     assert_pointlist_ib_is_pointless,
@@ -77,9 +76,7 @@ def load_3dmigoto_mesh_bin(operator: Operator, vb_paths, ib_paths, pose_path):
         if ib.used_in_drawcall is False:
             operator.report(
                 {"WARNING"},
-                "{}: Discarding index buffer not used in draw call".format(
-                    os.path.basename(ib_bin_path)
-                ),
+                f"{os.path.basename(ib_bin_path)}: Discarding index buffer not used in draw call",
             )
             ib = None
         else:
@@ -119,9 +116,7 @@ def load_3dmigoto_mesh(operator: Operator, paths: ImportPaths):
         if ib.used_in_drawcall is False:
             operator.report(
                 {"WARNING"},
-                "{}: Discarding index buffer not used in draw call".format(
-                    os.path.basename(ib_paths[0])
-                ),
+                f"{os.path.basename(ib_paths[0])}: Discarding index buffer not used in draw call",
             )
             ib = None
 
@@ -553,7 +548,7 @@ def import_3dmigoto_vb_ib(
         elif ib.topology == "pointlist":
             assert_pointlist_ib_is_pointless(ib, vb)
         else:
-            raise Fatal("Unsupported topology (IB): {}".format(ib.topology))
+            raise Fatal(f"Unsupported topology (IB): {ib.topology}")
         # Attach the index buffer layout to the object for later exporting.
         obj["3DMigoto:IBFormat"] = ib.format
         obj["3DMigoto:FirstIndex"] = ib.first
@@ -563,13 +558,11 @@ def import_3dmigoto_vb_ib(
     elif vb.topology == "trianglestrip":
         import_faces_from_vb_trianglestrip(mesh, vb, flip_winding)
     elif vb.topology != "pointlist":
-        raise Fatal("Unsupported topology (VB): {}".format(vb.topology))
+        raise Fatal(f"Unsupported topology (VB): {vb.topology}")
     if vb.topology == "pointlist":
         operator.report(
             {"WARNING"},
-            "{}: uses point list topology, which is highly experimental and may have issues with normals/tangents/lighting. This may not be the mesh you are looking for.".format(
-                mesh.name
-            ),
+            f"{mesh.name}: uses point list topology, which is highly experimental and may have issues with normals/tangents/lighting. This may not be the mesh you are looking for.",
         )
 
     blend_indices, blend_weights, texcoords, vertex_layers, use_normals, normals = (
@@ -582,9 +575,7 @@ def import_3dmigoto_vb_ib(
     if not texcoords:
         operator.report(
             {"WARNING"},
-            "{}: No TEXCOORDs / UV layers imported. This may cause issues with normals/tangents/lighting on export.".format(
-                mesh.name
-            ),
+            f"{mesh.name}: No TEXCOORDs / UV layers imported. This may cause issues with normals/tangents/lighting on export.",
         )
 
     import_vertex_layers(mesh, obj, vertex_layers)
@@ -913,9 +904,7 @@ class Import3DMigotoFrameAnalysis(Operator, ImportHelper, IOOBJOrientationHelper
                 # rather than a Fatal so other files will still get loaded.
                 self.report(
                     {"ERROR"},
-                    'Unable to find corresponding buffers from "{}" - filename did not match vertex/index buffer pattern'.format(
-                        filename
-                    ),
+                    f'Unable to find corresponding buffers from "{filename}" - filename did not match vertex/index buffer pattern',
                 )
                 continue
 
@@ -999,9 +988,7 @@ class Import3DMigotoFrameAnalysis(Operator, ImportHelper, IOOBJOrientationHelper
                     ib_paths = [None]
                 self.report(
                     {"WARNING"},
-                    "{}: No index buffer present, support for this case is highly experimental".format(
-                        name
-                    ),
+                    f"{name}: No index buffer present, support for this case is highly experimental",
                 )
             ret.add(ImportPaths(tuple(vb_paths), ib_paths[0], use_bin, pose_path))
         return ret
@@ -1347,9 +1334,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
                 # rather than a Fatal so other files will still get loaded.
                 self.report(
                     {"ERROR"},
-                    'Unable to find corresponding buffers from "{}" - filename did not match vertex/index buffer pattern'.format(
-                        filename
-                    ),
+                    f'Unable to find corresponding buffers from "{filename}" - filename did not match vertex/index buffer pattern',
                 )
                 continue
 
@@ -1433,9 +1418,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
                     ib_paths = [None]
                 self.report(
                     {"WARNING"},
-                    "{}: No index buffer present, support for this case is highly experimental".format(
-                        name
-                    ),
+                    f"{name}: No index buffer present, support for this case is highly experimental",
                 )
             ret.add(ImportPaths(tuple(vb_paths), ib_paths[0], use_bin, pose_path))
         return ret
@@ -1488,7 +1471,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             importer.import_object(self, context, cfg)
             xxmi: XXMIProperties = context.scene.xxmi
             if xxmi.dump_path == "":
-                hash_json_path = Path(self.filepath) / "hash.json"
+                hash_json_path = Path(self.filepath).parent / "hash.json"
                 if hash_json_path.exists():
                     xxmi.dump_path = str(hash_json_path.parent)
             if xxmi.game == "" and self.game != "":

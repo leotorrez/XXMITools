@@ -11,8 +11,7 @@ from .data.byte_buffer import MigotoFormat, Semantic
 from .data.data_model import DataModelXXMI
 from .data.hash_json import Component, HashJsonData
 from .data.numpy_mesh import NumpyMesh, NumpyMeshGroup
-from .datahandling import Fatal
-from .datastructures import ImportPaths
+from .datastructures import Fatal, ImportPaths
 
 
 @dataclass
@@ -43,7 +42,9 @@ class ImporterOptions:
 # TODO: Support multiple vertex buffers and pose data
 
 
-def _extract_path(path_or_tuple: str | tuple[str, str] | list[str] | None) -> Path | None:
+def _extract_path(
+    path_or_tuple: str | tuple[str, str] | list[str] | None,
+) -> Path | None:
     """
     Extract the text path from either a string path or a (binary, text) tuple.
     When use_bin=True, paths are tuples of (binary_path, text_path).
