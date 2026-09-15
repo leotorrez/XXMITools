@@ -497,6 +497,9 @@ class VGROUP_SN_sanitize(bpy.types.Operator):
             for index, vg in enumerate(ob.vertex_groups):
                 if vg.name == f"{index}":
                     continue
+                if vg.name == f"{index}.{index}":
+                    vg.name = f"{index}"
+                    continue
                 vg.name = f"{index}.{vg.name}"
 
         return {"FINISHED"}
