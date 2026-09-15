@@ -1,4 +1,5 @@
 import bpy
+import numpy
 from bpy.props import BoolProperty, IntProperty, StringProperty
 from bpy.types import Operator, AddonPreferences
 from bpy_extras.io_utils import ImportHelper, orientation_helper
@@ -558,6 +559,119 @@ class RESET_VERTEX_COLORS(bpy.types.Operator):
                 color=self.color,
             )
 
+        return {"FINISHED"}
+
+
+def calculate_vertex_influence_area(obj: bpy.types.Object) -> numpy.ndarray:
+    vertex_area = numpy.zeros(len(obj.data.vertices))
+    for face in obj.data.polygons:
+        area_per_vertex = face.area / len(face.vertices)
+        for vert_idx in face.vertices:
+            vertex_area[vert_idx] += area_per_vertex
+    return vertex_area
+
+
+def get_all_weighted_centers(obj: bpy.types.Object) -> dict:
+    vertex_influence_area = calculate_vertex_influence_area(obj)
+    matrix_world = numpy.array(obj.matrix_world)
+    vertex_coords = numpy.array(
+        [matrix_world @ (*vertex.co, 1.0) for vertex in obj.data.vertices]
+    )[:, :3]
+
+    weights = numpy.zeros((len(obj.data.vertices), len(obj.vertex_groups)))
+    for vertex in obj.data.vertices:
+        for group in vertex.groups:
+            weights[vertex.index, group.group] = group.weight
+
+    weighted_areas = weights * vertex_influence_area[:, numpy.newaxis]
+    total_weight_areas = weighted_areas.sum(axis=0)
+
+    centers = {}
+    for i, vgroup in enumerate(obj.vertex_groups):
+        total_weight_area = total_weight_areas[i]
+        if total_weight_area > 0:
+            weighted_position_sum = (
+                weighted_areas[:, i][:, numpy.newaxis] * vertex_coords
+            ).sum(axis=0)
+            centers[vgroup.name] = weighted_position_sum / total_weight_area
+        else:
+            centers[vgroup.name] = None
+    return centers
+
+
+def find_nearest_center(base_centers: dict, target_center) -> str | None:
+    best_match = None
+    best_distance = float("inf")
+    for base_group_name, base_center in base_centers.items():
+        if base_center is None:
+            continue
+        distance = numpy.linalg.norm(target_center - base_center)
+        if distance < best_distance:
+            best_distance = distance
+            best_match = base_group_name
+    return best_match
+
+
+def match_vertex_groups(source_obj: bpy.types.Object, target_obj: bpy.types.Object) -> int:
+    for target_group in target_obj.vertex_groups:
+        target_group.name = "unknown"
+    source_centers = get_all_weighted_centers(source_obj)
+    target_centers = get_all_weighted_centers(target_obj)
+
+    matched = 0
+    for target_group in target_obj.vertex_groups:
+        target_center = target_centers.get(target_group.name)
+        if target_center is None:
+            continue
+        best_match = find_nearest_center(source_centers, target_center)
+        if best_match:
+            target_group.name = best_match
+            matched += 1
+    return matched
+
+
+class VGROUP_remap(bpy.types.Operator):
+    bl_description = "Rename the target's vertex groups to the source's vertex groups with the closest weighted center"
+    bl_idname = "xxmi.vertex_group_remap"
+    bl_label = "Vertex Group Remap"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        xxmi = context.scene.xxmi
+        source = xxmi.vgm_source_object
+        target = xxmi.vgm_destination_object
+        return (
+            source is not None
+            and target is not None
+            and source != target
+            and source.type == "MESH"
+            and target.type == "MESH"
+        )
+
+    def execute(self, context):
+        xxmi = context.scene.xxmi
+        source: bpy.types.Object = xxmi.vgm_source_object
+        target: bpy.types.Object = xxmi.vgm_destination_object
+
+        if not source.vertex_groups:
+            self.report({"ERROR"}, f"{source.name} has no vertex groups")
+            return {"CANCELLED"}
+        if not target.vertex_groups:
+            self.report({"ERROR"}, f"{target.name} has no vertex groups")
+            return {"CANCELLED"}
+
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+
+        matched = match_vertex_groups(source, target)
+
+        context.view_layer.objects.active = target
+        target.select_set(True)
+        self.report(
+            {"INFO"},
+            f"Remapped {matched}/{len(target.vertex_groups)} vertex groups of {target.name}",
+        )
         return {"FINISHED"}
 
 

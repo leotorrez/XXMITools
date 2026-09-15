@@ -25,6 +25,7 @@ from .operators import (
     VGROUP_SN_merge,
     VGROUP_SN_merge_ONE,
     VGROUP_SN_remove,
+    VGROUP_remap,
 )
 
 
@@ -517,6 +518,14 @@ class XXMI_PT_Toolbox(Panel):
         layout.operator(
             RESET_VERTEX_COLORS.bl_idname, text=RESET_VERTEX_COLORS.bl_label
         )
+
+        xxmi: XXMIProperties = context.scene.xxmi
+        box = layout.box()
+        box.label(text=VGROUP_remap.bl_label, icon="GROUP_VERTEX")
+        col = box.column(align=True)
+        col.prop(xxmi, "vgm_source_object")
+        col.prop(xxmi, "vgm_destination_object")
+        box.operator(VGROUP_remap.bl_idname, text="Run Remap", icon="FILE_REFRESH")
 
 
 class XXMI_PT_Object_properties(Panel):

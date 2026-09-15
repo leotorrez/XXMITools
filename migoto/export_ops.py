@@ -100,6 +100,18 @@ class XXMIProperties(PropertyGroup):
         description="Path to the template file.",
         maxlen=1024,
     )
+    vgm_source_object: PointerProperty(
+        type=Object,
+        name="Source",
+        description="Mesh whose vertex group names will be used as reference",
+        poll=lambda self, obj: obj.type == "MESH",
+    )
+    vgm_destination_object: PointerProperty(
+        type=Object,
+        name="Target",
+        description="Mesh whose vertex groups will be renamed to match the source",
+        poll=lambda self, obj: obj.type == "MESH",
+    )
 
     ignore_hidden: BoolProperty(
         name="Ignore hidden objects",
