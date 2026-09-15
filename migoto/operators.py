@@ -613,9 +613,12 @@ def find_nearest_center(base_centers: dict, target_center) -> str | None:
 
 
 def remapped_group_name(source_obj: bpy.types.Object, new_name: str, old_name: str) -> str:
+    source_index = source_obj.vertex_groups[new_name].index
     if new_name.isdigit():
+        if int(new_name) == source_index:
+            return new_name
         return f"{new_name}.{old_name}"
-    return f"{source_obj.vertex_groups[new_name].index}.{new_name}.{old_name}"
+    return f"{source_index}.{new_name}.{old_name}"
 
 
 def match_vertex_groups(source_obj: bpy.types.Object, target_obj: bpy.types.Object) -> int:
