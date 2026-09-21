@@ -25,6 +25,7 @@ from .operators import (
     VGROUP_SN_merge,
     VGROUP_SN_merge_ONE,
     VGROUP_SN_remove,
+    VGROUP_SN_sanitize,
 )
 
 
@@ -513,6 +514,9 @@ class XXMI_PT_Toolbox(Panel):
             VGROUP_SN_merge_ONE.bl_idname, text=VGROUP_SN_merge_ONE.bl_label
         )
         layout.operator(VGROUP_SN_fill.bl_idname, text=VGROUP_SN_fill.bl_label)
+        layout.operator(
+            VGROUP_SN_sanitize.bl_idname, text=VGROUP_SN_sanitize.bl_label
+        )
         layout.operator(CLEAN_UV_NAMES.bl_idname, text=CLEAN_UV_NAMES.bl_label)
         layout.operator(
             RESET_VERTEX_COLORS.bl_idname, text=RESET_VERTEX_COLORS.bl_label

@@ -464,6 +464,47 @@ class VGROUP_SN_remove(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class VGROUP_SN_sanitize(bpy.types.Operator):
+    bl_description = (
+        "Rename VGs whose name does not match their index to <index>.<name>"
+    )
+    bl_idname = "mesh.sanitize_vg_names"
+    bl_label = "Sanitize Vertex Group names"
+    bl_options = {"UNDO"}
+
+    selected = []
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.object
+            and context.object.type == "MESH"
+            and context.object.vertex_groups
+        )
+
+    def invoke(self, context, event):
+        if event.alt:
+            self.selected = [*{context.object, *context.selected_objects}]
+        return self.execute(context)
+
+    def execute(self, context):
+        if not self.selected:
+            self.selected = [context.object]
+        for ob in self.selected:
+            if not getattr(ob, "type", None) == "MESH":
+                continue
+
+            for index, vg in enumerate(ob.vertex_groups):
+                if vg.name == f"{index}":
+                    continue
+                if vg.name == f"{index}.{index}":
+                    vg.name = f"{index}"
+                    continue
+                vg.name = f"{index}.{vg.name}"
+
+        return {"FINISHED"}
+
+
 class CLEAN_UV_NAMES(bpy.types.Operator):
     bl_description = (
         "Ensures the format TEXCOORD[n].xy for UV names, as expected by 3DMigoto"
