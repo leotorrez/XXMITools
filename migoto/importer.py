@@ -6,9 +6,9 @@ from pathlib import Path
 
 import bpy
 import numpy as np
-import numpy.typing as npt
 from bpy.types import Collection, Context, Mesh, Object, Operator
 from bpy_extras.io_utils import axis_conversion
+from numpy.typing import NDArray
 
 from .data.byte_buffer import (
     AbstractSemantic,
@@ -198,8 +198,13 @@ class ObjectImporter:
             vb_path: Path = _extract_path(vb_paths[0])
             ib_path: Path = _extract_path(ib_path)
             fmt_path: Path = vb_path.with_suffix(".fmt")
+
+            basename: str = str(vb_path.stem).split("-")[0][:-1]
+            deltas_file: str = basename + "SKDeltas.txt"
+            deltas_path: Path = vb_path.parent / deltas_file
+
             migoto_format: MigotoFormat = MigotoFormat.from_paths(
-                fmt_path, ib_path, vb_path
+                fmt_path, ib_path, vb_path, deltas_path
             )
             if migoto_format.vb_layout is None or migoto_format.format is None:
                 raise Fatal(
@@ -216,13 +221,8 @@ class ObjectImporter:
                 fmt = new_format
 
             new_mesh = NumpyMesh.from_paths(
-                fmt, vb_path, ib_path, fmt_path, cfg.load_buf
+                fmt, vb_path, ib_path, fmt_path, deltas_path, cfg.load_buf
             )
-            if (result := self.import_shapekeys(new_mesh, vb_path)) is not None:
-                new_mesh = result[0]
-                sk_offsets = result[1]
-            else:
-                sk_offsets = None
 
             numpy_mesh_group.add_mesh(new_mesh)
         if migoto_format == -1 or (format := migoto_format) is None:
@@ -248,8 +248,9 @@ class ObjectImporter:
         if cfg.create_materials and hash_json_data is not None:
             self.set_materials(operator, obj, name, cfg, hash_json_data)
         model.set_data(obj, mesh, numpy_mesh_group, vg_remap, mirror_mesh=cfg.flip_mesh)
-        if sk_offsets is not None:
-            obj["3DMigoto:SKOffsets"] = sk_offsets
+        if migoto_format.sk_offsets is not None and migoto_format.sk_counts is not None:
+            obj["3DMigoto:SKOffsets"] = migoto_format.sk_offsets
+            obj["3DMigoto:SKCounts"] = migoto_format.sk_counts
         self.set_custom_properties(obj, format, cfg)
 
         num_shapekeys: int = (
@@ -303,7 +304,7 @@ class ObjectImporter:
                 f"Specified .fmt file is missing vertex buffer layout for object {obj.name}!",
             )
         fmt_dict: dict[str, str | int | list[dict]] = migoto_format.to_dict()
-        for k, v in fmt_dict:
+        for k, v in fmt_dict.items():
             obj[f"3DMigoto:{k}"] = v
         obj["3DMigoto:FlipWinding"] = cfg.flip_winding
         obj["3DMigoto:FlipNormal"] = cfg.flip_normal
@@ -440,7 +441,7 @@ class ObjectImporter:
 
     def import_shapekeys(
         self, numpy_mesh: NumpyMesh, vb_path: Path
-    ) -> tuple[NumpyMesh, list[dict[str, int]]] | None:
+    ) -> list[dict[str, int]] | None:
         """Imports shapekey data from Deltas.buf and Offsets.csv files if they exist.
         Loads them as vb_buffer Shapekey.X semantics
         """
@@ -463,7 +464,6 @@ class ObjectImporter:
 
         sk_offsets: list[dict[str, int]] = []
 
-        # Might want to merge this data into hash.json
         with offsets_path.open("r", newline="") as f:
             csvreader = csv.DictReader(f, delimiter=",")
             for row in csvreader:
@@ -478,13 +478,13 @@ class ObjectImporter:
                 ("TANGENT", np.float32, 3),
             ]
         )
-        sk_buffer: npt.NDArray = np.fromfile((deltas_path).open("rb"), dtype=sk_dtype)
-        deltas_pool: npt.NDArray = np.zeros(
+        sk_buffer: NDArray = np.fromfile((deltas_path).open("rb"), dtype=sk_dtype)
+        deltas_pool: NDArray = np.zeros(
             (len(numpy_mesh.vertex_buffer.data), len(sk_offsets)), dtype=(np.float32, 3)
         )
         combined_layout: BufferLayout = copy.deepcopy(numpy_mesh.vertex_buffer.layout)
         for i, e in enumerate(sk_offsets):
-            sk_data: npt.NDArray = sk_buffer[e["offset"] : e["offset"] + e["count"]]
+            sk_data: NDArray = sk_buffer[e["offset"] : e["offset"] + e["count"]]
             deltas_pool[sk_data["VINDEX"], i] = sk_data["POSITION"]
             abstract: AbstractSemantic = AbstractSemantic(Semantic.ShapeKey, i)
             format: DXGIFormat = DXGIFormat.R32G32B32_FLOAT
@@ -496,7 +496,7 @@ class ObjectImporter:
             numpy_mesh.vertex_buffer.data.dtype.descr
             + [(name, np.float32, 3) for name in sk_labels]
         )
-        combined_mesh: npt.NDArray = np.zeros(
+        combined_mesh: NDArray = np.zeros(
             len(numpy_mesh.vertex_buffer.data), dtype=new_dtype
         )
         for x in numpy_mesh.vertex_buffer.data.dtype.names:
