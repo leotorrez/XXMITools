@@ -22,8 +22,8 @@ from .data.byte_buffer import (
 from .data.data_model import DataModelXXMI
 from .data.hash_json import Component, HashJsonData, SubObj
 from .data.ini_format import INI_file
-from .datastructures import Fatal, GameEnum
 from .datahandling import mesh_triangulate
+from .datastructures import Fatal, GameEnum
 
 
 @dataclass
@@ -54,6 +54,7 @@ class ModExporter:
     ignore_duplicate_textures: bool
     write_buffers: bool
     write_ini: bool
+    export_shapekeys: bool
     template: Path | None = None
     outline_rounding_precision: int = 3
     # Internal / not implemented
@@ -310,7 +311,22 @@ class ModExporter:
                 self.files_to_write[self.destination / (part.fullname + ".ib")] = (
                     part_ib.data
                 )
-            if self.outline_optimization and len(out_buffers) > 0:
+            if len(out_buffers) == 0:
+                continue
+            if self.export_shapekeys:
+                v_offsets, v_deltas, mod_offsets, mod_deltas = self.compress_sk_buffers(
+                    out_buffers, 33
+                )
+                print(v_offsets)
+                print(v_deltas)
+                print(mod_offsets)
+                print(mod_deltas)
+            else:
+                try:
+                    _ = out_buffers.pop("Shapekey")
+                except KeyError:
+                    pass
+            if self.outline_optimization:
                 self.optimize_outlines(out_buffers)
             for key, buffer in out_buffers.items():
                 if key == "IB" or buffer.data is None:
@@ -566,6 +582,70 @@ class ModExporter:
                     [texcoord1_element.format.type_encoder],
                 )
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
+
+    def compress_sk_buffers(
+        self,
+        out_buffers: dict[str, NumpyBuffer],
+        og_sk_count,
+    ) -> tuple[NDArray, NDArray, NDArray, NDArray]:
+        assert "Shapekey" in out_buffers
+
+        sk_buffer = out_buffers["Shapekey"].data
+        pos_buffer = out_buffers["Position"].data
+        assert sk_buffer is not None or pos_buffer is not None
+
+        vertex_count: int = len(pos_buffer)
+        mod_sk_count: int = len(sk_buffer.layout.semantics) - og_sk_count
+
+        v_sks = []
+        mod_sks = []
+
+        tmp_buffer = numpy.zeros(
+            vertex_count, [("VINDEX", numpy.int32), ("DELTAS", (numpy.float32, 3))]
+        )
+        labels = sk_buffer.dtype.names or []
+
+        for label in labels[:og_sk_count]:
+            tmp_buffer["VINDEX"] = pos_buffer["VINDEX"]
+            tmp_buffer["DELTAS"] = sk_buffer[label]
+            mask: NDArray[numpy.bool] = (tmp_buffer["DELTAS"] > 1e-6).any(axis=-1)
+            new_arr = tmp_buffer[mask]
+            v_sks.append(new_arr)
+
+        for label in labels[og_sk_count:]:
+            tmp_buffer["VINDEX"] = pos_buffer["VINDEX"]
+            tmp_buffer["DELTAS"] = sk_buffer[label]
+            mask: NDArray[numpy.bool] = (tmp_buffer["DELTAS"] > 1e-6).any(axis=-1)
+            new_arr = tmp_buffer[mask]
+            mod_sks.append(new_arr)
+
+        v_total_entries = sum(len(x) for x in v_sks)
+        mod_total_entries = sum(len(x) for x in mod_sks)
+        v_offsets = numpy.zeros(og_sk_count, numpy.int32)
+        mod_offsets = numpy.zeros(mod_sk_count, numpy.int32)
+        delta_dtype = (
+            [
+                ("VINDEX", numpy.int32),
+                ("POSITION", (numpy.float32, 3)),
+                ("NORMAL", (numpy.float32, 3)),
+                ("TANGENT", (numpy.float32, 3)),
+            ],
+        )
+
+        v_deltas = numpy.zeros((v_total_entries), delta_dtype)
+        mod_deltas = numpy.zeros((mod_total_entries), delta_dtype)
+        offset: int = 0
+        for entry in v_sks:
+            count = len(entry)
+            v_deltas[offset : offset + count] = entry
+            offset += count
+        for entry in mod_sks:
+            count = len(entry)
+            mod_deltas[offset : offset + count] = entry
+            offset += count
+
+        _ = out_buffers.pop("Shapekey")
+        return v_offsets, v_deltas, mod_offsets, mod_deltas
 
     def write_files(self) -> None:
         """Write the files to the destination."""

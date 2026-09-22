@@ -452,7 +452,7 @@ class XXMI_PT_SidePanelExportSettings(XXMISidebarOptionsPanelBase, Panel):
         col_1.prop(xxmi, "outline_optimization")
         col_2.enabled = xxmi.outline_optimization
         col_2.prop(xxmi, "outline_rounding_precision")
-        # col.prop(xxmi, 'export_shapekeys')
+        col.prop(xxmi, "export_shapekeys")
         # col.prop(xxmi, "export_materials")
 
 

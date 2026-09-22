@@ -3,8 +3,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy
+from numpy.typing import NDArray
 
-from .byte_buffer import AbstractSemantic, MigotoFormat, NumpyBuffer, Semantic
+from .byte_buffer import (
+    AbstractSemantic,
+    MigotoFormat,
+    NumpyBuffer,
+    Semantic,
+)
 
 
 @dataclass
@@ -32,39 +38,26 @@ class NumpyMesh:
         vb_path: Path | None = None,
         ib_path: Path | None = None,
         fmt_path: Path | None = None,
+        deltas_path: Path | None = None,
         use_binary: bool = False,
     ) -> "NumpyMesh":
+        if deltas_path is not None and not deltas_path.is_file():
+            deltas_path = None
+
         # Make migoto format from fmt file or txt files
         if migoto_format is None:
-            migoto_format = MigotoFormat.from_paths(fmt_path, vb_path, ib_path)
+            migoto_format = MigotoFormat.from_paths(
+                fmt_path, vb_path, ib_path, deltas_path
+            )
 
         vb_binary_path: Path | None = None
         ib_binary_path: Path | None = None
+        deltas_binary_path: Path | None = None
 
         if use_binary:
-            if vb_path is not None:
-                if vb_path.suffix == ".txt":
-                    potential_vb = vb_path.with_suffix(".buf")
-                    if potential_vb.is_file():
-                        vb_binary_path = potential_vb
-                    else:
-                        potential_vb = vb_path.with_suffix(".vb")
-                        if potential_vb.is_file():
-                            vb_binary_path = potential_vb
-                elif vb_path.suffix in (".vb", ".buf"):
-                    vb_binary_path = vb_path
-
-            if ib_path is not None:
-                if ib_path.suffix == ".txt":
-                    potential_ib = ib_path.with_suffix(".buf")
-                    if potential_ib.is_file():
-                        ib_binary_path = potential_ib
-                    else:
-                        potential_ib = ib_path.with_suffix(".ib")
-                        if potential_ib.is_file():
-                            ib_binary_path = potential_ib
-                elif ib_path.suffix in (".ib", ".buf"):
-                    ib_binary_path = ib_path
+            vb_binary_path = cls.resolve_binary_path(vb_path, ".vb")
+            ib_binary_path = cls.resolve_binary_path(ib_path, ".ib")
+            deltas_binary_path = cls.resolve_binary_path(deltas_path)
 
         if vb_binary_path is not None or ib_binary_path is not None:
             vb_bytes = None
@@ -77,14 +70,36 @@ class NumpyMesh:
                 with open(ib_binary_path, "rb") as ib:
                     ib_bytes = ib.read()
 
+            deltas_bytes = None
+            if deltas_binary_path is not None:
+                with open(deltas_binary_path, "rb") as deltas:
+                    deltas_bytes = deltas.read()
+
             if vb_bytes is not None or ib_bytes is not None:
-                return cls.from_bytes(migoto_format, vb_bytes, ib_bytes)
+                return cls.from_bytes(migoto_format, vb_bytes, ib_bytes, deltas_bytes)
 
         if vb_path is None or ib_path is None:
             raise ValueError(
                 "Both vertex and index buffer paths must be provided when loading from text files."
             )
-        return cls.from_txt(migoto_format, vb_path, ib_path)
+        return cls.from_txt(migoto_format, vb_path, ib_path, deltas_path)
+
+    @staticmethod
+    def resolve_binary_path(
+        path: Path | None, custom_suffix: str | None = None
+    ) -> Path | None:
+        if path is not None:
+            if path.suffix == ".txt":
+                potential_vb = path.with_suffix(".buf")
+                if potential_vb.is_file():
+                    return potential_vb
+                elif custom_suffix is not None:
+                    potential_vb = path.with_suffix(custom_suffix)
+                    if potential_vb.is_file():
+                        return potential_vb
+            elif path.suffix in [".buf", custom_suffix] and path.is_file():
+                return path
+        return None
 
     @staticmethod
     def resolve_partner_path(path: Path | None, partner_suffix: str) -> Path | None:
@@ -109,6 +124,7 @@ class NumpyMesh:
         migoto_format: MigotoFormat,
         vb_bytes: bytes | None = None,
         ib_bytes: bytes | None = None,
+        deltas_bytes: bytes | None = None,
     ) -> "NumpyMesh":
         mesh = cls(format=migoto_format)
 
@@ -122,6 +138,22 @@ class NumpyMesh:
                 )
 
         if vb_bytes:
+            if deltas_bytes:
+                if (
+                    migoto_format.vb_layout is None
+                    or migoto_format.sk_counts is None
+                    or migoto_format.sk_offsets is None
+                ):
+                    raise ValueError(
+                        "vb_layout, sk_offsets and sk_counts are required to expand shapekey deltas!"
+                    )
+                vb_bytes = NumpyBuffer.expand_sk_bytes(
+                    migoto_format.vb_layout,
+                    migoto_format.sk_counts,
+                    migoto_format.sk_offsets,
+                    vb_bytes,
+                    deltas_bytes,
+                )
             try:
                 mesh.vertex_buffer = NumpyBuffer(migoto_format.vb_layout)
                 mesh.vertex_buffer.import_raw_data(vb_bytes)
@@ -186,7 +218,11 @@ class NumpyMesh:
 
     @classmethod
     def from_txt(
-        cls, migoto_format: MigotoFormat, vb_path: Path, ib_path: Path
+        cls,
+        migoto_format: MigotoFormat,
+        vb_path: Path,
+        ib_path: Path,
+        deltas_path: Path | None = None,
     ) -> "NumpyMesh":
         if migoto_format.vb_layout is None or migoto_format.ib_layout is None:
             raise ValueError(
@@ -200,9 +236,20 @@ class NumpyMesh:
         )
 
         start_time = time.time()
-        with open(vb_path, "r") as vb_file, open(ib_path, "r") as ib_file:
-            vb_buffer.import_txt_data(vb_file.read())
-            ib_buffer.import_txt_data_ib(ib_file.read())
+        if deltas_path is None:
+            with open(vb_path, "r") as vb_file, open(ib_path, "r") as ib_file:
+                vb_buffer.import_txt_data(vb_file.read())
+                ib_buffer.import_txt_data_ib(ib_file.read())
+        else:
+            with (
+                open(vb_path, "r") as vb_file,
+                open(ib_path, "r") as ib_file,
+                open(deltas_path, "r") as deltas_file,
+            ):
+                vb_buffer.import_txt_data(
+                    vb_file.read(), deltas_data=deltas_file.read()
+                )
+                ib_buffer.import_txt_data_ib(ib_file.read())
         print(f"    Loaded mesh from txt in {time.time() - start_time:.2f} seconds")
         return cls(
             format=migoto_format,

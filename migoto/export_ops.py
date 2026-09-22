@@ -296,6 +296,7 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
                 normalize_weights=xxmi.normalize_weights,
                 write_ini=xxmi.write_ini,
                 write_buffers=xxmi.write_buffers,
+                export_shapekeys=xxmi.export_shapekeys,
             )
             mod_exporter.export()
         except Fatal as e:
@@ -425,6 +426,7 @@ class ExportAdvancedOperator(Operator):
                 normalize_weights=xxmi.normalize_weights,
                 write_buffers=xxmi.write_buffers,
                 write_ini=xxmi.write_ini,
+                export_shapekeys=xxmi.export_shapekeys,
                 template=Path(xxmi.template_path)
                 if xxmi.use_custom_template != ""
                 else None,

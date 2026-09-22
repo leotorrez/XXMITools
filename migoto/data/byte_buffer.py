@@ -9,6 +9,7 @@ from operator import attrgetter
 from pathlib import Path
 
 import numpy
+from numpy.typing import NDArray
 
 from .dxgi_format import DXGIFormat
 
@@ -552,28 +553,21 @@ class NumpyBuffer:
 
     def import_txt_data(
         self,
-        data: str,
+        vb_data: str,
         remapped_semantics: dict[AbstractSemantic, BufferSemantic] = {},
+        deltas_data: str | None = None,
     ):
-        # Build regex pattern dynamically
-        pattern_lines = []
-
-        # float_pattern = r"[+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?"
         float_pattern = r"[+-]?(?:\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|nan)"
 
-        # Strict matching
-        # for i, semantic in enumerate(self.layout.semantics):
-        #     semantic_name = remapped_semantics.get(semantic.abstract, semantic).get_name()
-        #     semantic_name = semantic_name.split('.')[0]
-        #     # Each number in its own capture group
-        #     groups = ",".join([f"({float_pattern})" for _ in range(semantic.get_num_values())])
-        #     groups = groups.replace(",", r",\s*")
-        #     newline = r"\s*\n" if i < len(self.layout.semantics) - 1 else ""
-        #     # Match optional prefix "vb0[...]"
-        #     line_pattern = rf"vb0\[\d+\]\+\d+\s+{semantic_name}:\s*{groups}{newline}"
-        #     pattern_lines.append(line_pattern)
-
+        # Build regex pattern dynamically from non-shapekey semantics
+        vb_pattern_lines = []
+        total_vb_values = 0
+        sk_semantics = []
         for semantic in self.layout.semantics:
+            if semantic.abstract.enum is Semantic.ShapeKey:
+                sk_semantics.append(semantic)
+                continue
+            total_vb_values += semantic.get_num_values()
             semantic_name = remapped_semantics.get(
                 semantic.abstract, semantic
             ).get_name()
@@ -582,36 +576,134 @@ class NumpyBuffer:
                 [f"({float_pattern})" for _ in range(semantic.get_num_values())]
             )
             groups = groups.replace(",", r",\s*")
-            line_pattern = rf"vb\d+\[\d+\]\+\d+\s+{semantic_name}:\s*{groups}\s*\n?"
-            pattern_lines.append(line_pattern)
-
-        # Join all lines
-        full_pattern = "".join(pattern_lines)
+            vb_pattern_lines.append(
+                rf"vb\d+\[\d+\]\+\d+\s+{semantic_name}:\s*{groups}\s*\n?"
+            )
 
         # Compile regex
-        pattern = re.compile(full_pattern)
+        vb_pattern = re.compile("".join(vb_pattern_lines))
 
-        matches = pattern.findall(data)
-        if not matches:
+        vb_matches = vb_pattern.findall(vb_data)
+        if not vb_matches:
             raise ValueError(
                 "Failed to parse any data with the provided layout and remapping!",
             )
 
-        data = numpy.array(matches, dtype=numpy.float32)  # parse floats first
+        # Parse floats first
+        vb_array: NDArray = numpy.array(vb_matches, dtype=numpy.float32).reshape(
+            -1, max(total_vb_values, 1)
+        )
+
+        if sk_semantics:
+            if deltas_data is None:
+                sk_array = numpy.zeros(
+                    (len(vb_array), 3 * len(sk_semantics)), dtype=numpy.float32
+                )
+            else:
+                sk_array = self.parse_sk_deltas(deltas_data, len(vb_array))
+        else:
+            sk_array = numpy.zeros((len(vb_array), 0), dtype=numpy.float32)
+
+        data_array = numpy.concatenate([vb_array, sk_array], axis=1)
+
         # Fill fields
         start = 0
         for semantic in self.layout.semantics:
             n = semantic.get_num_values()
             if semantic.format.type_decoder is None:
-                field_data = data[:, start : start + n].astype(
+                field_data = data_array[:, start : start + n].astype(
                     semantic.format.numpy_base_type
                 )
             else:
-                field_data = semantic.format.type_encoder(data[:, start : start + n])
+                field_data = semantic.format.type_encoder(
+                    data_array[:, start : start + n]
+                )
             if n == 1:
                 field_data = field_data.ravel()
             self.set_field(semantic.get_name(), field_data)
             start += n
+
+    @staticmethod
+    def parse_sk_deltas(deltas_data: str | None, vertex_count: int) -> NDArray:
+        """Scatters deltas from a compacted shapekey deltas txt dump into a per-vertex
+        (vertex_count, 3 * len(sk_counts)) float array using the VERTEXID and POSITION
+        elements along with the offset/count pairs stored in the deltas file header.
+        """
+        if deltas_data is None:
+            return numpy.zeros((vertex_count, 0), dtype=numpy.float32)
+
+        # Discover element layout and shapekey slices from the deltas file header
+        deltas_fmt = MigotoFormat.from_txt_file(io.StringIO(deltas_data))
+        if deltas_fmt.vb_layout is None:
+            raise ValueError(
+                "Failed to parse shapekey deltas layout from provided data!"
+            )
+        if deltas_fmt.sk_offsets is None or deltas_fmt.sk_counts is None:
+            raise ValueError(
+                "Shapekey deltas data is missing sk_offsets and sk_counts header!"
+            )
+        sk_offsets = deltas_fmt.sk_offsets
+        sk_counts = deltas_fmt.sk_counts
+        if len(sk_counts) == 0 or len(sk_counts) != len(sk_offsets):
+            raise ValueError(
+                f"sk_offsets length {len(sk_offsets)} does not match sk_counts length {len(sk_counts)}!"
+            )
+        vertex_id_element = deltas_fmt.vb_layout.get_element(Semantic.VertexId)
+        position_element = deltas_fmt.vb_layout.get_element(Semantic.Position)
+        if vertex_id_element is None or position_element is None:
+            raise ValueError(
+                "Shapekey deltas layout is missing VERTEXID or POSITION semantic!"
+            )
+
+        # Build regex for the deltas dump using the deltas layout semantics
+        float_pattern = r"[+-]?(?:\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|nan)"
+        deltas_pattern_lines = []
+        for semantic in deltas_fmt.vb_layout.semantics:
+            semantic_name = semantic.get_name().split(".")[0]
+            groups = ",".join(
+                [f"({float_pattern})" for _ in range(semantic.get_num_values())]
+            )
+            groups = groups.replace(",", r",\s*")
+            deltas_pattern_lines.append(
+                rf"vb\d+\[\d+\]\+\d+\s+{semantic_name}:\s*{groups}\s*\n?"
+            )
+
+        # Parse deltas into a flat (entry_count, column_count) float array
+        deltas_matches = re.compile("".join(deltas_pattern_lines)).findall(deltas_data)
+        if not deltas_matches:
+            raise ValueError("Failed to parse shapekey deltas data!")
+        deltas_column_count = max(
+            sum(s.get_num_values() for s in deltas_fmt.vb_layout.semantics), 1
+        )
+        deltas_array: NDArray = numpy.array(deltas_matches, dtype=numpy.float32).reshape(
+            -1, deltas_column_count
+        )
+
+        # Resolve flat column indices for the VERTEXID and POSITION elements
+        vertex_index = None
+        position_index = None
+        column_offset = 0
+        for semantic in deltas_fmt.vb_layout.semantics:
+            if semantic.abstract == vertex_id_element.abstract:
+                vertex_index = column_offset
+            if semantic.abstract == position_element.abstract:
+                position_index = column_offset
+            column_offset += semantic.get_num_values()
+        assert vertex_index is not None and position_index is not None
+
+        # Scatter each shapekey's pool slice into per-vertex shapekey columns
+        sk_array = numpy.zeros((vertex_count, 3 * len(sk_counts)), dtype=numpy.float32)
+        for i, (count, offset) in enumerate(zip(sk_counts, sk_offsets)):
+            entries = deltas_array[offset : offset + count]
+            if len(entries) == 0:
+                continue
+            vindex = entries[:, vertex_index].astype(numpy.int64)
+            valid = vindex < vertex_count
+            sk_array[vindex[valid], 3 * i : 3 * i + 3] = entries[valid][
+                :, position_index : position_index + 3
+            ]
+
+        return sk_array
 
     def import_txt_data_ib(self, data: str):
         headless = data.split("\n\n", 1)[-1]
@@ -646,10 +738,78 @@ class NumpyBuffer:
             other.data if self.data is None else numpy.append(self.data, other.data)
         )
 
+    @staticmethod
+    def expand_sk_bytes(
+        vb_layout: BufferLayout,
+        sk_counts: list[int],
+        sk_offsets: list[int],
+        vb_bytes: bytes,
+        deltas_bytes: bytes,
+    ) -> bytes:
+
+        # Separate dtype for vertex buffer, compressed deltas and final result
+        vb_dtype = numpy.dtype(
+            [
+                (x.abstract.get_name(), x.get_numpy_type())
+                for x in vb_layout.semantics
+                if x.abstract.enum is not Semantic.ShapeKey
+            ]
+        )
+        sk_dtype = numpy.dtype(
+            [
+                (x.abstract.get_name(), x.get_numpy_type())
+                for x in vb_layout.semantics
+                if x.abstract.enum is Semantic.ShapeKey
+            ]
+        )
+        deltas_dtype = numpy.dtype(
+            [
+                ("VINDEX", numpy.uint32),
+                ("POSITION", (numpy.float32, 3)),
+                ("NORMAL", (numpy.float32, 3)),
+                ("TANGENT", (numpy.float32, 3)),
+            ]
+        )
+        result_dtype = numpy.dtype(
+            [
+                (x.abstract.get_name(), x.get_numpy_type())
+                for x in vb_layout.semantics
+            ]
+        )
+
+        # Initialize arrays from bytes and zeros
+        vb_array: NDArray = numpy.frombuffer(vb_bytes, dtype=vb_dtype)
+        deltas_array: NDArray = numpy.frombuffer(deltas_bytes, dtype=deltas_dtype)
+        result_array: NDArray = numpy.zeros(len(vb_array), dtype=result_dtype)
+
+        # LSP Jerkoff
+        assert sk_dtype.names is not None and len(sk_dtype.names) > 0, (
+            "Shape key dtype must have at least one field."
+        )
+        assert vb_array.dtype.names is not None and len(vb_array.dtype.names) > 0, (
+            "Vertex buffer dtype must have at least one field."
+        )
+
+        # Populate result with VB data and expanded deltas
+        for name in vb_array.dtype.names or []:
+            result_array[name] = vb_array[name]
+
+        # Scatter deltas from the compacted pool into per-vertex shapekey fields
+        sk_names = sk_dtype.names or []
+        for i, (count, offset) in enumerate(zip(sk_counts, sk_offsets)):
+            sk_data: NDArray = deltas_array[offset : offset + count]
+            vindex = sk_data["VINDEX"]
+            valid = vindex < len(result_array)
+            result_array[sk_names[i]][vindex[valid]] = sk_data["POSITION"][valid]
+
+        return result_array.tobytes()
+
 
 MIGOTO_FORMAT_HEADER_CONVERTERS = {
     "topology": lambda value: Topology(value),
     "format": lambda value: DXGIFormat(value.replace("DXGI_FORMAT_", "")),
+    "sk_offsets": lambda value: [int(x) for x in value.split(",")],
+    "sk_counts": lambda value: [int(x) for x in value.split(",")],
 }
 
 
@@ -678,6 +838,9 @@ class MigotoFormat:
     # Semantics
     ib_layout: BufferLayout | None = None
     vb_layout: BufferLayout | None = None
+    # Shapekey
+    sk_offsets: list[int] | None = None
+    sk_counts: list[int] | None = None
 
     def __post_init__(self):
         self.verify_migoto_format()
@@ -686,15 +849,15 @@ class MigotoFormat:
     def from_paths(
         cls,
         fmt_path: Path | None = None,
-        vb_path: Path | None = None,
         ib_path: Path | None = None,
+        vb_path: Path | None = None,
+        deltas_path: Path | None = None,
     ) -> "MigotoFormat":
-        # Try to auto-detect fmt path from VB path
-        if fmt_path is None and vb_path and vb_path.is_file():
+        # Try to auto-detect missing paths
+        if fmt_path is None and vb_path is not None and vb_path.is_file():
             fmt_path = vb_path.with_suffix(".fmt")
 
-        # Try to auto-detect fmt path from IB path
-        if fmt_path is None and ib_path and ib_path.is_file():
+        if fmt_path is None and ib_path is not None and ib_path.is_file():
             fmt_path = ib_path.with_suffix(".fmt")
 
         # Raise exceptions if fmt file resolution failed
@@ -702,17 +865,35 @@ class MigotoFormat:
             raise ValueError(
                 f"Failed to resolve format file for VB `{vb_path}` and IB `{ib_path}`"
             )
-        if fmt_path.is_file():
-            # Read migoto format from fmt file
-            with open(fmt_path) as fmt_file:
-                fmt = MigotoFormat.from_fmt_file(fmt_file)
+
+        if deltas_path is not None and deltas_path.is_file():
+            if fmt_path.is_file():
+                # Read migoto format from fmt file
+                with open(fmt_path) as fmt_file, open(deltas_path) as deltas_file:
+                    fmt = MigotoFormat.from_files(fmt_file, None, deltas_file)
+            else:
+                if ib_path is None or vb_path is None:
+                    raise ValueError(
+                        f"Failed to resolve format file for VB `{vb_path}` and IB `{ib_path}` and auto-detection failed (fmt file not found)!"
+                    )
+                with (
+                    open(ib_path) as ib_file,
+                    open(vb_path) as vb_file,
+                    open(deltas_path) as deltas_file,
+                ):
+                    fmt = MigotoFormat.from_files(vb_file, ib_file, deltas_file)
         else:
-            if ib_path is None or vb_path is None:
-                raise ValueError(
-                    f"Failed to resolve format file for VB `{vb_path}` and IB `{ib_path}` and auto-detection failed (fmt file not found)!"
-                )
-            with open(ib_path) as ib_file, open(vb_path) as vb_file:
-                fmt = MigotoFormat.from_vb_ib_files(vb_file, ib_file)
+            if fmt_path.is_file():
+                # Read migoto format from fmt file
+                with open(fmt_path) as fmt_file:
+                    fmt = MigotoFormat.from_files(fmt_file, None, None)
+            else:
+                if ib_path is None or vb_path is None:
+                    raise ValueError(
+                        f"Failed to resolve format file for VB `{vb_path}` and IB `{ib_path}` and auto-detection failed (fmt file not found)!"
+                    )
+                with open(ib_path) as ib_file, open(vb_path) as vb_file:
+                    fmt = MigotoFormat.from_files(vb_file, ib_file, None)
 
         return fmt
 
@@ -831,21 +1012,66 @@ class MigotoFormat:
         return cls.from_dict(migoto_data)
 
     @classmethod
-    def from_fmt_file(cls, file_data: io.IOBase) -> "MigotoFormat":
-        migoto_data = cls.parse_fmt_text(file_data.read())
-        return cls.from_dict(migoto_data)
-
-    @classmethod
-    def from_vb_ib_files(
-        cls, vb_file_data: io.IOBase, ib_file_data: io.IOBase
+    def from_files(
+        cls,
+        vb_file_data: io.IOBase,
+        ib_file_data: io.IOBase | None,
+        delta_file_data: io.IOBase | None,
     ) -> "MigotoFormat":
         vb_fmt_data = cls.extract_txt_file_fmt_text(vb_file_data)
-        ib_fmt_data = cls.extract_txt_file_fmt_text(ib_file_data)
-        ib_fmt = cls.parse_fmt_text(ib_fmt_data)
         vb_fmt = cls.parse_fmt_text(vb_fmt_data)
+        merged_fmt = vb_fmt
 
-        merged_fmt = ib_fmt | vb_fmt
-        merged_fmt["elements"] = ib_fmt["elements"] | vb_fmt["elements"]
+        if ib_file_data is not None:
+            ib_fmt_data = cls.extract_txt_file_fmt_text(ib_file_data)
+            ib_fmt = cls.parse_fmt_text(ib_fmt_data)
+            merged_fmt = ib_fmt | vb_fmt
+            merged_fmt["elements"] = ib_fmt["elements"] | vb_fmt["elements"]
+
+        if delta_file_data is not None:
+            # Reads shapekey metadata from a file which contains deltas in a compacted format as well as a header with vanilla offset,count for XXMI format.
+            # Purposefully kept separated from other functionality as its not custom in other migoto games
+            delta_fmt_data = cls.extract_txt_file_fmt_text(delta_file_data)
+            delta_fmt = cls.parse_fmt_text(delta_fmt_data)
+            delta_migoto_fmt = cls.from_dict(delta_fmt)
+            try:
+                if delta_migoto_fmt.vb_layout is None:
+                    raise ValueError(
+                        f"Warning: Unexpected deltas file format: {delta_migoto_fmt}. Skipping shapekey elements import."
+                    )
+
+                element_base = delta_migoto_fmt.vb_layout.get_element(Semantic.Position)
+                if element_base is None:
+                    raise ValueError(
+                        f"Warning: Unexpected first element in deltas file: {element_base}. Skipping shapekey elements import."
+                    )
+
+                result = cls.from_dict(merged_fmt)
+                if result.vb_layout is None:
+                    raise ValueError(
+                        f"Warning: Unexpected merged format: {result}. Skipping shapekey elements import."
+                    )
+
+                sk_offsets = delta_migoto_fmt.sk_offsets or []
+                sk_counts = delta_migoto_fmt.sk_counts or []
+                if len(sk_counts) != len(sk_offsets):
+                    raise ValueError(
+                        f"Warning: sk_offsets length {len(sk_offsets)} does not match sk_counts length {len(sk_counts)}. Skipping shapekey elements import."
+                    )
+
+                sk_offset = result.vb_layout.stride
+                for i in range(len(sk_counts)):
+                    new_element = copy.deepcopy(element_base)
+                    new_element.abstract = AbstractSemantic(Semantic.ShapeKey, i)
+                    new_element.offset = sk_offset
+                    sk_offset += new_element.stride
+                    result.vb_layout.add_element(new_element)
+                result.vb_layout.stride = sk_offset
+                result.sk_offsets = sk_offsets or None
+                result.sk_counts = sk_counts or None
+                return result
+            except ValueError as e:
+                print(e)
 
         return cls.from_dict(merged_fmt)
 
@@ -897,6 +1123,7 @@ class MigotoFormat:
         return fmt
 
     def to_dict(self) -> dict[str, str | int | list[dict]]:
+        # TODO: add sk offsets and counts to dict and only add to dict valid entries
         assert (
             self.vb_layout is not None
             and self.format is not None

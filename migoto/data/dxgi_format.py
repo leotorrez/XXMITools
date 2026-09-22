@@ -1,7 +1,7 @@
-import numpy
+from collections.abc import Callable
 from enum import Enum
-from typing import Callable
 
+import numpy
 from numpy.typing import DTypeLike
 
 
@@ -76,8 +76,7 @@ class DXGIFormat(Enum):
 
     @classmethod
     def _missing_(cls, value: str):
-        if value.startswith("DXGI_FORMAT_"):
-            value = value[12:]
+        value = value.removeprefix("DXGI_FORMAT_")
         for member in cls:
             if member.value == value:
                 return member
