@@ -86,6 +86,18 @@ def _component_name_from_paths(paths: ImportPaths) -> str:
     return "unamed"
 
 
+def _split_parts(
+    paths: ImportPaths,
+) -> list[tuple[str, ImportPaths, MigotoFormat | None]]:
+    name = _component_name_from_paths(paths)
+    fmt_path = _extract_path(paths.vb_paths[0]).parent / (name + ".fmt")
+    if not fmt_path.is_file():
+        return [(name, paths, None)]
+    with open(fmt_path) as fmt_file:
+        formats = MigotoFormat.from_multi_fmt_file(fmt_file)
+    return [(name + chr(ord("A") + i), paths, f) for i, f in enumerate(formats)]
+
+
 class ObjectImporter:
     def import_object(self, operator: Operator, context: Context, cfg):
         # Extract the first path, handling both string and tuple formats
@@ -125,19 +137,20 @@ class ObjectImporter:
         imported_objects: list[Object] = []
 
         # We use lists to ensure the order is kept
-        grouped_paths: dict[str, list[ImportPaths]] = {}
+        grouped_paths: dict[str, list[tuple[ImportPaths, MigotoFormat | None]]] = {}
+        entries = [e for p in cfg.import_paths for e in _split_parts(p)]
         if cfg.merge_meshes and hash_json_data is not None:
             for component in hash_json_data.components:
                 # TODO: Either reimplement this section as traditional import dealt with merged meshes or
                 # at the very least remove dependency on hash.json/dump folder for framedump meshes to be efectively imported
                 fullname: str = component.fullname
-                result: list[ImportPaths] = []
+                result: list[tuple[ImportPaths, MigotoFormat | None]] = []
                 for part in component.parts:
                     part_result = next(
                         (
-                            paths
-                            for paths in cfg.import_paths
-                            if _component_name_from_paths(paths) == part.fullname
+                            (paths, fmt)
+                            for part_name, paths, fmt in entries
+                            if part_name == part.fullname
                         ),
                         None,
                     )
@@ -146,11 +159,10 @@ class ObjectImporter:
                 if len(result) > 0:
                     grouped_paths[fullname] = result
         else:
-            for paths in cfg.import_paths:
-                fullname: str = _component_name_from_paths(paths)
+            for fullname, paths, fmt in entries:
                 if fullname not in grouped_paths:
                     grouped_paths[fullname] = []
-                grouped_paths[fullname].append(paths)
+                grouped_paths[fullname].append((paths, fmt))
 
         for fullname, paths in grouped_paths.items():
             obj: Object = self.import_component(
@@ -171,7 +183,7 @@ class ObjectImporter:
         self,
         operator: Operator,
         cfg: ImporterOptions,
-        paths: list[ImportPaths],
+        paths: list[tuple[ImportPaths, MigotoFormat | None]],
         hash_json_data: HashJsonData | None,
         name: str,
         axis_forward="Y",
@@ -181,13 +193,13 @@ class ObjectImporter:
         numpy_mesh_group: NumpyMeshGroup = NumpyMeshGroup()
 
         migoto_format: MigotoFormat | None | int = -1
-        for p in paths:
-            vb_paths, ib_path, _, _ = p
+        for p, part_format in paths:
+            vb_paths, ib_path, use_bin, _ = p
             # Extract text path from either string or (binary, text) tuple
             vb_path: Path = _extract_path(vb_paths[0])
             ib_path: Path = _extract_path(ib_path)
             fmt_path: Path = vb_path.with_suffix(".fmt")
-            migoto_format: MigotoFormat = MigotoFormat.from_paths(
+            migoto_format: MigotoFormat = part_format or MigotoFormat.from_paths(
                 fmt_path, ib_path, vb_path
             )
             if migoto_format.vb_layout is None or migoto_format.format is None:
@@ -202,17 +214,19 @@ class ObjectImporter:
                 new_format = copy.deepcopy(migoto_format)
                 new_format.vb_layout = new_layout
                 # TODO: Add proper handling for framedump meshes to be imported
-                numpy_mesh_group.add_mesh(
-                    NumpyMesh.from_paths(
-                        new_format, vb_path, ib_path, fmt_path, cfg.load_buf
-                    )
+                mesh = NumpyMesh.from_paths(
+                    new_format, vb_path, ib_path, fmt_path, cfg.load_buf or use_bin
                 )
             else:
-                numpy_mesh_group.add_mesh(
-                    NumpyMesh.from_paths(
-                        migoto_format, vb_path, ib_path, fmt_path, cfg.load_buf
-                    )
+                mesh = NumpyMesh.from_paths(
+                    migoto_format, vb_path, ib_path, fmt_path, cfg.load_buf or use_bin
                 )
+            if part_format is not None:
+                n = part_format.ib_layout.semantics[0].get_num_values()
+                start = part_format.first_index // n
+                end = start + part_format.index_count // n
+                mesh.index_buffer.data = mesh.index_buffer.data[start:end]
+            numpy_mesh_group.add_mesh(mesh)
         if migoto_format == -1 or (format := migoto_format) is None:
             raise Fatal(f"Failed to determine vertex format for component {name}!")
         vg_remap = None
