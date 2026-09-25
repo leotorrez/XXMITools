@@ -60,6 +60,9 @@ class Component:
     ib: str
     vertex_count: int = 0
     strides: dict[str, int] = field(default_factory=dict)
+    sk_deltas_count: int = 0
+    sk_deltas_vb: str = ""
+    sk_count: int = 0
 
 
 class HashJsonData:
@@ -109,6 +112,7 @@ class HashJsonData:
                     blend_vb=comp.get("blend_vb", ""),
                     texcoord_vb=comp.get("texcoord_vb", ""),
                     ib=comp.get("ib", ""),
+                    sk_deltas_vb=comp.get("sk_deltas_vb", ""),
                 )
             )
         return comps

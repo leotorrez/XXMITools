@@ -182,7 +182,7 @@ class XXMIProperties(PropertyGroup):
     export_shapekeys: BoolProperty(
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
-        default=False,
+        default=True,
     )
     batch_pattern: StringProperty(
         name="Batch pattern",

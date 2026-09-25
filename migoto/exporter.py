@@ -317,13 +317,8 @@ class ModExporter:
             if len(out_buffers) == 0:
                 continue
             if self.export_shapekeys:
-                v_offsets, v_deltas, mod_offsets, mod_deltas = self.compress_sk_buffers(
-                    out_buffers, 33
-                )
-                print(v_offsets)
-                print(v_deltas)
-                print(mod_offsets)
-                print(mod_deltas)
+                self._extract_shapekeys_to_buffer(out_buffers, component)
+                self.compress_sk_buffers(out_buffers, 33, component)
             else:
                 try:
                     _ = out_buffers.pop("Shapekey")
@@ -342,6 +337,8 @@ class ModExporter:
                 for k, v in data_model.buffers_format.items()
                 if k != "IB"
             }
+            if self.export_shapekeys and component.sk_deltas_count > 0:
+                component.strides["skdeltas"] = 40
 
     def verify_mesh_requirements(
         self,
@@ -425,6 +422,7 @@ class ModExporter:
             loader=FileSystemLoader(searchpath=templates_paths),
             trim_blocks=True,
             lstrip_blocks=True,
+            extensions=["jinja2.ext.do"],
         )
         print(f"Using template {template_name}")
         ini_file: INI_file = INI_file(
@@ -631,69 +629,155 @@ class ModExporter:
             )
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
+    def _extract_shapekeys_to_buffer(
+        self,
+        out_buffers: dict[str, NumpyBuffer],
+        component,
+    ) -> None:
+        """Extract shapekey deltas from Blender objects and populate the Shapekey buffer."""
+        if "Shapekey" not in out_buffers:
+            return
+
+        sk_buffer = out_buffers["Shapekey"]
+        pos_buffer = out_buffers.get("Position")
+        if pos_buffer is None or pos_buffer.data is None:
+            return
+
+        vertex_count = len(pos_buffer.data)
+
+        # Get the first object with shapekeys from this component
+        for part in component.parts:
+            for entry in part.objects:
+                obj = entry.obj
+                mesh = obj.data
+                if mesh.shape_keys is None or len(mesh.shape_keys.key_blocks) <= 1:
+                    continue
+
+                # Allocate Shapekey buffer data
+                sk_buffer.data = numpy.zeros(vertex_count, dtype=sk_buffer.layout.get_numpy_type())
+
+                # Get basis coordinates
+                basis_co = numpy.empty(vertex_count * 3, dtype=numpy.float32)
+                mesh.vertices.foreach_get("co", basis_co)
+                basis_co = basis_co.reshape(-1, 3)
+
+                # Extract each shapekey (skip Basis at index 0)
+                for kb_idx, key_block in enumerate(mesh.shape_keys.key_blocks):
+                    if kb_idx == 0:
+                        continue  # Skip Basis
+
+                    sk_name = f"SHAPEKEY{kb_idx - 1}" if kb_idx > 1 else "SHAPEKEY"
+
+                    # Get shapekey coordinates
+                    sk_co = numpy.empty(vertex_count * 3, dtype=numpy.float32)
+                    key_block.data.foreach_get("co", sk_co)
+                    sk_co = sk_co.reshape(-1, 3)
+
+                    # Calculate delta (relative to basis)
+                    delta = sk_co - basis_co
+
+                    # Check if buffer has this field
+                    if sk_name not in sk_buffer.data.dtype.names:
+                        continue
+
+                    # Fill the buffer field
+                    sk_buffer.data[sk_name][:] = delta
+
+                break  # Only need to extract once per component
+            break  # Only need to extract once per component
+
     def compress_sk_buffers(
         self,
         out_buffers: dict[str, NumpyBuffer],
-        og_sk_count,
-    ) -> tuple[NDArray, NDArray, NDArray, NDArray]:
+        og_sk_count: int,
+        component,
+    ) -> None:
         assert "Shapekey" in out_buffers
 
-        sk_buffer = out_buffers["Shapekey"].data
-        pos_buffer = out_buffers["Position"].data
+        sk_npbuf: NumpyBuffer = out_buffers["Shapekey"]
+        pos_npbuf: NumpyBuffer = out_buffers["Position"]
+        sk_buffer = sk_npbuf.data
+        pos_buffer = pos_npbuf.data
         assert sk_buffer is not None or pos_buffer is not None
 
         vertex_count: int = len(pos_buffer)
-        mod_sk_count: int = len(sk_buffer.layout.semantics) - og_sk_count
+        mod_sk_count: int = len(sk_npbuf.layout.semantics) - og_sk_count
+        total_sk_count = og_sk_count + mod_sk_count
 
         v_sks = []
         mod_sks = []
 
+        # Create vertex IDs (0 to vertex_count-1)
+        vertex_ids = numpy.arange(vertex_count, dtype=numpy.uint32)
+
         tmp_buffer = numpy.zeros(
-            vertex_count, [("VINDEX", numpy.int32), ("DELTAS", (numpy.float32, 3))]
+            vertex_count, [("VERTEXID", numpy.uint32), ("DELTAS", (numpy.float32, 3))]
         )
+        tmp_buffer["VERTEXID"] = vertex_ids
         labels = sk_buffer.dtype.names or []
 
         for label in labels[:og_sk_count]:
-            tmp_buffer["VINDEX"] = pos_buffer["VINDEX"]
             tmp_buffer["DELTAS"] = sk_buffer[label]
             mask: NDArray[numpy.bool] = (tmp_buffer["DELTAS"] > 1e-6).any(axis=-1)
             new_arr = tmp_buffer[mask]
             v_sks.append(new_arr)
 
         for label in labels[og_sk_count:]:
-            tmp_buffer["VINDEX"] = pos_buffer["VINDEX"]
             tmp_buffer["DELTAS"] = sk_buffer[label]
             mask: NDArray[numpy.bool] = (tmp_buffer["DELTAS"] > 1e-6).any(axis=-1)
             new_arr = tmp_buffer[mask]
             mod_sks.append(new_arr)
 
-        v_total_entries = sum(len(x) for x in v_sks)
-        mod_total_entries = sum(len(x) for x in mod_sks)
-        v_offsets = numpy.zeros(og_sk_count, numpy.int32)
-        mod_offsets = numpy.zeros(mod_sk_count, numpy.int32)
-        delta_dtype = (
-            [
-                ("VINDEX", numpy.int32),
-                ("POSITION", (numpy.float32, 3)),
-                ("NORMAL", (numpy.float32, 3)),
-                ("TANGENT", (numpy.float32, 3)),
-            ],
-        )
+        all_sks = v_sks + mod_sks
+        total_entries = sum(len(x) for x in all_sks)
 
-        v_deltas = numpy.zeros((v_total_entries), delta_dtype)
-        mod_deltas = numpy.zeros((mod_total_entries), delta_dtype)
+        delta_dtype = numpy.dtype([
+            ("VINDEX", numpy.uint32),
+            ("POSITION", (numpy.float32, 3)),
+            ("NORMAL", (numpy.float32, 3)),
+            ("TANGENT", (numpy.float32, 3)),
+        ])
+
+        sk_deltas = numpy.zeros(total_entries, dtype=delta_dtype)
+        sk_offsets = []
+        sk_counts = []
         offset: int = 0
-        for entry in v_sks:
+
+        for entry in all_sks:
             count = len(entry)
-            v_deltas[offset : offset + count] = entry
+            if count > 0:
+                sk_deltas["VINDEX"][offset:offset + count] = entry["VERTEXID"]
+                sk_deltas["POSITION"][offset:offset + count] = entry["DELTAS"]
+                sk_deltas["NORMAL"][offset:offset + count] = 0.0
+                sk_deltas["TANGENT"][offset:offset + count] = 0.0
+            sk_offsets.append(offset)
+            sk_counts.append(count)
             offset += count
-        for entry in mod_sks:
-            count = len(entry)
-            mod_deltas[offset : offset + count] = entry
-            offset += count
+
+        component.sk_deltas_count = total_entries
+        # sk_deltas_vb comes from hash.json; don't overwrite it
+        component.sk_count = total_sk_count
+        component.strides["skdeltas"] = 40
+
+        if total_entries > 0:
+            sk_offsets_path = self.destination / (component.fullname + "SKOffsets.csv")
+            with open(sk_offsets_path, "w", newline="") as f:
+                f.write("offset,count\n")
+                for off, cnt in zip(sk_offsets, sk_counts):
+                    f.write(f"{off},{cnt}\n")
+
+            self.files_to_write[self.destination / (component.fullname + "SKDeltas.buf")] = sk_deltas
+
+            sk_identity = numpy.zeros(vertex_count, dtype=numpy.dtype([
+                ("VINDEX0", numpy.uint32),
+                ("VINDEX1", numpy.uint32),
+                ("VINDEX2", numpy.uint32),
+                ("VINDEX3", numpy.uint32),
+            ]))
+            sk_identity["VINDEX0"] = numpy.arange(vertex_count, dtype=numpy.uint32)
+            self.files_to_write[self.destination / (component.fullname + "SKIdentity.buf")] = sk_identity
 
         _ = out_buffers.pop("Shapekey")
-        return v_offsets, v_deltas, mod_offsets, mod_deltas
 
     def write_files(self) -> None:
         """Write the files to the destination."""
