@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from bpy.types import Mesh, Object
 
+from .byte_buffer import MigotoFormat
+
 
 @dataclass
 class SubObj:
@@ -115,16 +117,27 @@ class HashJsonData:
 
     def parse_parts(self, comp: dict, name: str) -> list[Part]:
         parts = []
-        for tex_hashes, _, obj_class in zip(
-            comp["texture_hashes"],
-            comp["object_indexes"],
-            comp["object_classifications"],
+        index_counts = comp.get("object_index_counts")
+        fmt_path = self.path.parent / (name + comp["component_name"] + ".fmt")
+        for i, (tex_hashes, obj_index, obj_class) in enumerate(
+            zip(
+                comp["texture_hashes"],
+                comp["object_indexes"],
+                comp["object_classifications"],
+            )
         ):
             part_fullname = name + comp["component_name"] + obj_class
             textures = self.parse_textures(tex_hashes, part_fullname)
-            ib_path = self.path.parent.glob(part_fullname + "-ib" + "*.txt")
-            ib_path = next(ib_path, None)
-            index_count, first_index = self.parse_ib_metadata(ib_path)
+            if index_counts is not None:
+                index_count, first_index = index_counts[i], obj_index
+            elif fmt_path.is_file():
+                with open(fmt_path) as fmt_file:
+                    fmt = MigotoFormat.from_multi_fmt_file(fmt_file)[i]
+                index_count, first_index = fmt.index_count, fmt.first_index
+            else:
+                ib_path = self.path.parent.glob(part_fullname + "-ib" + "*.txt")
+                ib_path = next(ib_path, None)
+                index_count, first_index = self.parse_ib_metadata(ib_path)
             parts.append(
                 Part(
                     name=obj_class,
