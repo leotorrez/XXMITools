@@ -22,6 +22,13 @@ from .datastructures import (
 )
 
 
+def migoto_props(obj: Object) -> dict:
+    props = {}
+    for source in [*obj.users_collection, obj]:
+        props |= {k: v for k, v in source.items() if k.startswith("3DMigoto:")}
+    return props
+
+
 def new_custom_attribute_int(mesh: Mesh, layer_name: str):
     # vertex_layers were dropped in 4.0. Looks like attributes were added in
     # 3.0 (to confirm), so we could probably start using them or add a

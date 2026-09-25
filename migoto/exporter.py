@@ -21,7 +21,7 @@ from .data.byte_buffer import (
 from .data.data_model import DataModelXXMI
 from .data.hash_json import Component, HashJsonData, SubObj
 from .data.ini_format import INI_file
-from .datahandling import mesh_triangulate
+from .datahandling import mesh_triangulate, migoto_props
 from .datastructures import Fatal, GameEnum
 
 
@@ -146,6 +146,9 @@ class ModExporter:
                         f"Found multiple objects with the name {part.fullname}."
                     )
                 obj: Object = matching_objs[0]
+                props = migoto_props(obj)
+                part.first_index = props.get("3DMigoto:FirstIndex", part.first_index)
+                part.index_count = props.get("3DMigoto:IndexCount", part.index_count)
                 collection = [
                     c
                     for c in bpy.data.collections
