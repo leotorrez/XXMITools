@@ -1092,7 +1092,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
 
     def sync_settings_to_preset(self, context):
         """Triggered when the USER changes a checkbox or axis."""
-        if self.block_update:
+        if self.block_update or self.simple_mode:
             return  # Stops circular updates
         if (
             self.flip_texcoord_v is True
@@ -1469,9 +1469,13 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             )
             importer = ObjectImporter()
             importer.import_object(self, context, cfg)
+            if self.create_materials and context.screen is not None:
+                for area in context.screen.areas:
+                    if area.type == "VIEW_3D":
+                        area.spaces.active.shading.type = "MATERIAL"
             xxmi: XXMIProperties = context.scene.xxmi
             if xxmi.dump_path == "":
-                hash_json_path = Path(self.filepath).parent / "hash.json"
+                hash_json_path = Path(os.path.dirname(self.filepath)) / "hash.json"
                 if hash_json_path.exists():
                     xxmi.dump_path = str(hash_json_path.parent)
             if xxmi.game == "" and self.game != "":
