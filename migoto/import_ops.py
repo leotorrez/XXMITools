@@ -1471,7 +1471,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
             importer.import_object(self, context, cfg)
             xxmi: XXMIProperties = context.scene.xxmi
             if xxmi.dump_path == "":
-                hash_json_path = Path(self.filepath).parent / "hash.json"
+                hash_json_path = Path(os.path.dirname(self.filepath)) / "hash.json"
                 if hash_json_path.exists():
                     xxmi.dump_path = str(hash_json_path.parent)
             if xxmi.game == "" and self.game != "":
