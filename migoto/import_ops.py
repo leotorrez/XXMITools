@@ -1092,7 +1092,7 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
 
     def sync_settings_to_preset(self, context):
         """Triggered when the USER changes a checkbox or axis."""
-        if self.block_update:
+        if self.block_update or self.simple_mode:
             return  # Stops circular updates
         if (
             self.flip_texcoord_v is True
