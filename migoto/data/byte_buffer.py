@@ -836,6 +836,15 @@ class MigotoFormat:
         return cls.from_dict(migoto_data)
 
     @classmethod
+    def from_multi_fmt_file(cls, file_data: io.IOBase) -> list["MigotoFormat"]:
+        blocks = re.split(r"^(?=byte offset:)", file_data.read(), flags=re.MULTILINE)
+        parsed = [cls.parse_fmt_text(b) for b in blocks if b.strip()]
+        return [
+            cls.from_dict(parsed[-1] | {k: v for k, v in b.items() if k != "elements"})
+            for b in parsed
+        ]
+
+    @classmethod
     def from_vb_ib_files(
         cls, vb_file_data: io.IOBase, ib_file_data: io.IOBase
     ) -> "MigotoFormat":

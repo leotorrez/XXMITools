@@ -1047,9 +1047,9 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
     bl_label = "Import XXMI dump folder"
     bl_options = {"PRESET", "UNDO"}
 
-    filename_ext = ".txt;.fmt;.buf"
+    filename_ext = ".txt;.fmt"
     filter_glob: StringProperty(
-        default="*.buf;*.txt;*.fmt",
+        default="*.txt;*.fmt",
         options={"HIDDEN"},
     )
 
@@ -1314,6 +1314,8 @@ class ImportXXMIDump(Operator, ImportHelper, IOOBJOrientationHelper):
 
         done = set()
         for filename in files:
+            if filename.endswith(".fmt"):
+                filename = filename[:-4] + "-ib.buf"
             if filename in done:
                 continue
             match = buffer_pattern.search(filename)

@@ -7,3 +7,4 @@ uv.lock
 .python-version
 TODO.md
 .venv
+.idea/
