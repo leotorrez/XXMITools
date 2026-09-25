@@ -168,7 +168,7 @@ class XXMIProperties(PropertyGroup):
     export_shapekeys: BoolProperty(
         name="Export shape keys",
         description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
-        default=False,
+        default=True,
     )
     batch_pattern: StringProperty(
         name="Batch pattern",
@@ -267,7 +267,7 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
         col_1.prop(xxmi, "outline_optimization")
         col_2.enabled = xxmi.outline_optimization
         col_2.prop(xxmi, "outline_rounding_precision")
-        # col.prop(xxmi, 'export_shapekeys')
+        col.prop(xxmi, 'export_shapekeys')
         # col.prop(xxmi, "export_materials")
 
     def execute(self, context):

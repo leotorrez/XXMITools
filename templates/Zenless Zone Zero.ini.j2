@@ -1,16 +1,12 @@
 {% extends "base.ini.j2" %}
 
-{% block constantscredit %}
-    {% if credit != "" %}
-        [Constants]
-        global $active = 0
-        global $creditinfo = 0
+{% set const_lines = [] %}
+{% set present_lines = [] %}
 
-        [Present]
-        post $active = 0
-        run = CommandListCreditInfo
-    {% endif %}
-{% endblock %}
+{% do const_lines.append('global $active = 0') %}
+{% do const_lines.append('global $creditinfo = 0') %}
+{% do present_lines.append('post $active = 0') %}
+{% do present_lines.append('run = CommandListCreditInfo') %}
 
 {% block commandlistscredit %}
     {% if credit != "" %}
@@ -34,20 +30,29 @@
 
 {% block overridesbuffers %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb != "" and component.vertex_count > 0 %}
-        [TextureOverride{{component.fullname}}Blend]
+        [TextureOverride{{ component.fullname }}Blend]
         hash = {{ component.blend_vb }}
         handling = skip
-        {% if credit != "" %}
+        vb2 = Resource{{ component.fullname }}Blend
+        if DRAW_TYPE == 1
+          {% if component.sk_deltas_count %}
+            Resource{{ component.fullname }}ShapeKeyResult = copy Resource{{ component.fullname }}Position
+            Resource\ZZMI\SKBase = ref Resource{{ component.fullname }}ShapeKeyResult
+            Resource\ZZMI\SKDeltas = ref Resource{{ component.fullname }}SKDeltas
+            Resource\ZZMI\SKIdentity = ref Resource{{ component.fullname }}SKIdentity
+            Resource\ZZMI\SKMultipliers = ref Resource{{ component.fullname }}SKMultipliers
+            Resource\ZZMI\SKOverrides = ref Resource{{ component.fullname }}SKOverrides
+            $\ZZMI\sk_deltas_count = {{ component.sk_deltas_count }}
+            run = CommandList\ZZMI\ApplyShapeKeys
+            vb0 = ref Resource{{ component.fullname }}Position
+            vb0 = ref Resource{{ component.fullname }}ShapeKeyResult unless_null
+          {% else %}
+            vb0 = Resource{{ component.fullname }}Position
+          {% endif %}
+          draw = {{ component.vertex_count }}, 0
+          {% if credit != "" %}
             $active = 1
-        {% endif %}
-        if DRAW_TYPE == 2 || DRAW_TYPE == 4
-            vb1 = Resource{{component.fullname}}Texcoord
-            vb2 = Resource{{component.fullname}}Blend
-            checktextureoverride = ib
-        elif DRAW_TYPE == 1
-            vb0 = Resource{{component.fullname}}Position
-            vb2 = Resource{{component.fullname}}Blend
-            Draw = {{ component.vertex_count }}, 0
+          {% endif %}
         endif
 
         [TextureOverride{{ component.fullname }}Texcoord]
@@ -58,35 +63,42 @@
         hash = {{ component.draw_vb }}
         override_vertex_count = {{ component.vertex_count }}
         override_byte_stride = {{ component.strides.position }}
+
+        {% if component.sk_deltas_vb != "" and component.sk_deltas_count %}
+          [TextureOverride{{ component.fullname }}SKDeltas]
+          hash = {{component.sk_deltas_vb}}
+          if DRAW_TYPE == 8
+            Resource\ZZMI\SKIdentity = ref Resource{{ component.fullname }}SKIdentity
+            Resource\ZZMI\SKMultipliers = ref Resource{{ component.fullname }}SKMultipliers
+            run = CommandList\ZZMI\GatherSKData
+          endif
+        {% endif %}
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" %}
-        [TextureOverride{{ component.fullname }}Position]
+        [TextureOverride{{ component.fullname }}]
         hash = {{ component.position_vb }}
-        vb0 = Resource{{ component.fullname }}Position
+        vb0 = Resource{{ component.fullname }}
         {% if credit != "" %}
             $active = 1
         {% endif %}
         checktextureoverride = ib
+
     {% endfor %}
 {% endblock %}
 
 {% block overridesibs %}
-     {% for component in mod_file.components if component.position_vb != "" %}
-        {% for part in component.parts %}
+     {% for component in mod_file.components if component.draw_vb != "" %}
+        {% for part in component.parts if part.vertex_count > 0 %}
             [TextureOverride{{ part.fullname }}]
             hash = {{ component.ib }}
             match_first_index = {{ part.first_index }}
-            {% if part.index_count > 0 %}
-              match_index_count = {{part.index_count}}
+            {% if part.index_count%} match_index_count = {{ part.index_count }}
             {% endif %}
-            {% if part.vertex_count > 0 %}
-                handling = skip
-                ib = Resource{{ part.fullname }}IB
-            {% endif %}
-            {% if part.textures|length > 0%}
-                {% for texture in part.textures %}
-                    Resource\ZZMI\{{ texture.name }} = ref Resource{{part.fullname}}{{ texture.name }}
-                {% endfor %}
+            ib = Resource{{ part.fullname }}IB
+            {% for texture in part.textures %}
+                Resource\ZZMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
+            {% endfor %}
+            {% if part.textures|length > 0 %}
                 run = CommandList\ZZMI\SetTextures
             {% endif %}
             {% for entry in part.objects if entry.vertex_count > 0 %}
@@ -96,30 +108,17 @@
                 ; {{ entry.name }} ({{ entry.vertex_count }})
                 drawindexed = {{ entry.index_count}}, {{ entry.index_offset }}, 0
             {% endfor %}
+
         {% endfor %}
     {% endfor %}
-    {% for component in mod_file.components if component.draw_vb == "" and component.position_vb == "" %}
-        {% set count = component.parts | selectattr('textures') | list | length %}
+    {% for component in mod_file.components if component.draw_vb == "" %}
         {% for part in component.parts %}
-            {% if part.textures|length > 0 %}
-                {% if component.blend_vb %}
-                    [TextureOverride{{part.fullname}}Blend]
-                    hash = {{component.blend_vb }}
-                {% else %}
-                    [TextureOverride{{part.fullname}}IB]
-                    hash = {{component.ib }}
-                {% endif %}
-                {% if count > 1 %}
-                    match_first_index = {{ part.first_index }}
-                    {% if part.index_count > 0 %}
-                        match_index_count = {{ part.index_count }}
-                    {% endif %}
-                {% endif %}
-                {% for texture in part.textures %}
-                    Resource\ZZMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
-                {% endfor %}
-                run = CommandList\ZZMI\SetTextures
-            {%endif%}
+            {% for texture in part.textures %}
+                [TextureOverride{{part.fullname}}{{ texture.name }}]
+                hash = {{ texture.hash }}
+                this = Resource{{part.fullname}}{{ texture.name }}
+
+            {% endfor %}
         {% endfor %}
     {% endfor %}
 {% endblock  %}
@@ -142,7 +141,35 @@
             stride = {{ component.strides.texcoord }}
             filename = {{ component.fullname }}Texcoord.buf
         {% endif %}
- 
+
+        {% if component.sk_deltas_count %}
+            [Resource{{ component.fullname }}ShapeKeyResult]
+            type = RWByteAddressBuffer
+            stride = {{ component.strides.position }}
+            filename = {{ component.fullname }}Position.buf
+
+            [Resource{{ component.fullname }}SKDeltas]
+            type = StructuredBuffer
+            stride = {{ component.strides.skdeltas }}
+            filename = {{ component.fullname }}SKDeltas.buf
+
+            [Resource{{ component.fullname }}SKIdentity]
+            type = Buffer
+            format = R32G32B32A32_UINT
+            filename = {{ component.fullname }}SKIdentity.buf
+
+            [Resource{{ component.fullname }}SKMultipliers]
+            type = RWBuffer
+            format = R32_FLOAT
+            array = {{ component.sk_count }}
+
+            [Resource{{ component.fullname }}SKOverrides]
+            type = RWBuffer
+            format = R32_FLOAT
+            array = {{ component.sk_count }}
+            data ={% for x in range(0,10)%} 0{%endfor%}
+        {% endif %}
+        
         {% for part in component.parts %}
             [Resource{{ part.fullname }}IB]
             type = Buffer
@@ -157,7 +184,7 @@
             stride = {{ component.strides.position }}
             filename = {{ component.fullname }}Position.buf
         {% endif %}
- 
+        
         {% for part in component.parts %}
             [Resource{{ part.fullname }}IB]
             type = Buffer
@@ -179,7 +206,15 @@
 {% endblock %}
 
 {% block constants %}
-    {{- self.constantscredit() -}}
+    {% if const_lines  %}
+      [Constants]
+      {{ const_lines | join('\n') }}
+    {% endif %}
+
+    {% if present_lines  %}
+      [Present]
+      {{ present_lines | join('\n') }}
+    {% endif %}
 {% endblock %}
 
 {% block overrides %}
