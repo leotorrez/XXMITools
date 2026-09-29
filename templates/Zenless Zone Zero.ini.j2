@@ -161,13 +161,13 @@
             [Resource{{ component.fullname }}SKMultipliers]
             type = RWBuffer
             format = R32_FLOAT
-            array = {{ component.sk_count }}
+            size = {{ component.sk_count }}
 
             [Resource{{ component.fullname }}SKOverrides]
             type = RWBuffer
             format = R32_FLOAT
             array = {{ component.sk_count }}
-            data ={% for x in range(0,10)%} 0{%endfor%}
+            data ={% for o in component.sk_overrides %} {{ o }}{% endfor %}
         {% endif %}
         
         {% for part in component.parts %}
