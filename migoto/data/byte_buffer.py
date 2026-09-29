@@ -640,13 +640,13 @@ class NumpyBuffer:
             )
         if deltas_fmt.sk_offsets is None or deltas_fmt.sk_counts is None:
             raise ValueError(
-                "Shapekey deltas data is missing sk_offsets and sk_counts header!"
+                "Shapekey deltas data is missing sk offsets and sk counts header!"
             )
         sk_offsets = deltas_fmt.sk_offsets
         sk_counts = deltas_fmt.sk_counts
         if len(sk_counts) == 0 or len(sk_counts) != len(sk_offsets):
             raise ValueError(
-                f"sk_offsets length {len(sk_offsets)} does not match sk_counts length {len(sk_counts)}!"
+                f"sk offsets length {len(sk_offsets)} does not match sk counts length {len(sk_counts)}!"
             )
         vertex_id_element = deltas_fmt.vb_layout.get_element(Semantic.VertexId)
         position_element = deltas_fmt.vb_layout.get_element(Semantic.Position)
@@ -839,6 +839,7 @@ class MigotoFormat:
     ib_layout: BufferLayout | None = None
     vb_layout: BufferLayout | None = None
     # Shapekey
+    sk_count: int = 0
     sk_offsets: list[int] | None = None
     sk_counts: list[int] | None = None
 
@@ -1056,7 +1057,7 @@ class MigotoFormat:
                 sk_counts = delta_migoto_fmt.sk_counts or []
                 if len(sk_counts) != len(sk_offsets):
                     raise ValueError(
-                        f"Warning: sk_offsets length {len(sk_offsets)} does not match sk_counts length {len(sk_counts)}. Skipping shapekey elements import."
+                        f"Warning: sk offsets length {len(sk_offsets)} does not match sk counts length {len(sk_counts)}. Skipping shapekey elements import."
                     )
 
                 sk_offset = result.vb_layout.stride
@@ -1069,6 +1070,7 @@ class MigotoFormat:
                 result.vb_layout.stride = sk_offset
                 result.sk_offsets = sk_offsets or None
                 result.sk_counts = sk_counts or None
+                result.sk_count = delta_migoto_fmt.sk_count
                 return result
             except ValueError as e:
                 print(e)
