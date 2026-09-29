@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from bpy.types import Mesh, Object
 
+import numpy
+
 
 @dataclass
 class SubObj:
@@ -14,6 +16,8 @@ class SubObj:
     vertex_count: int = 0
     index_count: int = 0
     index_offset: int = 0
+    vertex_offset: int = 0
+    vertex_ids: numpy.ndarray | None = None
 
 
 @dataclass
@@ -63,6 +67,12 @@ class Component:
     sk_deltas_count: int = 0
     sk_deltas_vb: str = ""
     sk_count: int = 0
+    # One entry per shapekey, in the same vanilla-then-custom order as SKIdentity.
+    # sk_overrides holds the shapekey values set in Blender; the user edits it in the
+    # ini to force a multiplier. There is no sk_multipliers counterpart: the gather
+    # pass writes the game's vanilla multipliers into the SKMultipliers buffer at
+    # runtime, so the exporter does not need to track that data.
+    sk_overrides: list[float] = field(default_factory=list)
 
 
 class HashJsonData:

@@ -175,7 +175,7 @@ class DataModel:
         mesh: Mesh,
         excluded_buffers: list[str],
         mirror_mesh: bool = False,
-    ) -> tuple[dict[str, NumpyBuffer], int]:
+    ) -> tuple[dict[str, NumpyBuffer], int, NDArray | None]:
         try:
             index_data, vertex_buffer = self.export_data(
                 context, collection, mesh, excluded_buffers, mirror_mesh
@@ -185,7 +185,12 @@ class DataModel:
                 f"Failed to calculate tangents! Ensure the mesh({obj.name}) has at least 1 UV map called 'TEXCOORD.xy'"
             )
         buffers = self.build_buffers(index_data, vertex_buffer, excluded_buffers)
-        return buffers, len(vertex_buffer)
+        vertex_ids = None
+        if vertex_buffer.data is not None:
+            vid_name = AbstractSemantic(Semantic.VertexId, 0).get_name()
+            if vid_name in (vertex_buffer.data.dtype.names or ()):
+                vertex_ids = vertex_buffer.get_field(vid_name)
+        return buffers, len(vertex_buffer), vertex_ids
 
     def build_buffers(
         self, index_data, vertex_buffer, excluded_buffers

@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -20,10 +21,17 @@ from .data.byte_buffer import (
     Semantic,
 )
 from .data.data_model import DataModelXXMI
+from .data.dxgi_format import DXGIFormat
 from .data.hash_json import Component, HashJsonData, SubObj
 from .data.ini_format import INI_file
 from .datahandling import mesh_triangulate
 from .datastructures import Fatal, GameEnum
+
+# DEFORM or CUSTOM, an optional separator, then 1-4 digits. Vanilla keys are
+# imported as "Deform {id}", so a space is a valid separator.
+SHAPEKEY_NAME_PATTERN = re.compile(
+    r"(DEFORM|CUSTOM)[ _\-.]?(\d{1,4})", re.IGNORECASE
+)
 
 
 @dataclass
@@ -283,7 +291,7 @@ class ModExporter:
                         data_model.buffers_format,
                         excluded_buffers,
                     )
-                    gen_buffers, v_count = data_model.get_data(
+                    gen_buffers, v_count, vertex_ids = data_model.get_data(
                         bpy.context,
                         None,
                         entry.obj,
@@ -299,6 +307,8 @@ class ModExporter:
                         if k not in gen_buffers:
                             continue
                         v.append(gen_buffers[k])
+                    entry.vertex_offset = vb_offset
+                    entry.vertex_ids = vertex_ids
                     vb_offset += v_count
                     entry.vertex_count = v_count
                     part.vertex_count += v_count
@@ -314,8 +324,18 @@ class ModExporter:
             if len(out_buffers) == 0:
                 continue
             if self.export_shapekeys:
-                self._extract_shapekeys_to_buffer(out_buffers, component)
-                self.compress_sk_buffers(out_buffers, 33, component)
+                (
+                    og_sk_count,
+                    og_sk_offsets,
+                    og_sk_counts,
+                ) = self._extract_shapekeys_to_buffer(out_buffers, component)
+                self.compress_sk_buffers(
+                    out_buffers,
+                    og_sk_count,
+                    component,
+                    og_sk_offsets,
+                    og_sk_counts,
+                )
             else:
                 try:
                     _ = out_buffers.pop("Shapekey")
@@ -581,68 +601,218 @@ class ModExporter:
                 )
         print(f"Optimized outlines in {time.time() - start_time:.4f} seconds")
 
+    def _get_vanilla_sk_pool(
+        self, component, obj: Object, expected: int
+    ) -> tuple[list[int], list[int]]:
+        """Retrieve the original game's shapekey delta pool offsets/counts.
+
+        The importer stores these on the imported object as 3DMigoto:SKOffsets and
+        3DMigoto:SKCounts. They are needed to build SKIdentity, which maps the game's
+        own (offset, count) pool ranges onto the ones we export so that the CBOverride
+        shader can rewrite cb0 for every shapekey the game dispatches.
+        """
+        candidates: list[Object] = [obj]
+        for part in component.parts:
+            candidates.extend(entry.obj for entry in part.objects)
+
+        for candidate in candidates:
+            if "3DMigoto:SKOffsets" not in candidate:
+                continue
+            if "3DMigoto:SKCounts" not in candidate:
+                continue
+            offsets = [int(x) for x in candidate["3DMigoto:SKOffsets"]]
+            counts = [int(x) for x in candidate["3DMigoto:SKCounts"]]
+            if len(offsets) != expected or len(counts) != expected:
+                print(
+                    f"Warning: vanilla shapekey pool has {len(offsets)} offsets and "
+                    f"{len(counts)} counts, but {expected} DEFORM shapekeys were found. "
+                    "SKIdentity old offsets will be left as zero."
+                )
+                return [], []
+            return offsets, counts
+
+        print(
+            "Warning: no 3DMigoto:SKOffsets/3DMigoto:SKCounts found on this component. "
+            "SKIdentity old offsets will be left as zero."
+        )
+        return [], []
+
     def _extract_shapekeys_to_buffer(
         self,
         out_buffers: dict[str, NumpyBuffer],
         component,
-    ) -> None:
-        """Extract shapekey deltas from Blender objects and populate the Shapekey buffer."""
+    ) -> tuple[int, list[int], list[int]]:
+        """Extract shapekey deltas from Blender objects and populate the Shapekey buffer.
+        Returns the number of vanilla (DEFORM*) shapekeys extracted along with the
+        vanilla delta pool offsets and counts.
+        """
         if "Shapekey" not in out_buffers:
-            return
+            return 0, [], []
 
         sk_buffer = out_buffers["Shapekey"]
         pos_buffer = out_buffers.get("Position")
         if pos_buffer is None or pos_buffer.data is None:
-            return
+            return 0, [], []
 
         vertex_count = len(pos_buffer.data)
 
-        # Get the first object with shapekeys from this component
+        # A component's position buffer is shared by every sub-object in the
+        # dump (e.g. face is split into A/B/C). Each sub-object gets its own
+        # copy of the vanilla shapekeys on import, so deltas have to be exported
+        # for every object that carries keys, not just the first one, or whole
+        # parts of the mesh keep their base pose.
+        keyed_objects: list[tuple[SubObj, Object, Mesh]] = []
+        sk_keys: dict[tuple[str, int], str] = {}
         for part in component.parts:
             for entry in part.objects:
                 obj = entry.obj
                 mesh = obj.data
                 if mesh.shape_keys is None or len(mesh.shape_keys.key_blocks) <= 1:
                     continue
+                keyed_objects.append((entry, obj, mesh))
 
-                # Allocate Shapekey buffer data
-                sk_buffer.data = numpy.zeros(vertex_count, dtype=sk_buffer.layout.get_numpy_type())
-
-                # Get basis coordinates
-                basis_co = numpy.empty(vertex_count * 3, dtype=numpy.float32)
-                mesh.vertices.foreach_get("co", basis_co)
-                basis_co = basis_co.reshape(-1, 3)
-
-                # Extract each shapekey (skip Basis at index 0)
-                for kb_idx, key_block in enumerate(mesh.shape_keys.key_blocks):
-                    if kb_idx == 0:
-                        continue  # Skip Basis
-
-                    sk_name = f"SHAPEKEY{kb_idx - 1}" if kb_idx > 1 else "SHAPEKEY"
-
-                    # Get shapekey coordinates
-                    sk_co = numpy.empty(vertex_count * 3, dtype=numpy.float32)
-                    key_block.data.foreach_get("co", sk_co)
-                    sk_co = sk_co.reshape(-1, 3)
-
-                    # Calculate delta (relative to basis)
-                    delta = sk_co - basis_co
-
-                    # Check if buffer has this field
-                    if sk_name not in sk_buffer.data.dtype.names:
+                # Shapekeys must be named DEFORM<sep><n> or CUSTOM<sep><n> where <sep>
+                # is an optional separator and <n> is at most 4 digits. Ordering is
+                # taken from the numeric suffix so it always lines up with the
+                # vanilla pool order, regardless of Blender's key ordering. The dict
+                # keeps the union of keys seen on any sub-object.
+                for key_block in mesh.shape_keys.key_blocks:
+                    if key_block.name == "Basis":
                         continue
+                    match = SHAPEKEY_NAME_PATTERN.fullmatch(key_block.name)
+                    if match is None:
+                        continue
+                    kind, number = match.group(1).upper(), int(match.group(2))
+                    sk_keys.setdefault((kind, number), key_block.name)
 
-                    # Fill the buffer field
-                    sk_buffer.data[sk_name][:] = delta
+        if not keyed_objects:
+            return 0, [], []
 
-                break  # Only need to extract once per component
-            break  # Only need to extract once per component
+        # Vanilla shapekeys first, then custom, each in numeric order. The union
+        # across all sub-objects defines the exported columns: a key that a given
+        # object lacks simply leaves that object's rows at zero.
+        sorted_keys = sorted(
+            sk_keys.items(), key=lambda item: (item[0][0] != "DEFORM", item[0][1])
+        )
+        sk_names: list[str] = [name for _, name in sorted_keys]
+        if not sk_names:
+            return 0, [], []
+
+        # Rebuild the Shapekey buffer layout from the actual shapekeys
+        layout = BufferLayout([])
+        for i in range(len(sk_names)):
+            layout.add_element(
+                BufferSemantic(
+                    AbstractSemantic(Semantic.ShapeKey, i),
+                    DXGIFormat.R32G32B32_FLOAT,
+                )
+            )
+        sk_buffer.set_layout(layout)
+        sk_buffer.data = numpy.zeros(vertex_count, dtype=layout.get_numpy_type())
+
+        # SKOverrides starts with the shapekey values set in Blender, in the same
+        # order as SKIdentity, so the user can adjust them in the ini without losing
+        # sight of the original intent. Values are read from whichever sub-object owns
+        # each key. SKMultipliers is intentionally not seeded here: the gather pass
+        # overwrites it at runtime with the game's vanilla multipliers, and every
+        # entry starts at zero until a vanilla dispatch fills it in.
+        sk_values = []
+        for i, sk_name in enumerate(sk_names):
+            value = 0.0
+            for _, obj, mesh in keyed_objects:
+                key_block = mesh.shape_keys.key_blocks.get(sk_name)
+                if key_block is not None:
+                    value = float(key_block.value)
+                    break
+            sk_values.append(value)
+        component.sk_overrides = sk_values
+
+        skipped = [
+            key_block.name
+            for _, _, mesh in keyed_objects
+            for key_block in mesh.shape_keys.key_blocks
+            if key_block.name != "Basis"
+            and SHAPEKEY_NAME_PATTERN.fullmatch(key_block.name) is None
+        ]
+        if skipped:
+            print(
+                f"Warning: skipping shapekeys with unrecognised names on "
+                f"{component.fullname}: {', '.join(dict.fromkeys(skipped))}. Shapekeys "
+                "must be named DEFORM<sep><n> or CUSTOM<sep><n> with at most 4 digits."
+            )
+
+        # The exported vertex buffer is a deduplicated, reordered subset of the
+        # mesh, so row N of the position buffer is not mesh vertex N.
+        # entry.vertex_ids carries the remap produced by the extractor, and
+        # the shapekey columns are indexed by position-buffer row, so the
+        # shapeky coordinates have to be gathered through that map.
+        for entry, obj, mesh in keyed_objects:
+            mirror_mesh = bool(obj.get("3DMigoto:FlipMesh", False))
+            vertex_ids = entry.vertex_ids
+            if vertex_ids is None:
+                raise Fatal(
+                    f"Mesh({obj.name}) is missing the vertex id remap needed to "
+                    "export shapekeys."
+                )
+            vertex_ids = numpy.asarray(vertex_ids, dtype=numpy.int64)
+            sk_vertex_count = len(vertex_ids)
+            if sk_vertex_count > vertex_count:
+                raise Fatal(
+                    f"Mesh({obj.name}) exports {sk_vertex_count} vertices, more "
+                    f"than the {vertex_count} in the component's position buffer."
+                )
+
+            # Get basis coordinates
+            basis_co = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float32)
+            mesh.vertices.foreach_get("co", basis_co)
+            basis_co = basis_co.reshape(-1, 3)
+
+            # Extract each shapekey delta
+            for i, sk_name in enumerate(sk_names):
+                key_block = mesh.shape_keys.key_blocks.get(sk_name)
+                if key_block is None:
+                    continue
+
+                sk_co = numpy.empty(len(mesh.vertices) * 3, dtype=numpy.float32)
+                key_block.data.foreach_get("co", sk_co)
+                sk_co = sk_co.reshape(-1, 3)
+
+                # Calculate delta (relative to basis), gathered into exported
+                # vertex order. Rows past this object stay zero and are filtered
+                # out by the nonzero-delta mask in compress_sk_buffers.
+                delta = (sk_co - basis_co)[vertex_ids]
+
+                # POSITION is exported through converter_mirror_vector when the
+                # object was imported mirrored, which negates X. The runtime
+                # applies our delta to that already-mirrored position, so the
+                # delta has to be mirrored the same way or the X component of
+                # every shapeky is inverted. ShapeKey semantics are skipped by
+                # make_export_layout, so the converters never touch this column.
+                if mirror_mesh:
+                    delta[:, 0] *= -1
+
+                # Fill the buffer field. The shapekey column is indexed by
+                # position-buffer row, so this object's deltas belong at its
+                # own vertex offset within the component.
+                field = sk_buffer.data[layout.semantics[i].abstract.get_name()]
+                start = entry.vertex_offset
+                field[start:start + sk_vertex_count] = delta
+
+        vanilla_count = sum(1 for _k, _n in sorted_keys if _k[0] == "DEFORM")
+        return (
+            vanilla_count,
+            *self._get_vanilla_sk_pool(
+                component, keyed_objects[0][1], vanilla_count
+            ),
+        )
 
     def compress_sk_buffers(
         self,
         out_buffers: dict[str, NumpyBuffer],
         og_sk_count: int,
         component,
+        og_sk_offsets: list[int] | None = None,
+        og_sk_counts: list[int] | None = None,
     ) -> None:
         assert "Shapekey" in out_buffers
 
@@ -670,13 +840,20 @@ class ModExporter:
 
         for label in labels[:og_sk_count]:
             tmp_buffer["DELTAS"] = sk_buffer[label]
-            mask: NDArray[numpy.bool] = (tmp_buffer["DELTAS"] > 1e-6).any(axis=-1)
+            # A delta counts as present if it is non-zero in either direction.
+            # Testing only `> 1e-6` silently discards every vertex that only moves
+            # in the negative axes, which deforms the mesh incorrectly.
+            mask: NDArray[numpy.bool] = (
+                numpy.abs(tmp_buffer["DELTAS"]) > 1e-6
+            ).any(axis=-1)
             new_arr = tmp_buffer[mask]
             v_sks.append(new_arr)
 
         for label in labels[og_sk_count:]:
             tmp_buffer["DELTAS"] = sk_buffer[label]
-            mask: NDArray[numpy.bool] = (tmp_buffer["DELTAS"] > 1e-6).any(axis=-1)
+            mask: NDArray[numpy.bool] = (
+                numpy.abs(tmp_buffer["DELTAS"]) > 1e-6
+            ).any(axis=-1)
             new_arr = tmp_buffer[mask]
             mod_sks.append(new_arr)
 
@@ -712,21 +889,26 @@ class ModExporter:
         component.strides["skdeltas"] = 40
 
         if total_entries > 0:
-            sk_offsets_path = self.destination / (component.fullname + "SKOffsets.csv")
-            with open(sk_offsets_path, "w", newline="") as f:
-                f.write("offset,count\n")
-                for off, cnt in zip(sk_offsets, sk_counts):
-                    f.write(f"{off},{cnt}\n")
-
             self.files_to_write[self.destination / (component.fullname + "SKDeltas.buf")] = sk_deltas
 
-            sk_identity = numpy.zeros(vertex_count, dtype=numpy.dtype([
-                ("VINDEX0", numpy.uint32),
-                ("VINDEX1", numpy.uint32),
-                ("VINDEX2", numpy.uint32),
-                ("VINDEX3", numpy.uint32),
+            # SKIdentity is the OffsetB buffer consumed by the CBOverride shader. It
+            # holds one entry per exported shapekey mapping the game's original
+            # (offset, count) pool range onto the one we wrote, so cb0 can be
+            # rewritten per shapekey. Custom keys have no original counterpart, so
+            # their old offset/count stay zero and never match a game dispatch.
+            sk_identity = numpy.zeros(total_sk_count, dtype=numpy.dtype([
+                ("old_offset", numpy.uint32),
+                ("old_count", numpy.uint32),
+                ("offset", numpy.uint32),
+                ("count", numpy.uint32),
             ]))
-            sk_identity["VINDEX0"] = numpy.arange(vertex_count, dtype=numpy.uint32)
+            for i in range(total_sk_count):
+                sk_identity["offset"][i] = sk_offsets[i]
+                sk_identity["count"][i] = sk_counts[i]
+            if og_sk_offsets is not None and og_sk_counts is not None:
+                for i in range(min(og_sk_count, len(og_sk_offsets), len(og_sk_counts))):
+                    sk_identity["old_offset"][i] = og_sk_offsets[i]
+                    sk_identity["old_count"][i] = og_sk_counts[i]
             self.files_to_write[self.destination / (component.fullname + "SKIdentity.buf")] = sk_identity
 
         _ = out_buffers.pop("Shapekey")
