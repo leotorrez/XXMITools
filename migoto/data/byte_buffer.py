@@ -839,7 +839,6 @@ class MigotoFormat:
     ib_layout: BufferLayout | None = None
     vb_layout: BufferLayout | None = None
     # Shapekey
-    sk_count: int = 0
     sk_offsets: list[int] | None = None
     sk_counts: list[int] | None = None
 
@@ -1070,7 +1069,6 @@ class MigotoFormat:
                 result.vb_layout.stride = sk_offset
                 result.sk_offsets = sk_offsets or None
                 result.sk_counts = sk_counts or None
-                result.sk_count = delta_migoto_fmt.sk_count
                 return result
             except ValueError as e:
                 print(e)

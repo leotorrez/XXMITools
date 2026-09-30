@@ -2,12 +2,11 @@
 
 Currently 3D Migoto/XXMI emits the shapekey offset/count in `SKOffsets.csv`.
 The intended format embeds those `offset,count` pairs directly in the deltas
-txt header as `sk offsets:` / `sk counts:` lines (plus a total `sk count:`),
-which `MigotoFormat` parses via its existing `sk_offsets`/`sk_counts` fields.
-Like every other header entry (`index count`, `first index`, `vb0 stride`,
-etc.) the keys are space-separated; the underscore forms are also accepted.
-This test builds that intended format from the CSV so the library code reads
-it as designed.
+txt header as `sk offsets:` / `sk counts:` lines, which `MigotoFormat`
+parses via its existing `sk_offsets`/`sk_counts` fields. Like every other
+header entry (`index count`, `first index`, `vb0 stride`, etc.) the keys are
+space-separated; the underscore forms are also accepted. This test builds that
+intended format from the CSV so the library code reads it as designed.
 
 Run with: python test_byte_buffer_sk.py
 """
@@ -32,7 +31,7 @@ OFFSETS_CSV = DATA_DIR / "RamielleEyebrowsSKOffsets.csv"
 
 
 def add_sk_header(deltas_text: str) -> str:
-    """Injects `sk count:`/`sk offsets:`/`sk counts:` header lines (sourced from
+    """Injects `sk offsets:`/`sk counts:` header lines (sourced from
     SKOffsets.csv) into the deltas txt to reproduce the intended XXMI Deltas.txt
     format. Keys are space-separated like the other header entries."""
     rows = [
@@ -44,7 +43,7 @@ def add_sk_header(deltas_text: str) -> str:
     counts = ",".join(row.split(",")[1] for row in rows)
     return deltas_text.replace(
         "topology: trianglelist",
-        f"topology: trianglelist\nsk count: {len(rows)}\nsk offsets: {offsets}\nsk counts: {counts}",
+        f"topology: trianglelist\nsk offsets: {offsets}\nsk counts: {counts}",
         1,
     )
 
@@ -58,11 +57,10 @@ def main() -> None:
     deltas_text = add_sk_header(DELTAS_TXT.read_text())
     deltas_fmt = MigotoFormat.from_txt_file(io.StringIO(deltas_text))
 
-    assert deltas_fmt.sk_count == 11
     assert deltas_fmt.sk_offsets == [0, 42, 84, 126, 168, 210, 294, 336, 378, 420, 462]
     assert deltas_fmt.sk_counts == [42] * 5 + [84] + [42] * 5
     sk_names = sk_field_names(len(deltas_fmt.sk_counts))
-    print("ok: sk count/sk offsets/sk counts parsed from deltas header")
+    print("ok: sk offsets/sk counts parsed from deltas header")
 
     # Merged format (VB + deltas) must keep the base VB elements and append ShapeKeys
     with open(VB_PATH) as vb_file, io.StringIO(deltas_text) as deltas_file:
