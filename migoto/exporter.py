@@ -82,6 +82,9 @@ class ModExporter:
     def __post_init__(self) -> None:
         self._start_time = time.time()
         print("Initializing data for export...")
+        if self.export_shapekeys and self.game != GameEnum.ZenlessZoneZero:
+            print("Shape key export is only supported for Zenless Zone Zero.")
+            self.export_shapekeys = False
         self.__objs_to_cleanup: list[Object] = []
         self.__depsgraph: Depsgraph = bpy.context.evaluated_depsgraph_get()
         if self.dump_path == Path(""):

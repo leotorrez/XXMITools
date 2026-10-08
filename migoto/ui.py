@@ -4,6 +4,7 @@ from bl_ui.generic_ui_list import draw_ui_list
 from bpy.types import Menu, Panel, UILayout, UIList
 
 from .. import addon_updater_ops
+from .datastructures import GameEnum
 from .export_ops import (
     Export3DMigoto,
     Export3DMigotoXXMI,
