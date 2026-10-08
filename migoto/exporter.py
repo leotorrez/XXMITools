@@ -67,7 +67,6 @@ class ModExporter:
     outline_rounding_precision: int = 8
     outline_gate_divergence: float = 14.0
     outline_custom_normals: bool = False
-    outline_rounding_precision: int = 3
     # Internal / not implemented
     ignore_muted_shape_keys: bool = False
     # Output
@@ -82,6 +81,9 @@ class ModExporter:
     def __post_init__(self) -> None:
         self._start_time = time.time()
         print("Initializing data for export...")
+        if self.export_shapekeys and self.game != GameEnum.ZenlessZoneZero:
+            print("Shape key export is only supported for Zenless Zone Zero.")
+            self.export_shapekeys = False
         self.__objs_to_cleanup: list[Object] = []
         self.__depsgraph: Depsgraph = bpy.context.evaluated_depsgraph_get()
         if self.dump_path == Path(""):

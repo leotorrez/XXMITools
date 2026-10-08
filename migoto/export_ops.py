@@ -181,7 +181,7 @@ class XXMIProperties(PropertyGroup):
     )
     export_shapekeys: BoolProperty(
         name="Export shape keys",
-        description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file",
+        description="Exports marked shape keys for the selected object. Also generates the necessary sections in ini file. Only supported for Zenless Zone Zero for now",
         default=True,
     )
     batch_pattern: StringProperty(
