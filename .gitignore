@@ -1,6 +1,7 @@
 __pycache__/
 *_updater/
 .*
-.*/*
+.ruff_cache/
+.venv/
 uv.lock
 TODO.md
