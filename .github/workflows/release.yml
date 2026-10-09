@@ -25,9 +25,13 @@ jobs:
         sed -i -E "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
         sed -i -E "s/\"version\": \([0-9]+, [0-9]+, [0-9]+\)/\"version\": (${MAJOR}, ${MINOR}, ${PATCH})/" __init__.py
 
-    - name: Commit version bump and move tag
+    - name: Commit version bump, push branch and move tag
       run: |
         VERSION="${GITHUB_REF_NAME#v}"
+        TAG_COMMIT="$(git rev-parse HEAD)"
+        BRANCH="$(git ls-remote --heads origin | awk -v sha="${TAG_COMMIT}" '$1 == sha { sub("refs/heads/", "", $2); print $2; exit }')"
+        BRANCH="${BRANCH:-${{ github.event.repository.default_branch }}}"
+        echo "Version bump will be pushed to branch: ${BRANCH}"
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git add pyproject.toml __init__.py
@@ -35,6 +39,7 @@ jobs:
           echo "Version already up to date, nothing to commit"
         else
           git commit -m "Version bump ${VERSION}"
+          git push origin "HEAD:refs/heads/${BRANCH}"
           git tag -f "${GITHUB_REF_NAME}"
           git push origin "refs/tags/${GITHUB_REF_NAME}" --force
         fi
