@@ -269,23 +269,23 @@ class Export3DMigotoXXMI(Operator, ExportHelper):
             box_tex = col.box()
             box_tex.prop(xxmi, "no_ramps")
             box_tex.prop(xxmi, "ignore_duplicate_textures")
+        col = box.column(align=True)
+        col.prop(xxmi, "outline_optimization")
+        if xxmi.outline_optimization:
+            box_outline = col.box()
+            box_outline.enabled = xxmi.outline_optimization
+            box_outline.prop(xxmi, "outline_rounding_precision")
+            if xxmi.game == "ZenlessZoneZero":
+                box_outline.prop(xxmi, "outline_gate_divergence")
+            box_outline.prop(xxmi, "outline_custom_normals")
+        if xxmi.game == "ZenlessZoneZero":
+            col.prop(xxmi, "export_shapekeys")
+        # col.prop(xxmi, "export_materials")
         col.prop(xxmi, "write_buffers")
         col.prop(xxmi, "write_ini")
         if xxmi.write_ini:
             box_ini = col.box()
             box_ini.prop(xxmi, "credit")
-        col = box.column(align=True)
-        split = col.split(factor=0.25)
-        col_1 = split.column()
-        col_2 = split.column()
-        col_1.prop(xxmi, "outline_optimization")
-        col_2.enabled = xxmi.outline_optimization
-        col_2.prop(xxmi, "outline_rounding_precision")
-        if xxmi.game == "ZenlessZoneZero":
-            col_2.prop(xxmi, "outline_gate_divergence")
-        col_2.prop(xxmi, "outline_custom_normals")
-        # col.prop(xxmi, 'export_shapekeys')
-        # col.prop(xxmi, "export_materials")
 
     def execute(self, context):
         try:
