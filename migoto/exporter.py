@@ -29,9 +29,7 @@ from .datastructures import Fatal, GameEnum
 
 # DEFORM or CUSTOM, an optional separator, then 1-4 digits. Vanilla keys are
 # imported as "Deform {id}", so a space is a valid separator.
-SHAPEKEY_NAME_PATTERN = re.compile(
-    r"(DEFORM|CUSTOM)[ _\-.]?(\d{1,4})", re.IGNORECASE
-)
+SHAPEKEY_NAME_PATTERN = re.compile(r"(DEFORM|CUSTOM)[ _\-.]?(\d{1,4})", re.IGNORECASE)
 
 
 @dataclass
@@ -215,8 +213,17 @@ class ModExporter:
             valid_modifiers: list[str] = [
                 mod.name for mod in obj.modifiers if mod.show_viewport
             ]
+            # DEFORM/CUSTOM keys are exported as deltas computed from the
+            # original mesh, so modifiers must not be baked into them.
+            shapekeys_to_skip: list[str] = [
+                block.name
+                for block in obj.data.shape_keys.key_blocks
+                if SHAPEKEY_NAME_PATTERN.fullmatch(block.name) is not None
+            ]
             temp_obj: Object = obj.copy()
-            apply_modifiers_to_shapekey_objects(self.context, temp_obj, valid_modifiers)
+            apply_modifiers_to_shapekey_objects(
+                self.context, temp_obj, valid_modifiers, shapekeys_to_skip
+            )
             assert isinstance(temp_obj.data, Mesh), (
                 "Processed object does not have mesh data."
             )
@@ -846,14 +853,12 @@ class ModExporter:
                 # own vertex offset within the component.
                 field = sk_buffer.data[layout.semantics[i].abstract.get_name()]
                 start = entry.vertex_offset
-                field[start:start + sk_vertex_count] = delta
+                field[start : start + sk_vertex_count] = delta
 
         vanilla_count = sum(1 for _k, _n in sorted_keys if _k[0] == "DEFORM")
         return (
             vanilla_count,
-            *self._get_vanilla_sk_pool(
-                component, keyed_objects[0][1], vanilla_count
-            ),
+            *self._get_vanilla_sk_pool(component, keyed_objects[0][1], vanilla_count),
         )
 
     def compress_sk_buffers(
@@ -893,29 +898,31 @@ class ModExporter:
             # A delta counts as present if it is non-zero in either direction.
             # Testing only `> 1e-6` silently discards every vertex that only moves
             # in the negative axes, which deforms the mesh incorrectly.
-            mask: NDArray[numpy.bool] = (
-                numpy.abs(tmp_buffer["DELTAS"]) > 1e-6
-            ).any(axis=-1)
+            mask: NDArray[numpy.bool] = (numpy.abs(tmp_buffer["DELTAS"]) > 1e-6).any(
+                axis=-1
+            )
             new_arr = tmp_buffer[mask]
             v_sks.append(new_arr)
 
         for label in labels[og_sk_count:]:
             tmp_buffer["DELTAS"] = sk_buffer[label]
-            mask: NDArray[numpy.bool] = (
-                numpy.abs(tmp_buffer["DELTAS"]) > 1e-6
-            ).any(axis=-1)
+            mask: NDArray[numpy.bool] = (numpy.abs(tmp_buffer["DELTAS"]) > 1e-6).any(
+                axis=-1
+            )
             new_arr = tmp_buffer[mask]
             mod_sks.append(new_arr)
 
         all_sks = v_sks + mod_sks
         total_entries = sum(len(x) for x in all_sks)
 
-        delta_dtype = numpy.dtype([
-            ("VINDEX", numpy.uint32),
-            ("POSITION", (numpy.float32, 3)),
-            ("NORMAL", (numpy.float32, 3)),
-            ("TANGENT", (numpy.float32, 3)),
-        ])
+        delta_dtype = numpy.dtype(
+            [
+                ("VINDEX", numpy.uint32),
+                ("POSITION", (numpy.float32, 3)),
+                ("NORMAL", (numpy.float32, 3)),
+                ("TANGENT", (numpy.float32, 3)),
+            ]
+        )
 
         sk_deltas = numpy.zeros(total_entries, dtype=delta_dtype)
         sk_offsets = []
@@ -925,10 +932,10 @@ class ModExporter:
         for entry in all_sks:
             count = len(entry)
             if count > 0:
-                sk_deltas["VINDEX"][offset:offset + count] = entry["VERTEXID"]
-                sk_deltas["POSITION"][offset:offset + count] = entry["DELTAS"]
-                sk_deltas["NORMAL"][offset:offset + count] = 0.0
-                sk_deltas["TANGENT"][offset:offset + count] = 0.0
+                sk_deltas["VINDEX"][offset : offset + count] = entry["VERTEXID"]
+                sk_deltas["POSITION"][offset : offset + count] = entry["DELTAS"]
+                sk_deltas["NORMAL"][offset : offset + count] = 0.0
+                sk_deltas["TANGENT"][offset : offset + count] = 0.0
             sk_offsets.append(offset)
             sk_counts.append(count)
             offset += count
@@ -939,19 +946,26 @@ class ModExporter:
         component.strides["skdeltas"] = 40
 
         if total_entries > 0:
-            self.files_to_write[self.destination / (component.fullname + "SKDeltas.buf")] = sk_deltas
+            self.files_to_write[
+                self.destination / (component.fullname + "SKDeltas.buf")
+            ] = sk_deltas
 
             # SKIdentity is the OffsetB buffer consumed by the CBOverride shader. It
             # holds one entry per exported shapekey mapping the game's original
             # (offset, count) pool range onto the one we wrote, so cb0 can be
             # rewritten per shapekey. Custom keys have no original counterpart, so
             # their old offset/count stay zero and never match a game dispatch.
-            sk_identity = numpy.zeros(total_sk_count, dtype=numpy.dtype([
-                ("old_offset", numpy.uint32),
-                ("old_count", numpy.uint32),
-                ("offset", numpy.uint32),
-                ("count", numpy.uint32),
-            ]))
+            sk_identity = numpy.zeros(
+                total_sk_count,
+                dtype=numpy.dtype(
+                    [
+                        ("old_offset", numpy.uint32),
+                        ("old_count", numpy.uint32),
+                        ("offset", numpy.uint32),
+                        ("count", numpy.uint32),
+                    ]
+                ),
+            )
             for i in range(total_sk_count):
                 sk_identity["offset"][i] = sk_offsets[i]
                 sk_identity["count"][i] = sk_counts[i]
@@ -959,7 +973,9 @@ class ModExporter:
                 for i in range(min(og_sk_count, len(og_sk_offsets), len(og_sk_counts))):
                     sk_identity["old_offset"][i] = og_sk_offsets[i]
                     sk_identity["old_count"][i] = og_sk_counts[i]
-            self.files_to_write[self.destination / (component.fullname + "SKIdentity.buf")] = sk_identity
+            self.files_to_write[
+                self.destination / (component.fullname + "SKIdentity.buf")
+            ] = sk_identity
 
         _ = out_buffers.pop("Shapekey")
 

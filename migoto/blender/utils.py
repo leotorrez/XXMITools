@@ -18,10 +18,19 @@ class Shapekey_Properties(TypedDict):
 
 
 def apply_modifiers_to_shapekey_objects(
-    context: Context, base_obj: Object, modifiers_to_apply: list[str]
+    context: Context,
+    base_obj: Object,
+    modifiers_to_apply: list[str],
+    shapekeys_to_skip: list[str] | None = None,
 ) -> None:
-    """Applies modifiers to objects with shapekeys"""
-    # TODO: Add list of SK to actually apply
+    """Applies modifiers to objects with shapekeys.
+
+    Shapekeys named in ``shapekeys_to_skip`` (e.g. the DEFORM/CUSTOM keys that
+    the exporter writes as deltas) are left untouched: modifiers are not baked
+    into them and their original data is restored instead, so they keep the
+    coordinates they are exported from.
+    """
+    skip: set[str] = set(shapekeys_to_skip or ())
     start_time = time.time()
     assert base_obj.type == "MESH" and isinstance(base_obj.data, Mesh), (
         "Invalid mesh object."
@@ -62,6 +71,20 @@ def apply_modifiers_to_shapekey_objects(
     for i, block in enumerate(key_blocks):
         if i == 0:
             continue  # Skip Basis shape key
+
+        if block.name in skip:
+            # Export-target shapekeys are written as deltas from the original
+            # mesh, so baking modifiers into them would corrupt the export.
+            # Re-add them untouched to keep a complete shapekey set.
+            result_block = result_obj.shape_key_add(
+                name=block.name, from_mix=False
+            )
+            if len(result_block.data) == len(block.data):
+                coords: NDArray = np.empty(len(block.data) * 3, dtype=np.float32)
+                block.data.foreach_get("co", coords)
+                result_block.data.foreach_set("co", coords)
+            continue
+
         block.value = 1.0
         depsgraph.update()
         mesh: Mesh = base_obj.evaluated_get(depsgraph).to_mesh()
