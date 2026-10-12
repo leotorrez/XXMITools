@@ -3,12 +3,14 @@
 {% set const_lines = [] %}
 {% set present_lines = [] %}
 
-{% do const_lines.append('global $active = 0') %}
-{% do const_lines.append('global $creditinfo = 0') %}
-{% do present_lines.append('post $active = 0') %}
-{% do present_lines.append('run = CommandListCreditInfo') %}
+{% if credit != "" %}
+  {% do const_lines.append('global $active = 0') %}
+  {% do const_lines.append('global $creditinfo = 0') %}
+  {% do present_lines.append('post $active = 0') %}
+  {% do present_lines.append('run = CommandListCreditInfo') %}
+{% endif %}
 
-{% block commandlistscredit %}
+{% block commandlistcredit %}
     {% if credit != "" %}
         [CommandListCreditInfo]
         if $creditinfo == 0 && $active > 0
@@ -63,7 +65,6 @@
         hash = {{ component.draw_vb }}
         override_vertex_count = {{ component.vertex_count }}
         override_byte_stride = {{ component.strides.position }}
-
         {% if component.sk_deltas_vb != "" and component.sk_deltas_count %}
           [TextureOverride{{ component.fullname }}SKDeltas]
           hash = {{component.sk_deltas_vb}}
@@ -75,30 +76,33 @@
         {% endif %}
     {% endfor %}
     {% for component in mod_file.components if component.draw_vb != "" and component.blend_vb == "" %}
-        [TextureOverride{{ component.fullname }}]
+        [TextureOverride{{ component.fullname }}Position]
         hash = {{ component.position_vb }}
-        vb0 = Resource{{ component.fullname }}
+        vb0 = Resource{{ component.fullname }}Position
         {% if credit != "" %}
             $active = 1
         {% endif %}
         checktextureoverride = ib
-
     {% endfor %}
 {% endblock %}
 
 {% block overridesibs %}
-     {% for component in mod_file.components if component.draw_vb != "" %}
-        {% for part in component.parts if part.vertex_count > 0 %}
+     {% for component in mod_file.components if component.position_vb != "" %}
+        {% for part in component.parts %}
             [TextureOverride{{ part.fullname }}]
             hash = {{ component.ib }}
             match_first_index = {{ part.first_index }}
-            {% if part.index_count%} match_index_count = {{ part.index_count }}
+            {% if part.index_count > 0 %}
+              match_index_count = {{part.index_count}}
             {% endif %}
-            ib = Resource{{ part.fullname }}IB
-            {% for texture in part.textures %}
-                Resource\ZZMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
-            {% endfor %}
-            {% if part.textures|length > 0 %}
+            {% if part.vertex_count > 0 %}
+                handling = skip
+                ib = Resource{{ part.fullname }}IB
+            {% endif %}
+            {% if part.textures|length > 0%}
+                {% for texture in part.textures %}
+                    Resource\ZZMI\{{ texture.name }} = ref Resource{{part.fullname}}{{ texture.name }}
+                {% endfor %}
                 run = CommandList\ZZMI\SetTextures
             {% endif %}
             {% for entry in part.objects if entry.vertex_count > 0 %}
@@ -108,17 +112,30 @@
                 ; {{ entry.name }} ({{ entry.vertex_count }})
                 drawindexed = {{ entry.index_count}}, {{ entry.index_offset }}, 0
             {% endfor %}
-
         {% endfor %}
     {% endfor %}
-    {% for component in mod_file.components if component.draw_vb == "" %}
+    {% for component in mod_file.components if component.draw_vb == "" and component.position_vb == "" %}
+        {% set count = component.parts | selectattr('textures') | list | length %}
         {% for part in component.parts %}
-            {% for texture in part.textures %}
-                [TextureOverride{{part.fullname}}{{ texture.name }}]
-                hash = {{ texture.hash }}
-                this = Resource{{part.fullname}}{{ texture.name }}
-
-            {% endfor %}
+            {% if part.textures|length > 0 %}
+                {% if component.blend_vb %}
+                    [TextureOverride{{part.fullname}}Blend]
+                    hash = {{component.blend_vb }}
+                {% else %}
+                    [TextureOverride{{part.fullname}}IB]
+                    hash = {{component.ib }}
+                {% endif %}
+                {% if count > 1 %}
+                    match_first_index = {{ part.first_index }}
+                    {% if part.index_count > 0 %}
+                        match_index_count = {{ part.index_count }}
+                    {% endif %}
+                {% endif %}
+                {% for texture in part.textures %}
+                    Resource\ZZMI\{{ texture.name }} = ref Resource{{ part.fullname }}{{ texture.name }}
+                {% endfor %}
+                run = CommandList\ZZMI\SetTextures
+            {%endif%}
         {% endfor %}
     {% endfor %}
 {% endblock  %}
@@ -184,7 +201,7 @@
             stride = {{ component.strides.position }}
             filename = {{ component.fullname }}Position.buf
         {% endif %}
-        
+ 
         {% for part in component.parts %}
             [Resource{{ part.fullname }}IB]
             type = Buffer
@@ -223,7 +240,7 @@
 {% endblock %}
 
 {% block commandlists %}
-    {{- self.commandlistscredit() -}}
+    {{- self.commandlistcredit() -}}
 {% endblock %}
 
 {% block resources %}
