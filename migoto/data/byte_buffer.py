@@ -626,7 +626,7 @@ class NumpyBuffer:
     @staticmethod
     def parse_sk_deltas(deltas_data: str | None, vertex_count: int) -> NDArray:
         """Scatters deltas from a compacted shapekey deltas txt dump into a per-vertex
-        (vertex_count, 3 * len(sk_counts)) float array using the VERTEXID and POSITION
+        (vertex_count, 3 * len(shapekey_counts)) float array using the VERTEXID and POSITION
         elements along with the offset/count pairs stored in the deltas file header.
         """
         if deltas_data is None:
@@ -638,15 +638,15 @@ class NumpyBuffer:
             raise ValueError(
                 "Failed to parse shapekey deltas layout from provided data!"
             )
-        if deltas_fmt.sk_offsets is None or deltas_fmt.sk_counts is None:
+        if deltas_fmt.shapekey_offsets is None or deltas_fmt.shapekey_counts is None:
             raise ValueError(
-                "Shapekey deltas data is missing sk offsets and sk counts header!"
+                "Shapekey deltas data is missing shapekey offsets and shapekey counts header!"
             )
-        sk_offsets = deltas_fmt.sk_offsets
-        sk_counts = deltas_fmt.sk_counts
-        if len(sk_counts) == 0 or len(sk_counts) != len(sk_offsets):
+        shapekey_offsets = deltas_fmt.shapekey_offsets
+        shapekey_counts = deltas_fmt.shapekey_counts
+        if len(shapekey_counts) == 0 or len(shapekey_counts) != len(shapekey_offsets):
             raise ValueError(
-                f"sk offsets length {len(sk_offsets)} does not match sk counts length {len(sk_counts)}!"
+                f"shapekey offsets length {len(shapekey_offsets)} does not match shapekey counts length {len(shapekey_counts)}!"
             )
         vertex_id_element = deltas_fmt.vb_layout.get_element(Semantic.VertexId)
         position_element = deltas_fmt.vb_layout.get_element(Semantic.Position)
@@ -692,8 +692,8 @@ class NumpyBuffer:
         assert vertex_index is not None and position_index is not None
 
         # Scatter each shapekey's pool slice into per-vertex shapekey columns
-        sk_array = numpy.zeros((vertex_count, 3 * len(sk_counts)), dtype=numpy.float32)
-        for i, (count, offset) in enumerate(zip(sk_counts, sk_offsets)):
+        sk_array = numpy.zeros((vertex_count, 3 * len(shapekey_counts)), dtype=numpy.float32)
+        for i, (count, offset) in enumerate(zip(shapekey_counts, shapekey_offsets)):
             entries = deltas_array[offset : offset + count]
             if len(entries) == 0:
                 continue
@@ -741,8 +741,8 @@ class NumpyBuffer:
     @staticmethod
     def expand_sk_bytes(
         vb_layout: BufferLayout,
-        sk_counts: list[int],
-        sk_offsets: list[int],
+        shapekey_counts: list[int],
+        shapekey_offsets: list[int],
         vb_bytes: bytes,
         deltas_bytes: bytes,
     ) -> bytes:
@@ -796,7 +796,7 @@ class NumpyBuffer:
 
         # Scatter deltas from the compacted pool into per-vertex shapekey fields
         sk_names = sk_dtype.names or []
-        for i, (count, offset) in enumerate(zip(sk_counts, sk_offsets)):
+        for i, (count, offset) in enumerate(zip(shapekey_counts, shapekey_offsets)):
             sk_data: NDArray = deltas_array[offset : offset + count]
             vindex = sk_data["VINDEX"]
             valid = vindex < len(result_array)
@@ -808,8 +808,8 @@ class NumpyBuffer:
 MIGOTO_FORMAT_HEADER_CONVERTERS = {
     "topology": lambda value: Topology(value),
     "format": lambda value: DXGIFormat(value.replace("DXGI_FORMAT_", "")),
-    "sk_offsets": lambda value: [int(x) for x in value.split(",")],
-    "sk_counts": lambda value: [int(x) for x in value.split(",")],
+    "shapekey_offsets": lambda value: [int(x) for x in value.split(",")],
+    "shapekey_counts": lambda value: [int(x) for x in value.split(",")],
 }
 
 
@@ -839,8 +839,8 @@ class MigotoFormat:
     ib_layout: BufferLayout | None = None
     vb_layout: BufferLayout | None = None
     # Shapekey
-    sk_offsets: list[int] | None = None
-    sk_counts: list[int] | None = None
+    shapekey_offsets: list[int] | None = None
+    shapekey_counts: list[int] | None = None
 
     def __post_init__(self):
         self.verify_migoto_format()
@@ -1052,23 +1052,23 @@ class MigotoFormat:
                         f"Warning: Unexpected merged format: {result}. Skipping shapekey elements import."
                     )
 
-                sk_offsets = delta_migoto_fmt.sk_offsets or []
-                sk_counts = delta_migoto_fmt.sk_counts or []
-                if len(sk_counts) != len(sk_offsets):
+                shapekey_offsets = delta_migoto_fmt.shapekey_offsets or []
+                shapekey_counts = delta_migoto_fmt.shapekey_counts or []
+                if len(shapekey_counts) != len(shapekey_offsets):
                     raise ValueError(
-                        f"Warning: sk offsets length {len(sk_offsets)} does not match sk counts length {len(sk_counts)}. Skipping shapekey elements import."
+                        f"Warning: shapekey offsets length {len(shapekey_offsets)} does not match shapekey counts length {len(shapekey_counts)}. Skipping shapekey elements import."
                     )
 
                 sk_offset = result.vb_layout.stride
-                for i in range(len(sk_counts)):
+                for i in range(len(shapekey_counts)):
                     new_element = copy.deepcopy(element_base)
                     new_element.abstract = AbstractSemantic(Semantic.ShapeKey, i)
                     new_element.offset = sk_offset
                     sk_offset += new_element.stride
                     result.vb_layout.add_element(new_element)
                 result.vb_layout.stride = sk_offset
-                result.sk_offsets = sk_offsets or None
-                result.sk_counts = sk_counts or None
+                result.shapekey_offsets = shapekey_offsets or None
+                result.shapekey_counts = shapekey_counts or None
                 return result
             except ValueError as e:
                 print(e)
@@ -1123,7 +1123,7 @@ class MigotoFormat:
         return fmt
 
     def to_dict(self) -> dict[str, str | int | list[dict]]:
-        # TODO: add sk offsets and counts to dict and only add to dict valid entries
+        # TODO: add shapekey offsets and counts to dict and only add to dict valid entries
         assert (
             self.vb_layout is not None
             and self.format is not None

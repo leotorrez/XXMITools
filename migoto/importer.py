@@ -237,9 +237,9 @@ class ObjectImporter:
         if cfg.create_materials and hash_json_data is not None:
             self.set_materials(operator, obj, name, cfg, hash_json_data)
         model.set_data(obj, mesh, numpy_mesh_group, vg_remap, mirror_mesh=cfg.flip_mesh)
-        if migoto_format.sk_offsets is not None and migoto_format.sk_counts is not None:
-            obj["3DMigoto:SKOffsets"] = migoto_format.sk_offsets
-            obj["3DMigoto:SKCounts"] = migoto_format.sk_counts
+        if migoto_format.shapekey_offsets is not None and migoto_format.shapekey_counts is not None:
+            obj["3DMigoto:SKOffsets"] = migoto_format.shapekey_offsets
+            obj["3DMigoto:SKCounts"] = migoto_format.shapekey_counts
         self.set_custom_properties(obj, format, cfg)
 
         num_shapekeys: int = (

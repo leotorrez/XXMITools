@@ -141,16 +141,16 @@ class NumpyMesh:
             if deltas_bytes:
                 if (
                     migoto_format.vb_layout is None
-                    or migoto_format.sk_counts is None
-                    or migoto_format.sk_offsets is None
+                    or migoto_format.shapekey_counts is None
+                    or migoto_format.shapekey_offsets is None
                 ):
                     raise ValueError(
-                        "vb_layout, sk_offsets and sk_counts are required to expand shapekey deltas!"
+                        "vb_layout, shapekey_offsets and shapekey_counts are required to expand shapekey deltas!"
                     )
                 vb_bytes = NumpyBuffer.expand_sk_bytes(
                     migoto_format.vb_layout,
-                    migoto_format.sk_counts,
-                    migoto_format.sk_offsets,
+                    migoto_format.shapekey_counts,
+                    migoto_format.shapekey_offsets,
                     vb_bytes,
                     deltas_bytes,
                 )
